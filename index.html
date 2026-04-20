@@ -477,6 +477,8 @@ function renderTable() {
     white:  '', // Será preenchido dinamicamente baseado no %
   };
 
+  let lastDoneRow = null; // track last finalizado row for auto-scroll
+
   filtered.forEach(item => {
     const status = getStatus(item);
     const dias   = item.dataRecebimento ? daysDiff(item.dataRecebimento) : null;
@@ -514,6 +516,10 @@ function renderTable() {
 
     const tr = document.createElement('tr');
     tr.className = `s-${status}`;
+    
+    // Track last finalizado row (100%)
+    if (item.progresso >= 100) lastDoneRow = tr;
+
     tr.innerHTML = `
       <td style="font-family:'DM Mono',monospace;font-size:11px;color:var(--text-muted)">${fmtDate(item.dataSolicitacao)}</td>
       <td><span class="badge b-blue" style="font-size:9px">${item.tipo||'—'}</span></td>
@@ -529,6 +535,16 @@ function renderTable() {
     `;
     tbody.appendChild(tr);
   });
+
+  // Auto-scroll: position just below the last 100% row
+  if (lastDoneRow) {
+    requestAnimationFrame(() => {
+      const scrollEl = document.querySelector('.scroll-body');
+      const rowBottom = lastDoneRow.offsetTop + lastDoneRow.offsetHeight;
+      // Offset by a few pixels so the next group is clearly visible
+      scrollEl.scrollTo({ top: rowBottom - 40, behavior: 'smooth' });
+    });
+  }
 }
 
 /* ── INIT ────────────────────────────────────────────────── */
