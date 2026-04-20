@@ -167,7 +167,7 @@
 
   <div class="legend">
     <div class="legend-item"><div class="ldot" style="background:var(--green-soft);border:1px solid #b0d8c0"></div> 100% Finalizado</div>
-    <div class="legend-item"><div class="ldot" style="background:white;border:1px solid var(--border)"></div> Em andamento / No prazo / Liberado para produção</div>
+    <div class="legend-item"><div class="ldot" style="background:white;border:1px solid var(--border)"></div> Em andamento / No prazo</div>
     <div class="legend-item"><div class="ldot" style="background:var(--orange-soft);border:1px solid #f5d0aa"></div> Alerta (+10d sem Program. e Listas)</div>
     <div class="legend-item"><div class="ldot" style="background:var(--red-soft);border:1px solid #e0afa9"></div> Atrasado (+15d sem Program. e Listas)</div>
   </div>
@@ -197,7 +197,6 @@
 
   <div id="stateBox" class="state-box">
     <div class="loader"></div>
-    <p style="font-size:14px">Buscando dados do Google Sheets...</p>
   </div>
 
   <div class="table-wrap" id="tableWrap" style="display:none">
@@ -254,69 +253,44 @@ function fmtDate(str) {
 }
 
 /* ── STATUS ────────────────────────────────────────────────────
-   Verde  = 100% de progresso
-   Branco = recém adicionado (sem recebimento) OU já passou por
-            "Program. e Listas" (coluna M = OK) OU qualquer item
-            com dataInicio preenchida (em andamento)
-   Laranja = +10 dias desde recebimento SEM Program. e Listas
-   Vermelho = +15 dias desde recebimento SEM Program. e Listas
+   Verde (green) = 100% de progresso (FINALIZADO)
+   Branco (white) = > 0% e < 100% de progresso (EM ANDAMENTO)
+   Branco (white) = 0% de progresso (SEM INICIAR)
+   Laranja (orange) = +10 dias desde recebimento SEM Program. e Listas (ALERTA)
+   Vermelho (red) = +15 dias desde recebimento SEM Program. e Listas (ATRASADO)
 ─────────────────────────────────────────────────────────────── */
 function getStatus(item) {
   // 100% → sempre verde
   if (item.progresso >= 100) return 'green';
 
-  // Passou por "Program. e Listas" (col M) → branco (liberado para produção)
-  if (item.stages.programacao) return 'white';
+  // Alerta e Atraso (mantendo lógica baseada em dias e etapa de programação)
+  if (!item.stages.programacao && item.dataRecebimento) {
+    const dias = daysDiff(item.dataRecebimento);
+    if (dias !== null) {
+      if (dias > 15) return 'red';
+      if (dias > 10) return 'orange';
+    }
+  }
 
-  // Tem data de início → em andamento → branco
-  if (item.dataInicio) return 'white';
-
-  // Sem recebimento → branco (recém adicionado)
-  if (!item.dataRecebimento) return 'white';
-
-  const dias = daysDiff(item.dataRecebimento);
-  if (dias === null) return 'white';
-  if (dias > 15) return 'red';
-  if (dias > 10) return 'orange';
+  // Se não for alerta/atraso, retorna branco (que engloba 0% e >0%)
   return 'white';
 }
 
 /* ── SORT ──────────────────────────────────────────────────────
-   Grupos fixos (em ordem de exibição):
-     0  Verde 100%         → dataInicio DESC (mais recente primeiro)
-     1  Branco (iniciados, no prazo, liberados) → dataRecebimento DESC
-     2  Laranja (+10d)     → diasSemInicio DESC
-     3  Vermelho (+15d)    → diasSemInicio DESC
-     4  Sem recebimento    → rowIndex ASC (ordem da planilha)
+   Ordenação Principal: Progresso % (Decrescente)
 ─────────────────────────────────────────────────────────────── */
-function sortKey(item) {
-  const s = getStatus(item);
-  if (s === 'green')  return 0;
-  if (s === 'white')  return item.dataRecebimento ? 1 : 4;
-  if (s === 'orange') return 2;
-  if (s === 'red')    return 3;
-  return 4;
-}
-
 function smartSort(a, b) {
-  const ga = sortKey(a), gb = sortKey(b);
-  if (ga !== gb) return ga - gb;
+  // Ordena por progresso decrescente (100% em cima, 0% embaixo)
+  if (b.progresso !== a.progresso) {
+    return b.progresso - a.progresso;
+  }
 
-  // Dentro do grupo 0 (verde 100%): dataInicio mais recente primeiro
-  if (ga === 0) {
-    const da = parseDate(a.dataInicio)?.getTime() ?? 0;
-    const db = parseDate(b.dataInicio)?.getTime() ?? 0;
-    return db - da;
-  }
-  // Dentro do grupo 1 (branco): dataRecebimento mais recente primeiro
-  if (ga === 1) {
-    const da = parseDate(a.dataRecebimento)?.getTime() ?? 0;
-    const db = parseDate(b.dataRecebimento)?.getTime() ?? 0;
-    return db - da;
-  }
-  // Laranja e vermelho: mais dias primeiro (pior caso em cima)
-  if (ga === 2 || ga === 3) return b.diasSemInicio - a.diasSemInicio;
-  // Sem recebimento: ordem da planilha
+  // Se o progresso for igual, ordena por data de recebimento (mais recente primeiro)
+  const da = parseDate(a.dataRecebimento)?.getTime() ?? 0;
+  const db = parseDate(b.dataRecebimento)?.getTime() ?? 0;
+  if (db !== da) return db - da;
+
+  // Se tudo for igual, usa a ordem original da planilha
   return a.rowIndex - b.rowIndex;
 }
 
@@ -367,16 +341,14 @@ function parseCSV(text) {
     const dataIni = clean(cols[8]);
     const dias    = daysDiff(dataRec);
 
-    // Coluna U (índice 20) = progresso já calculado no Sheets (ex: "38,00%", "10%", "0,38")
+    // Coluna U (índice 20) = progresso já calculado no Sheets
     const rawProg = clean(cols[20]);
     let progresso = 0;
     if (rawProg) {
-      // Remove % e espaços, troca vírgula por ponto
       const num = rawProg.replace('%','').replace(',','.').trim();
       const val = parseFloat(num);
       if (!isNaN(val)) {
-        // Se vier como decimal (0.38), converte para %
-        progresso = val <= 1 ? Math.round(val * 100) : Math.round(val);
+        progresso = val <= 1 && rawProg.includes('.') ? Math.round(val * 100) : Math.round(val);
       }
     }
 
@@ -481,7 +453,7 @@ function renderTable() {
     return ok1 && ok2 && ok3;
   });
 
-  // Smart sort (always applied — no manual column sort)
+  // Ordenação por progresso decrescente
   filtered.sort(smartSort);
 
   // Counts (always from full allData)
@@ -498,44 +470,21 @@ function renderTable() {
     return;
   }
 
-  const GROUP_LABELS = {
-    0: '✓ Finalizados (100%)',
-    1: '● Em andamento / No prazo',
-    2: '⚠ Em alerta (+10 dias)',
-    3: '✕ Atrasados (+15 dias)',
-    4: '— Aguardando recebimento',
-  };
-
   const badgeMap = {
     red:    '<span class="badge b-red">Atrasado</span>',
     orange: '<span class="badge b-orange">Alerta</span>',
-    green:  '<span class="badge b-green">100%</span>',
-    white:  '<span class="badge b-gray">Em andamento</span>',
+    green:  '<span class="badge b-green">Finalizado</span>',
+    white:  '', // Será preenchido dinamicamente baseado no %
   };
-
-  let lastGroup = -1;
-  let lastDoneRow = null; // track last 100% row for auto-scroll
 
   filtered.forEach(item => {
     const status = getStatus(item);
-    const group  = sortKey(item);
     const dias   = item.dataRecebimento ? daysDiff(item.dataRecebimento) : null;
-
-    // Group separator — thin spacer only between different groups
-    if (group !== lastGroup && lastGroup !== -1) {
-      const sep = document.createElement('tr');
-      sep.className = 'group-sep';
-      sep.innerHTML = `<td colspan="11"><span></span></td>`;
-      tbody.appendChild(sep);
-      lastGroup = group;
-    } else {
-      lastGroup = group;
-    }
 
     // Dias badge
     let diasHtml = '<span style="color:var(--text-muted);font-family:\'DM Mono\',monospace;font-size:11px">—</span>';
     if (status === 'green') {
-      diasHtml = `<span class="dias-badge d-green">✓ Iniciado</span>`;
+      diasHtml = `<span class="dias-badge d-green">✓ Finalizado</span>`;
     } else if (dias !== null) {
       const cls  = status === 'red' ? 'd-red' : status === 'orange' ? 'd-orange' : 'd-gray';
       const icon = status === 'red' ? '⚠' : status === 'orange' ? '●' : '○';
@@ -553,9 +502,18 @@ function renderTable() {
       <span style="font-family:'DM Mono',monospace;font-size:11px;color:var(--text-muted);min-width:28px;text-align:right">${p}%</span>
     </div>`;
 
+    // Lógica dinâmica para o Badge de Status
+    let currentBadge = badgeMap[status];
+    if (status === 'white') {
+      if (p > 0) {
+        currentBadge = '<span class="badge b-gray" style="background:#3498db;color:white">Em andamento</span>';
+      } else {
+        currentBadge = '<span class="badge b-gray">Sem iniciar</span>';
+      }
+    }
+
     const tr = document.createElement('tr');
     tr.className = `s-${status}`;
-    if (item.progresso >= 100) lastDoneRow = tr; // track last finalizado row
     tr.innerHTML = `
       <td style="font-family:'DM Mono',monospace;font-size:11px;color:var(--text-muted)">${fmtDate(item.dataSolicitacao)}</td>
       <td><span class="badge b-blue" style="font-size:9px">${item.tipo||'—'}</span></td>
@@ -567,20 +525,10 @@ function renderTable() {
       <td>${diasHtml}</td>
       <td>${stepsHtml}</td>
       <td>${progHtml}</td>
-      <td>${badgeMap[status]}</td>
+      <td>${currentBadge}</td>
     `;
     tbody.appendChild(tr);
   });
-
-  // Auto-scroll: position just below the last 100% row
-  if (lastDoneRow) {
-    requestAnimationFrame(() => {
-      const scrollEl = document.querySelector('.scroll-body');
-      const rowBottom = lastDoneRow.offsetTop + lastDoneRow.offsetHeight;
-      // Offset by a few pixels so the next group is clearly visible
-      scrollEl.scrollTo({ top: rowBottom - 40, behavior: 'smooth' });
-    });
-  }
 }
 
 /* ── INIT ────────────────────────────────────────────────── */
