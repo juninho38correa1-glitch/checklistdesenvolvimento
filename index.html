@@ -279,10 +279,28 @@ function getStatus(item) {
 }
 
 /* ── SORT ──────────────────────────────────────────────────────
-   Ordenação Principal: Progresso % (Decrescente)
+   Hierarquia de Ordenação:
+     1. 100% (Finalizados)
+     2. Atrasados (Vermelho)
+     3. Em Alerta (Laranja)
+     4. Restante em ordem decrescente de % (90% -> 0%)
 ─────────────────────────────────────────────────────────────── */
+function getSortRank(item) {
+  const status = getStatus(item);
+  if (item.progresso >= 100) return 0; // 100% primeiro
+  if (status === 'red')      return 1; // Atrasados segundo
+  if (status === 'orange')   return 2; // Alerta terceiro
+  return 3; // O resto (em andamento ou sem iniciar)
+}
+
 function smartSort(a, b) {
-  // Ordena por progresso decrescente (100% em cima, 0% embaixo)
+  const rankA = getSortRank(a);
+  const rankB = getSortRank(b);
+
+  // Se os ranks forem diferentes, ordena pelo rank (0 < 1 < 2 < 3)
+  if (rankA !== rankB) return rankA - rankB;
+
+  // Dentro do mesmo rank, ordena por progresso decrescente
   if (b.progresso !== a.progresso) {
     return b.progresso - a.progresso;
   }
