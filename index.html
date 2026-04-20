@@ -159,6 +159,10 @@
       <div class="stat-label"><span class="sdot" style="background:#ccc;border:1px solid #aaa"></span>Andamento</div>
       <div class="stat-num" id="cnt-white">—</div>
     </div>
+    <div class="stat-card" id="sc-zero" onclick="setFilter('zero',this)">
+      <div class="stat-label"><span class="sdot" style="background:#888;border:1px solid #555"></span>Sem Iniciar</div>
+      <div class="stat-num" id="cnt-zero">—</div>
+    </div>
     <div class="stat-card" id="sc-green" onclick="setFilter('green',this)">
       <div class="stat-label"><span class="sdot" style="background:var(--green)"></span>Finalizados</div>
       <div class="stat-num" id="cnt-green">—</div>
@@ -185,6 +189,7 @@
       <option value="red">🔴 Atrasados (+15d)</option>
       <option value="orange">🟠 Em Alerta (+10d)</option>
       <option value="white">⚪ Em Andamento</option>
+      <option value="zero">🔘 Sem Iniciar (0%)</option>
       <option value="green">🟢 Finalizados (100%)</option>
     </select>
     <div class="last-updated" id="lastUpdated" style="border:none;padding:0;margin-left:auto">Carregando...</div>
@@ -297,20 +302,16 @@ function smartSort(a, b) {
   const rankA = getSortRank(a);
   const rankB = getSortRank(b);
 
-  // Se os ranks forem diferentes, ordena pelo rank (0 < 1 < 2 < 3)
   if (rankA !== rankB) return rankA - rankB;
 
-  // Dentro do mesmo rank, ordena por progresso decrescente
   if (b.progresso !== a.progresso) {
     return b.progresso - a.progresso;
   }
 
-  // Se o progresso for igual, ordena por data de recebimento (mais recente primeiro)
   const da = parseDate(a.dataRecebimento)?.getTime() ?? 0;
   const db = parseDate(b.dataRecebimento)?.getTime() ?? 0;
   if (db !== da) return db - da;
 
-  // Se tudo for igual, usa a ordem original da planilha
   return a.rowIndex - b.rowIndex;
 }
 
@@ -361,7 +362,6 @@ function parseCSV(text) {
     const dataIni = clean(cols[8]);
     const dias    = daysDiff(dataRec);
 
-    // Coluna U (índice 20) = progresso já calculado no Sheets
     const rawProg = clean(cols[20]);
     let progresso = 0;
     if (rawProg) {
@@ -397,7 +397,6 @@ async function loadCSV(isSilent = false) {
   if (!isSilent) icon.classList.add('spinning');
   
   const statusEl = document.getElementById('lastUpdated');
-  const originalStatus = statusEl.textContent;
   if (!isSilent) statusEl.textContent = 'Atualizando...';
 
   try {
@@ -420,7 +419,6 @@ async function loadCSV(isSilent = false) {
     const now = new Date();
     statusEl.textContent = `Atualizado: ${now.toLocaleTimeString('pt-BR')}  ·  ${allData.length} protótipos`;
     
-    // Reinicia o timer de auto-refresh
     resetAutoRefresh();
     
   } catch(e) {
@@ -436,8 +434,6 @@ async function loadCSV(isSilent = false) {
       document.getElementById('stateBox').style.display  = 'block';
       document.getElementById('tableWrap').style.display = 'none';
       statusEl.textContent = 'Erro ao carregar.';
-    } else {
-      console.error('Erro no auto-refresh silencioso:', e);
     }
   }
   if (!isSilent) icon.classList.remove('spinning');
@@ -486,17 +482,26 @@ function renderTable() {
       (item.nPedido||'').includes(search) ||
       (item.codCadastro||'').includes(search);
     const ok2 = !resp   || item.responsavel === resp;
-    const ok3 = !stFilt || s === stFilt;
+    
+    // Lógica especial para o filtro "zero" (0% de progresso)
+    let ok3 = !stFilt || s === stFilt;
+    if (stFilt === 'zero') {
+      ok3 = item.progresso === 0;
+    }
+    
     return ok1 && ok2 && ok3;
   });
 
-  // Ordenação por progresso decrescente
   filtered.sort(smartSort);
 
-  // Counts (always from full allData)
-  const c = { all: allData.length, red:0, orange:0, white:0, green:0 };
-  allData.forEach(item => { const s = getStatus(item); if (s in c) c[s]++; });
-  ['all','red','orange','white','green'].forEach(k =>
+  // Counts
+  const c = { all: allData.length, red:0, orange:0, white:0, green:0, zero:0 };
+  allData.forEach(item => { 
+    const s = getStatus(item); 
+    if (s in c) c[s]++; 
+    if (item.progresso === 0) c.zero++;
+  });
+  ['all','red','orange','white','green','zero'].forEach(k =>
     document.getElementById('cnt-'+k).textContent = c[k]);
 
   const tbody = document.getElementById('tableBody');
@@ -511,16 +516,15 @@ function renderTable() {
     red:    '<span class="badge b-red">Atrasado</span>',
     orange: '<span class="badge b-orange">Alerta</span>',
     green:  '<span class="badge b-green">Finalizado</span>',
-    white:  '', // Será preenchido dinamicamente baseado no %
+    white:  '',
   };
 
-  let lastDoneRow = null; // track last finalizado row for auto-scroll
+  let lastDoneRow = null;
 
   filtered.forEach(item => {
     const status = getStatus(item);
     const dias   = item.dataRecebimento ? daysDiff(item.dataRecebimento) : null;
 
-    // Dias badge
     let diasHtml = '<span style="color:var(--text-muted);font-family:\'DM Mono\',monospace;font-size:11px">—</span>';
     if (status === 'green') {
       diasHtml = `<span class="dias-badge d-green">✓ Finalizado</span>`;
@@ -541,7 +545,6 @@ function renderTable() {
       <span style="font-family:'DM Mono',monospace;font-size:11px;color:var(--text-muted);min-width:28px;text-align:right">${p}%</span>
     </div>`;
 
-    // Lógica dinâmica para o Badge de Status
     let currentBadge = badgeMap[status];
     if (status === 'white') {
       if (p > 0) {
@@ -553,8 +556,6 @@ function renderTable() {
 
     const tr = document.createElement('tr');
     tr.className = `s-${status}`;
-    
-    // Track last finalizado row (100%)
     if (item.progresso >= 100) lastDoneRow = tr;
 
     tr.innerHTML = `
@@ -573,7 +574,6 @@ function renderTable() {
     tbody.appendChild(tr);
   });
 
-  // Auto-scroll: position just below the last 100% row
   if (lastDoneRow) {
     requestAnimationFrame(() => {
       const scrollEl = document.querySelector('.scroll-body');
