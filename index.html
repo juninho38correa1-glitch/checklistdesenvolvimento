@@ -363,10 +363,22 @@ function parseCSV(text) {
     const stages = {};
     STAGES.forEach((s, idx) => stages[s] = isOK(stageVals[idx]));
 
-    const done = STAGES.filter(s => stages[s]).length;
     const dataRec = clean(cols[7]);
     const dataIni = clean(cols[8]);
     const dias    = daysDiff(dataRec);
+
+    // Coluna U (índice 20) = progresso já calculado no Sheets (ex: "38,00%", "10%", "0,38")
+    const rawProg = clean(cols[20]);
+    let progresso = 0;
+    if (rawProg) {
+      // Remove % e espaços, troca vírgula por ponto
+      const num = rawProg.replace('%','').replace(',','.').trim();
+      const val = parseFloat(num);
+      if (!isNaN(val)) {
+        // Se vier como decimal (0.38), converte para %
+        progresso = val <= 1 ? Math.round(val * 100) : Math.round(val);
+      }
+    }
 
     rows.push({
       rowIndex:        i,
@@ -380,7 +392,7 @@ function parseCSV(text) {
       dataInicio:      dataIni,
       dataEntrega:     clean(cols[9]),
       stages,
-      progresso:       Math.round((done / STAGES.length) * 100),
+      progresso,
       diasSemInicio:   dias ?? 0,
     });
   }
