@@ -226,9 +226,11 @@
 const CSV_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vQ6sr9_mKF3RsBXbk67qOX1SSydCVJDIzM3EzhF14yA5ooZ8mjcB3JQDU1d2DCbfPTGSRgchGgdr99V/pub?gid=1451091770&single=true&output=csv';
 const STAGES       = ['modelagem3d','extracaoGab','programacao','montagem','preparacao','espumacao','modelagemTec','costura','tapecaria','montFinal'];
 const STAGE_LABELS = ['3D','Gab','Prog','Mont','Prep','Esp','Téc','Cos','Tap','Final'];
+const REFRESH_INTERVAL = 60 * 1000; // 60 segundos em milissegundos
 
 let allData     = [];
 let activeFilter = 'all';
+let refreshTimer = null;
 
 /* ── DATE HELPERS ─────────────────────────────────────────── */
 function parseDate(str) {
@@ -372,10 +374,13 @@ function parseCSV(text) {
 }
 
 /* ── LOAD ────────────────────────────────────────────────── */
-async function loadCSV() {
+async function loadCSV(isSilent = false) {
   const icon = document.getElementById('refreshIcon');
-  icon.classList.add('spinning');
-  document.getElementById('lastUpdated').textContent = 'Atualizando...';
+  if (!isSilent) icon.classList.add('spinning');
+  
+  const statusEl = document.getElementById('lastUpdated');
+  const originalStatus = statusEl.textContent;
+  if (!isSilent) statusEl.textContent = 'Atualizando...';
 
   try {
     const res = await fetch(CSV_URL + '&nocache=' + Date.now(), {
@@ -384,31 +389,45 @@ async function loadCSV() {
     });
     if (!res.ok) throw new Error('HTTP ' + res.status);
     const text = await res.text();
-    allData = parseCSV(text);
-    if (!allData.length) throw new Error('Nenhum dado. Confirme que a planilha está publicada como CSV.');
+    const newData = parseCSV(text);
+    if (!newData.length) throw new Error('Nenhum dado recebido.');
 
+    allData = newData;
     document.getElementById('stateBox').style.display  = 'none';
     document.getElementById('tableWrap').style.display = 'block';
+    
     populateFilters();
     renderTable();
 
     const now = new Date();
-    document.getElementById('lastUpdated').textContent =
-      `Atualizado: ${now.toLocaleTimeString('pt-BR')}  ·  ${allData.length} protótipos`;
+    statusEl.textContent = `Atualizado: ${now.toLocaleTimeString('pt-BR')}  ·  ${allData.length} protótipos`;
+    
+    // Reinicia o timer de auto-refresh
+    resetAutoRefresh();
+    
   } catch(e) {
-    document.getElementById('stateBox').innerHTML = `
-      <div style="font-size:34px;margin-bottom:12px">⚠️</div>
-      <p style="font-size:13px;line-height:1.7;max-width:460px;margin:0 auto">
-        <strong>Não foi possível carregar os dados.</strong><br>${e.message}<br><br>
-        Certifique-se que a planilha está publicada:<br>
-        <em>Arquivo → Compartilhar → Publicar na web → CSV</em>
-      </p><br>
-      <button onclick="loadCSV()" style="padding:8px 20px;border:none;border-radius:6px;background:var(--dark);color:var(--cream);cursor:pointer;font-family:'DM Sans',sans-serif;font-size:13px">↻ Tentar novamente</button>`;
-    document.getElementById('stateBox').style.display  = 'block';
-    document.getElementById('tableWrap').style.display = 'none';
-    document.getElementById('lastUpdated').textContent = 'Erro ao carregar.';
+    if (!isSilent) {
+      document.getElementById('stateBox').innerHTML = `
+        <div style="font-size:34px;margin-bottom:12px">⚠️</div>
+        <p style="font-size:13px;line-height:1.7;max-width:460px;margin:0 auto">
+          <strong>Não foi possível carregar os dados.</strong><br>${e.message}<br><br>
+          Certifique-se que a planilha está publicada:<br>
+          <em>Arquivo → Compartilhar → Publicar na web → CSV</em>
+        </p><br>
+        <button onclick="loadCSV()" style="padding:8px 20px;border:none;border-radius:6px;background:var(--dark);color:var(--cream);cursor:pointer;font-family:'DM Sans',sans-serif;font-size:13px">↻ Tentar novamente</button>`;
+      document.getElementById('stateBox').style.display  = 'block';
+      document.getElementById('tableWrap').style.display = 'none';
+      statusEl.textContent = 'Erro ao carregar.';
+    } else {
+      console.error('Erro no auto-refresh silencioso:', e);
+    }
   }
-  icon.classList.remove('spinning');
+  if (!isSilent) icon.classList.remove('spinning');
+}
+
+function resetAutoRefresh() {
+  if (refreshTimer) clearTimeout(refreshTimer);
+  refreshTimer = setTimeout(() => loadCSV(true), REFRESH_INTERVAL);
 }
 
 /* ── FILTERS ─────────────────────────────────────────────── */
@@ -541,7 +560,6 @@ function renderTable() {
     requestAnimationFrame(() => {
       const scrollEl = document.querySelector('.scroll-body');
       const rowBottom = lastDoneRow.offsetTop + lastDoneRow.offsetHeight;
-      // Offset by a few pixels so the next group is clearly visible
       scrollEl.scrollTo({ top: rowBottom - 40, behavior: 'smooth' });
     });
   }
