@@ -35,10 +35,9 @@
     display: flex; align-items: center; justify-content: space-between;
     border-bottom: 2px solid var(--accent);
   }
-  .logo-area { display: flex; align-items: center; gap: 16px; }
-  .logo-box { width: 40px; height: 40px; border: 2px solid var(--accent); display: flex; align-items: center; justify-content: center; font-family: 'DM Serif Display', serif; font-size: 19px; color: var(--accent); }
-  .logo-text { font-family: 'DM Serif Display', serif; font-size: 20px; color: var(--cream); letter-spacing: 2px; }
-  .logo-sub { font-size: 9px; color: var(--accent); letter-spacing: 4px; text-transform: uppercase; margin-top: 2px; }
+  .logo-area { display: flex; align-items: center; gap: 0; }
+  .logo-text { font-family: 'DM Sans', sans-serif; font-size: 18px; font-weight: 300; color: var(--cream); letter-spacing: 5px; text-transform: uppercase; }
+  .logo-sub { font-size: 9px; color: var(--accent); letter-spacing: 4px; text-transform: uppercase; margin-top: 3px; font-weight: 400; }
   .header-right { display: flex; align-items: center; gap: 16px; }
   .header-date { font-family: 'DM Mono', monospace; font-size: 11px; color: var(--text-muted); }
   .btn-refresh { background: none; border: 1px solid rgba(200,169,110,0.4); border-radius: 5px; color: var(--accent); font-family: 'DM Sans', sans-serif; font-size: 11px; padding: 5px 12px; cursor: pointer; display: flex; align-items: center; gap: 5px; transition: border-color 0.2s, background 0.2s; }
@@ -130,9 +129,8 @@
 
   <header>
     <div class="logo-area">
-      <div class="logo-box">4</div>
       <div>
-        <div class="logo-text">STUDYO4</div>
+        <div class="logo-text">STUDYO 4 ESTOFADOS</div>
         <div class="logo-sub">Conforto Design</div>
       </div>
     </div>
@@ -158,20 +156,20 @@
       <div class="stat-num" id="cnt-orange">—</div>
     </div>
     <div class="stat-card" id="sc-white" onclick="setFilter('white',this)">
-      <div class="stat-label"><span class="sdot" style="background:#ccc;border:1px solid #aaa"></span>No Prazo</div>
+      <div class="stat-label"><span class="sdot" style="background:#ccc;border:1px solid #aaa"></span>Andamento</div>
       <div class="stat-num" id="cnt-white">—</div>
     </div>
     <div class="stat-card" id="sc-green" onclick="setFilter('green',this)">
-      <div class="stat-label"><span class="sdot" style="background:var(--green)"></span>Iniciados</div>
+      <div class="stat-label"><span class="sdot" style="background:var(--green)"></span>Finalizados</div>
       <div class="stat-num" id="cnt-green">—</div>
     </div>
   </div>
 
   <div class="legend">
-    <div class="legend-item"><div class="ldot" style="background:var(--red-soft);border:1px solid #e0afa9"></div> Atrasado (+15d sem início)</div>
-    <div class="legend-item"><div class="ldot" style="background:var(--orange-soft);border:1px solid #f5d0aa"></div> Alerta (+10d sem início)</div>
-    <div class="legend-item"><div class="ldot" style="background:white;border:1px solid var(--border)"></div> No prazo (recebido &lt;10d)</div>
-    <div class="legend-item"><div class="ldot" style="background:var(--green-soft);border:1px solid #b0d8c0"></div> Iniciado (tem Data de Início)</div>
+    <div class="legend-item"><div class="ldot" style="background:var(--green-soft);border:1px solid #b0d8c0"></div> 100% Finalizado</div>
+    <div class="legend-item"><div class="ldot" style="background:white;border:1px solid var(--border)"></div> Em andamento / No prazo / Liberado para produção</div>
+    <div class="legend-item"><div class="ldot" style="background:var(--orange-soft);border:1px solid #f5d0aa"></div> Alerta (+10d sem Program. e Listas)</div>
+    <div class="legend-item"><div class="ldot" style="background:var(--red-soft);border:1px solid #e0afa9"></div> Atrasado (+15d sem Program. e Listas)</div>
   </div>
 
   <div class="controls">
@@ -186,8 +184,8 @@
       <option value="">Todos os status</option>
       <option value="red">🔴 Atrasados (+15d)</option>
       <option value="orange">🟠 Em Alerta (+10d)</option>
-      <option value="white">⚪ No Prazo</option>
-      <option value="green">🟢 Iniciados</option>
+      <option value="white">⚪ Em Andamento</option>
+      <option value="green">🟢 Finalizados (100%)</option>
     </select>
     <div class="last-updated" id="lastUpdated" style="border:none;padding:0;margin-left:auto">Carregando...</div>
   </div>
@@ -255,10 +253,27 @@ function fmtDate(str) {
   return d.toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit',year:'2-digit'});
 }
 
-/* ── STATUS ───────────────────────────────────────────────── */
+/* ── STATUS ────────────────────────────────────────────────────
+   Verde  = 100% de progresso
+   Branco = recém adicionado (sem recebimento) OU já passou por
+            "Program. e Listas" (coluna M = OK) OU qualquer item
+            com dataInicio preenchida (em andamento)
+   Laranja = +10 dias desde recebimento SEM Program. e Listas
+   Vermelho = +15 dias desde recebimento SEM Program. e Listas
+─────────────────────────────────────────────────────────────── */
 function getStatus(item) {
-  if (item.dataInicio) return 'green';
+  // 100% → sempre verde
+  if (item.progresso >= 100) return 'green';
+
+  // Passou por "Program. e Listas" (col M) → branco (liberado para produção)
+  if (item.stages.programacao) return 'white';
+
+  // Tem data de início → em andamento → branco
+  if (item.dataInicio) return 'white';
+
+  // Sem recebimento → branco (recém adicionado)
   if (!item.dataRecebimento) return 'white';
+
   const dias = daysDiff(item.dataRecebimento);
   if (dias === null) return 'white';
   if (dias > 15) return 'red';
@@ -267,59 +282,41 @@ function getStatus(item) {
 }
 
 /* ── SORT ──────────────────────────────────────────────────────
-   Regra única e simples:
-   1. % de progresso DECRESCENTE — quem tem mais % sobe sempre
-   2. Empate de %: status (green > white > orange > red > pending)
-   3. Empate de % e status: greens → dataInicio DESC
-                            white  → dataRecebimento DESC
-                            orange/red → diasSemInicio DESC
-                            pending → rowIndex ASC
+   Grupos fixos (em ordem de exibição):
+     0  Verde 100%         → dataInicio DESC (mais recente primeiro)
+     1  Branco (iniciados, no prazo, liberados) → dataRecebimento DESC
+     2  Laranja (+10d)     → diasSemInicio DESC
+     3  Vermelho (+15d)    → diasSemInicio DESC
+     4  Sem recebimento    → rowIndex ASC (ordem da planilha)
 ─────────────────────────────────────────────────────────────── */
-function statusWeight(item) {
-  switch(getStatus(item)) {
-    case 'green':  return 0;
-    case 'white':  return 1;
-    case 'orange': return 2;
-    case 'red':    return 3;
-    default:       return 4;
-  }
-}
-
-// sortKey still needed for group separators in render
 function sortKey(item) {
-  const status = getStatus(item);
-  switch(status) {
-    case 'green':  return item.progresso >= 100 ? 0 : 1;
-    case 'white':  return 2;
-    case 'orange': return 3;
-    case 'red':    return 4;
-    default:       return 5;
-  }
+  const s = getStatus(item);
+  if (s === 'green')  return 0;
+  if (s === 'white')  return item.dataRecebimento ? 1 : 4;
+  if (s === 'orange') return 2;
+  if (s === 'red')    return 3;
+  return 4;
 }
 
 function smartSort(a, b) {
-  // 1. % primeiro — sempre, sem exceção
-  if (a.progresso !== b.progresso) return b.progresso - a.progresso;
+  const ga = sortKey(a), gb = sortKey(b);
+  if (ga !== gb) return ga - gb;
 
-  // 2. Desempate por status
-  const wa = statusWeight(a), wb = statusWeight(b);
-  if (wa !== wb) return wa - wb;
-
-  // 3. Desempate fino por grupo
-  const ga = sortKey(a);
-  if (ga === 0 || ga === 1) {
+  // Dentro do grupo 0 (verde 100%): dataInicio mais recente primeiro
+  if (ga === 0) {
     const da = parseDate(a.dataInicio)?.getTime() ?? 0;
     const db = parseDate(b.dataInicio)?.getTime() ?? 0;
     return db - da;
   }
-  if (ga === 2) {
+  // Dentro do grupo 1 (branco): dataRecebimento mais recente primeiro
+  if (ga === 1) {
     const da = parseDate(a.dataRecebimento)?.getTime() ?? 0;
     const db = parseDate(b.dataRecebimento)?.getTime() ?? 0;
     return db - da;
   }
-  if (ga === 3 || ga === 4) {
-    return b.diasSemInicio - a.diasSemInicio;
-  }
+  // Laranja e vermelho: mais dias primeiro (pior caso em cima)
+  if (ga === 2 || ga === 3) return b.diasSemInicio - a.diasSemInicio;
+  // Sem recebimento: ordem da planilha
   return a.rowIndex - b.rowIndex;
 }
 
@@ -491,18 +488,17 @@ function renderTable() {
 
   const GROUP_LABELS = {
     0: '✓ Finalizados (100%)',
-    1: '◉ Em andamento',
-    2: '○ No prazo — aguardando início',
-    3: '● Em alerta (+10 dias)',
-    4: '⚠ Atrasados (+15 dias)',
-    5: '— Aguardando recebimento',
+    1: '● Em andamento / No prazo',
+    2: '⚠ Em alerta (+10 dias)',
+    3: '✕ Atrasados (+15 dias)',
+    4: '— Aguardando recebimento',
   };
 
   const badgeMap = {
     red:    '<span class="badge b-red">Atrasado</span>',
     orange: '<span class="badge b-orange">Alerta</span>',
-    green:  '<span class="badge b-green">Iniciado</span>',
-    white:  '<span class="badge b-gray">No prazo</span>',
+    green:  '<span class="badge b-green">100%</span>',
+    white:  '<span class="badge b-gray">Em andamento</span>',
   };
 
   let lastGroup = -1;
