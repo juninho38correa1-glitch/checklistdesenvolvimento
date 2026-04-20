@@ -86,9 +86,9 @@
   tbody tr:hover { filter: brightness(0.95); }
   td { padding: 9px 12px; vertical-align: middle; white-space: nowrap; }
 
-  /* GROUP SEPARATOR */
-  tr.group-sep td { padding: 4px 12px 3px; background: var(--dark); }
-  .group-label { font-family: 'DM Mono', monospace; font-size: 9px; letter-spacing: 2px; text-transform: uppercase; color: rgba(200,169,110,0.6); }
+  /* GROUP SEPARATOR — linha sutil */
+  tr.group-sep td { padding: 0; background: transparent; border-bottom: none; }
+  tr.group-sep td span { display: block; height: 3px; }
 
   /* ROW COLORS */
   tr.s-red    { background: var(--red-soft); }
@@ -497,18 +497,21 @@ function renderTable() {
   };
 
   let lastGroup = -1;
+  let lastDoneRow = null; // track last 100% row for auto-scroll
 
   filtered.forEach(item => {
     const status = getStatus(item);
     const group  = sortKey(item);
     const dias   = item.dataRecebimento ? daysDiff(item.dataRecebimento) : null;
 
-    // Group separator row
-    if (group !== lastGroup) {
+    // Group separator — thin spacer only between different groups
+    if (group !== lastGroup && lastGroup !== -1) {
       const sep = document.createElement('tr');
       sep.className = 'group-sep';
-      sep.innerHTML = `<td colspan="11"><span class="group-label">${GROUP_LABELS[group]}</span></td>`;
+      sep.innerHTML = `<td colspan="11"><span></span></td>`;
       tbody.appendChild(sep);
+      lastGroup = group;
+    } else {
       lastGroup = group;
     }
 
@@ -535,6 +538,7 @@ function renderTable() {
 
     const tr = document.createElement('tr');
     tr.className = `s-${status}`;
+    if (item.progresso >= 100) lastDoneRow = tr; // track last finalizado row
     tr.innerHTML = `
       <td style="font-family:'DM Mono',monospace;font-size:11px;color:var(--text-muted)">${fmtDate(item.dataSolicitacao)}</td>
       <td><span class="badge b-blue" style="font-size:9px">${item.tipo||'—'}</span></td>
@@ -550,6 +554,16 @@ function renderTable() {
     `;
     tbody.appendChild(tr);
   });
+
+  // Auto-scroll: position just below the last 100% row
+  if (lastDoneRow) {
+    requestAnimationFrame(() => {
+      const scrollEl = document.querySelector('.scroll-body');
+      const rowBottom = lastDoneRow.offsetTop + lastDoneRow.offsetHeight;
+      // Offset by a few pixels so the next group is clearly visible
+      scrollEl.scrollTo({ top: rowBottom - 40, behavior: 'smooth' });
+    });
+  }
 }
 
 /* ── INIT ────────────────────────────────────────────────── */
