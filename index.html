@@ -275,14 +275,24 @@ function getStatus(item) {
      4  red — atrasado, sorted by diasSemInicio DESC
      5  pending (no recebimento) — sheet order (rowIndex ASC)
 ─────────────────────────────────────────────────────────────── */
+/*
+   Ordem global: % decrescente dentro de cada grupo.
+   Grupos (lower = topo):
+     0  100% finalizados  → progresso DESC (todos 100, então empate → dataInicio DESC)
+     1  green <100%       → progresso DESC → dataInicio DESC
+     2  white no prazo    → progresso DESC → dataRecebimento DESC
+     3  orange alerta     → progresso DESC → diasSemInicio DESC
+     4  red atrasado      → progresso DESC → diasSemInicio DESC
+     5  sem recebimento   → progresso DESC → rowIndex ASC
+*/
 function sortKey(item) {
   const status = getStatus(item);
   switch(status) {
-    case 'green': return item.progresso >= 100 ? 0 : 1;
-    case 'white': return 2;
+    case 'green':  return item.progresso >= 100 ? 0 : 1;
+    case 'white':  return 2;
     case 'orange': return 3;
-    case 'red':   return 4;
-    default:      return 5;
+    case 'red':    return 4;
+    default:       return 5;
   }
 }
 
@@ -290,15 +300,12 @@ function smartSort(a, b) {
   const ga = sortKey(a), gb = sortKey(b);
   if (ga !== gb) return ga - gb;
 
-  if (ga === 0) {
-    // finalizado: most recent dataInicio first
-    const da = parseDate(a.dataInicio)?.getTime() ?? 0;
-    const db = parseDate(b.dataInicio)?.getTime() ?? 0;
-    return db - da;
-  }
-  if (ga === 1) {
-    // em andamento: higher progresso first, then most recent dataInicio
-    if (a.progresso !== b.progresso) return b.progresso - a.progresso;
+  // Primary: higher progresso first (applies to ALL groups)
+  if (a.progresso !== b.progresso) return b.progresso - a.progresso;
+
+  // Tiebreakers per group
+  if (ga === 0 || ga === 1) {
+    // greens: most recent dataInicio first
     const da = parseDate(a.dataInicio)?.getTime() ?? 0;
     const db = parseDate(b.dataInicio)?.getTime() ?? 0;
     return db - da;
@@ -310,10 +317,10 @@ function smartSort(a, b) {
     return db - da;
   }
   if (ga === 3 || ga === 4) {
-    // alerta / atrasado: most days first (worst first)
+    // alerta / atrasado: most days first
     return b.diasSemInicio - a.diasSemInicio;
   }
-  // pending: preserve sheet order
+  // pending: sheet order
   return a.rowIndex - b.rowIndex;
 }
 
