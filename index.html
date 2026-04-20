@@ -266,25 +266,26 @@ function getStatus(item) {
   return 'white';
 }
 
-/* ── SORT KEY ─────────────────────────────────────────────────
-   Groups (lower = appears first):
-     0  green 100% — finalizado, sorted by dataInicio DESC (most recent first)
-     1  green <100% — em andamento, sorted by progresso DESC then dataInicio DESC
-     2  white — no prazo, sorted by dataRecebimento DESC (most recent first)
-     3  orange — alerta, sorted by diasSemInicio DESC
-     4  red — atrasado, sorted by diasSemInicio DESC
-     5  pending (no recebimento) — sheet order (rowIndex ASC)
+/* ── SORT ──────────────────────────────────────────────────────
+   Regra única e simples:
+   1. % de progresso DECRESCENTE — quem tem mais % sobe sempre
+   2. Empate de %: status (green > white > orange > red > pending)
+   3. Empate de % e status: greens → dataInicio DESC
+                            white  → dataRecebimento DESC
+                            orange/red → diasSemInicio DESC
+                            pending → rowIndex ASC
 ─────────────────────────────────────────────────────────────── */
-/*
-   Ordem global: % decrescente dentro de cada grupo.
-   Grupos (lower = topo):
-     0  100% finalizados  → progresso DESC (todos 100, então empate → dataInicio DESC)
-     1  green <100%       → progresso DESC → dataInicio DESC
-     2  white no prazo    → progresso DESC → dataRecebimento DESC
-     3  orange alerta     → progresso DESC → diasSemInicio DESC
-     4  red atrasado      → progresso DESC → diasSemInicio DESC
-     5  sem recebimento   → progresso DESC → rowIndex ASC
-*/
+function statusWeight(item) {
+  switch(getStatus(item)) {
+    case 'green':  return 0;
+    case 'white':  return 1;
+    case 'orange': return 2;
+    case 'red':    return 3;
+    default:       return 4;
+  }
+}
+
+// sortKey still needed for group separators in render
 function sortKey(item) {
   const status = getStatus(item);
   switch(status) {
@@ -297,30 +298,28 @@ function sortKey(item) {
 }
 
 function smartSort(a, b) {
-  const ga = sortKey(a), gb = sortKey(b);
-  if (ga !== gb) return ga - gb;
-
-  // Primary: higher progresso first (applies to ALL groups)
+  // 1. % primeiro — sempre, sem exceção
   if (a.progresso !== b.progresso) return b.progresso - a.progresso;
 
-  // Tiebreakers per group
+  // 2. Desempate por status
+  const wa = statusWeight(a), wb = statusWeight(b);
+  if (wa !== wb) return wa - wb;
+
+  // 3. Desempate fino por grupo
+  const ga = sortKey(a);
   if (ga === 0 || ga === 1) {
-    // greens: most recent dataInicio first
     const da = parseDate(a.dataInicio)?.getTime() ?? 0;
     const db = parseDate(b.dataInicio)?.getTime() ?? 0;
     return db - da;
   }
   if (ga === 2) {
-    // no prazo: most recent recebimento first
     const da = parseDate(a.dataRecebimento)?.getTime() ?? 0;
     const db = parseDate(b.dataRecebimento)?.getTime() ?? 0;
     return db - da;
   }
   if (ga === 3 || ga === 4) {
-    // alerta / atrasado: most days first
     return b.diasSemInicio - a.diasSemInicio;
   }
-  // pending: sheet order
   return a.rowIndex - b.rowIndex;
 }
 
@@ -398,7 +397,10 @@ async function loadCSV() {
   document.getElementById('lastUpdated').textContent = 'Atualizando...';
 
   try {
-    const res = await fetch(CSV_URL + '&nocache=' + Date.now());
+    const res = await fetch(CSV_URL + '&nocache=' + Date.now(), {
+      cache: 'no-store',
+      headers: { 'Cache-Control': 'no-cache, no-store, must-revalidate', 'Pragma': 'no-cache' }
+    });
     if (!res.ok) throw new Error('HTTP ' + res.status);
     const text = await res.text();
     allData = parseCSV(text);
