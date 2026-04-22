@@ -304,6 +304,22 @@ function smartSort(a, b) {
 
   if (rankA !== rankB) return rankA - rankB;
 
+  // Bloco dos 100% (Rank 0)
+  if (rankA === 0) {
+    const da = parseDate(a.dataRecebimento)?.getTime() ?? 0;
+    const db = parseDate(b.dataRecebimento)?.getTime() ?? 0;
+    
+    // Se um tem data e o outro não, o sem data (0) fica em CIMA
+    if (da === 0 && db !== 0) return -1;
+    if (db === 0 && da !== 0) return 1;
+    
+    // Se ambos têm data, os MAIS ANTIGOS em cima, MAIS RECENTES embaixo
+    if (da !== db) return da - db;
+    
+    return a.rowIndex - b.rowIndex;
+  }
+
+  // Outros blocos
   if (b.progresso !== a.progresso) {
     return b.progresso - a.progresso;
   }
@@ -483,10 +499,11 @@ function renderTable() {
       (item.codCadastro||'').includes(search);
     const ok2 = !resp   || item.responsavel === resp;
     
-    // Lógica especial para o filtro "zero" (0% de progresso)
     let ok3 = !stFilt || s === stFilt;
     if (stFilt === 'zero') {
       ok3 = item.progresso === 0;
+    } else if (stFilt === 'white') {
+      ok3 = item.progresso > 0 && item.progresso < 100;
     }
     
     return ok1 && ok2 && ok3;
@@ -498,7 +515,11 @@ function renderTable() {
   const c = { all: allData.length, red:0, orange:0, white:0, green:0, zero:0 };
   allData.forEach(item => { 
     const s = getStatus(item); 
-    if (s in c) c[s]++; 
+    if (s === 'red') c.red++;
+    else if (s === 'orange') c.orange++;
+    else if (s === 'green') c.green++;
+    
+    if (item.progresso > 0 && item.progresso < 100) c.white++;
     if (item.progresso === 0) c.zero++;
   });
   ['all','red','orange','white','green','zero'].forEach(k =>
