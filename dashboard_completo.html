@@ -167,7 +167,7 @@
   </header>
 
   <div class="stats-bar">
-    <div class="stat-card" id="sc-all" onclick="setFilter('all',this)">
+    <div class="stat-card active" id="sc-all" onclick="setFilter('all',this)">
       <div class="stat-label"><span class="sdot" style="background:#888"></span>Total</div>
       <div class="stat-num" id="cnt-all">—</div>
     </div>
@@ -244,7 +244,7 @@
   </div>
 </div>
 
-<!-- MODAL DE EDIÇÃO COMPLETA -->
+<!-- MODAL DE EDIÇÃO -->
 <div class="modal-overlay" id="modalOverlay">
   <div class="modal-card">
     <span class="modal-close" onclick="closeModal()">&times;</span>
@@ -252,22 +252,17 @@
       <div class="modal-title" id="modalTitle">Nome do Produto</div>
       <div class="modal-subtitle" id="modalSubtitle">Pedido: 12345</div>
     </div>
-    
     <div class="edit-section">
-      <label class="section-label">Responsável pelo Protótipo</label>
-      <input type="text" id="editResponsavel" class="resp-edit-box" placeholder="Nome do responsável">
+      <label class="section-label">Responsável</label>
+      <input type="text" id="editResponsavel" class="resp-edit-box">
     </div>
-
     <div class="edit-section">
-      <label class="section-label">Progresso das Etapas</label>
+      <label class="section-label">Etapas</label>
       <div class="stages-grid" id="modalStages"></div>
     </div>
-
     <div class="modal-footer">
       <button class="btn btn-cancel" onclick="closeModal()">Cancelar</button>
-      <button class="btn btn-save" id="btnSave" onclick="saveChanges()">
-        <span id="saveIcon">💾</span> Salvar na Planilha
-      </button>
+      <button class="btn btn-save" id="btnSave" onclick="saveChanges()">💾 Salvar na Planilha</button>
     </div>
   </div>
 </div>
@@ -275,9 +270,7 @@
 <div id="toast">Alteração salva com sucesso!</div>
 
 <script>
-// CONFIGURAÇÕES
 const CSV_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vQ6sr9_mKF3RsBXbk67qOX1SSydCVJDIzM3EzhF14yA5ooZ8mjcB3JQDU1d2DCbfPTGSRgchGgdr99V/pub?gid=1451091770&single=true&output=csv';
-// COLOQUE SUA URL DO APPS SCRIPT AQUI
 const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbzH_mbu8kg7HBmVRonOUdKTBiZ2YTkix76hsYvmE1d9I4UmD_brIw5zrwZAGc5aAfmR/exec'; 
 
 const STAGES       = ['modelagem3d','extracaoGab','programacao','montagem','preparacao','espumacao','modelagemTec','costura','tapecaria','montFinal'];
@@ -285,11 +278,10 @@ const STAGE_LABELS = ['Modelagem 3D','Extração Gabarito','Programação','Mont
 const REFRESH_INTERVAL = 60 * 1000;
 
 let allData      = [];
-let activeFilter = 'white'; 
+let activeFilter = 'all'; // Volta para o padrão TOTAL
 let currentItem  = null;
 let refreshTimer = null;
 
-/* ── HELPERS ─────────────────────────────────────────── */
 function parseDate(str) {
   if (!str || !str.trim()) return null;
   const s = str.trim();
@@ -495,6 +487,8 @@ function renderTable() {
   const tbody = document.getElementById('tableBody');
   tbody.innerHTML = '';
 
+  let lastDoneRow = null;
+
   filtered.forEach(item => {
     const status = getStatus(item);
     const dias   = item.dataRecebimento ? daysDiff(item.dataRecebimento) : null;
@@ -523,6 +517,8 @@ function renderTable() {
 
     const tr = document.createElement('tr');
     tr.className = `s-${status}`;
+    if (item.progresso >= 100) lastDoneRow = tr;
+
     tr.innerHTML = `
       <td style="font-family:'DM Mono',monospace;font-size:11px;color:var(--text-muted)">${fmtDate(item.dataSolicitacao)}</td>
       <td><span class="badge b-blue" style="font-size:9px">${item.tipo||'—'}</span></td>
@@ -538,17 +534,23 @@ function renderTable() {
     `;
     tbody.appendChild(tr);
   });
+
+  // AUTO-SCROLL ORIGINAL
+  if (lastDoneRow) {
+    requestAnimationFrame(() => {
+      const scrollEl = document.querySelector('.scroll-body');
+      const rowBottom = lastDoneRow.offsetTop + lastDoneRow.offsetHeight;
+      scrollEl.scrollTo({ top: rowBottom - 40, behavior: 'smooth' });
+    });
+  }
 }
 
-/* ── MODAL ─────────────────────────────────────────── */
 function openModal(rowIndex) {
   currentItem = allData.find(d => d.rowIndex === rowIndex);
   if (!currentItem) return;
-
   document.getElementById('modalTitle').textContent = currentItem.produto;
   document.getElementById('modalSubtitle').textContent = `Pedido: ${currentItem.nPedido || '—'}`;
   document.getElementById('editResponsavel').value = currentItem.responsavel || '';
-  
   const grid = document.getElementById('modalStages');
   grid.innerHTML = '';
   STAGES.forEach((s, i) => {
@@ -566,30 +568,18 @@ function closeModal() { document.getElementById('modalOverlay').style.display = 
 async function saveChanges() {
   if (!currentItem) return;
   if (SCRIPT_URL === 'SUA_URL_DO_APPS_SCRIPT_AQUI') { alert('Configure a SCRIPT_URL no código.'); return; }
-  
   const btn = document.getElementById('btnSave');
   btn.disabled = true;
-  
   const updatedStages = {};
   STAGES.forEach(s => { updatedStages[s] = document.getElementById('chk-' + s).checked; });
   const updatedResp = document.getElementById('editResponsavel').value;
-
   try {
-    await fetch(SCRIPT_URL, { 
-      method: 'POST', 
-      mode: 'no-cors', 
-      body: JSON.stringify({ 
-        rowIndex: currentItem.rowIndex, 
-        stages: updatedStages,
-        responsavel: updatedResp
-      }) 
-    });
+    await fetch(SCRIPT_URL, { method: 'POST', mode: 'no-cors', body: JSON.stringify({ rowIndex: currentItem.rowIndex, stages: updatedStages, responsavel: updatedResp }) });
     showToast(); closeModal(); setTimeout(loadCSV, 1000);
   } catch (e) { alert('Erro: ' + e.message); } finally { btn.disabled = false; }
 }
 function showToast() { const t = document.getElementById('toast'); t.classList.add('show'); setTimeout(() => t.classList.remove('show'), 3000); }
 
-/* ── INIT ────────────────────────────────────────────────── */
 document.getElementById('headerDate').textContent = new Date().toLocaleDateString('pt-BR',{weekday:'long',year:'numeric',month:'long',day:'numeric'});
 loadCSV();
 </script>
