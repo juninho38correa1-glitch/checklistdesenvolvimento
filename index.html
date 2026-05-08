@@ -85,10 +85,6 @@
   tbody tr:hover { filter: brightness(0.95); }
   td { padding: 4px 10px; vertical-align: middle; white-space: nowrap; }
 
-  /* GROUP SEPARATOR — linha sutil */
-  tr.group-sep td { padding: 0; background: transparent; border-bottom: none; }
-  tr.group-sep td span { display: block; height: 3px; }
-
   /* ROW COLORS */
   tr.s-red    { background: var(--red-soft); }
   tr.s-orange { background: var(--orange-soft); }
@@ -109,13 +105,43 @@
   .d-green  { background: #e0f5ea; color: #1e7e45;      border: 1px solid #b8e2ca; }
   .d-gray   { background: #f0ece4; color: #888;         border: 1px solid #ddd; }
 
-  .steps { display: flex; gap: 3px; align-items: center; }
+  .steps { display: flex; gap: 3px; align-items: center; cursor: pointer; padding: 5px 0; }
   .step { width: 10px; height: 10px; border-radius: 2px; background: #e0d8cc; }
   .step.done { background: var(--green); }
 
   .prog-wrap { display: flex; align-items: center; gap: 8px; min-width: 90px; }
   .prog-bar  { flex: 1; height: 6px; background: #e0d8cc; border-radius: 3px; overflow: hidden; }
   .prog-fill { height: 100%; border-radius: 3px; }
+
+  /* MODAL / CARD DE EDIÇÃO */
+  .modal-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); display: none; align-items: center; justify-content: center; z-index: 100; backdrop-filter: blur(2px); }
+  .modal-card { background: white; border-radius: 12px; width: 480px; max-width: 95%; padding: 25px; box-shadow: 0 20px 40px rgba(0,0,0,0.2); position: relative; }
+  .modal-header { margin-bottom: 20px; border-bottom: 1px solid var(--border); padding-bottom: 15px; }
+  .modal-title { font-family: 'DM Serif Display', serif; font-size: 20px; color: var(--dark); margin-bottom: 5px; line-height: 1.2; }
+  .modal-subtitle { font-size: 12px; color: var(--text-muted); }
+  .modal-close { position: absolute; top: 15px; right: 15px; font-size: 24px; cursor: pointer; color: var(--text-muted); }
+  
+  .edit-section { margin-bottom: 20px; }
+  .section-label { font-size: 11px; font-weight: 700; text-transform: uppercase; color: var(--text-muted); letter-spacing: 1px; margin-bottom: 10px; display: block; }
+  
+  .resp-edit-box { width: 100%; padding: 10px; border: 1px solid var(--border); border-radius: 8px; font-family: 'DM Sans', sans-serif; font-size: 14px; outline: none; }
+  .resp-edit-box:focus { border-color: var(--accent); }
+
+  .stages-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .stage-item { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 6px; cursor: pointer; transition: all 0.2s; }
+  .stage-item:hover { background: var(--cream); }
+  .stage-item.checked { background: var(--green-soft); border-color: var(--green); }
+  .stage-item input { width: 16px; height: 16px; cursor: pointer; accent-color: var(--green); }
+  .stage-label { font-size: 12px; font-weight: 500; color: var(--dark); }
+
+  .modal-footer { display: flex; justify-content: flex-end; gap: 10px; padding-top: 15px; border-top: 1px solid var(--border); }
+  .btn { padding: 10px 20px; border-radius: 6px; font-family: 'DM Sans', sans-serif; font-size: 13px; font-weight: 600; cursor: pointer; border: none; transition: opacity 0.2s; }
+  .btn-cancel { background: #eee; color: #666; }
+  .btn-save { background: var(--dark); color: var(--cream); display: flex; align-items: center; gap: 8px; }
+  .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+  #toast { position: fixed; bottom: 20px; right: 20px; padding: 12px 24px; border-radius: 8px; background: var(--dark); color: white; font-size: 13px; z-index: 200; transform: translateY(100px); transition: transform 0.3s; box-shadow: 0 5px 15px rgba(0,0,0,0.3); }
+  #toast.show { transform: translateY(0); }
 
   ::-webkit-scrollbar { width: 5px; height: 5px; }
   ::-webkit-scrollbar-track { background: #f0ece4; }
@@ -124,9 +150,7 @@
 </head>
 <body>
 
-<!-- ═══ STICKY TOP ZONE ═══ -->
 <div class="sticky-top">
-
   <header>
     <div class="logo-area">
       <div>
@@ -194,16 +218,10 @@
     </select>
     <div class="last-updated" id="lastUpdated" style="border:none;padding:0;margin-left:auto">Carregando...</div>
   </div>
+</div>
 
-</div><!-- end sticky-top -->
-
-<!-- ═══ SCROLLABLE BODY ═══ -->
 <div class="scroll-body">
-
-  <div id="stateBox" class="state-box">
-    <div class="loader"></div>
-  </div>
-
+  <div id="stateBox" class="state-box"><div class="loader"></div></div>
   <div class="table-wrap" id="tableWrap" style="display:none">
     <table id="mainTable">
       <thead>
@@ -224,20 +242,46 @@
       <tbody id="tableBody"></tbody>
     </table>
   </div>
+</div>
 
-</div><!-- end scroll-body -->
+<!-- MODAL DE EDIÇÃO -->
+<div class="modal-overlay" id="modalOverlay">
+  <div class="modal-card">
+    <span class="modal-close" onclick="closeModal()">&times;</span>
+    <div class="modal-header">
+      <div class="modal-title" id="modalTitle">Nome do Produto</div>
+      <div class="modal-subtitle" id="modalSubtitle">Pedido: 12345</div>
+    </div>
+    <div class="edit-section">
+      <label class="section-label">Responsável</label>
+      <input type="text" id="editResponsavel" class="resp-edit-box">
+    </div>
+    <div class="edit-section">
+      <label class="section-label">Etapas</label>
+      <div class="stages-grid" id="modalStages"></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-cancel" onclick="closeModal()">Cancelar</button>
+      <button class="btn btn-save" id="btnSave" onclick="saveChanges()">💾 Salvar na Planilha</button>
+    </div>
+  </div>
+</div>
+
+<div id="toast">Alteração salva com sucesso!</div>
 
 <script>
 const CSV_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vQ6sr9_mKF3RsBXbk67qOX1SSydCVJDIzM3EzhF14yA5ooZ8mjcB3JQDU1d2DCbfPTGSRgchGgdr99V/pub?gid=1451091770&single=true&output=csv';
-const STAGES       = ['modelagem3d','extracaoGab','programacao','montagem','preparacao','espumacao','modelagemTec','costura','tapecaria','montFinal'];
-const STAGE_LABELS = ['3D','Gab','Prog','Mont','Prep','Esp','Téc','Cos','Tap','Final'];
-const REFRESH_INTERVAL = 60 * 1000; // 60 segundos em milissegundos
+const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbzH_mbu8kg7HBmVRonOUdKTBiZ2YTkix76hsYvmE1d9I4UmD_brIw5zrwZAGc5aAfmR/exec'; 
 
-let allData     = [];
-let activeFilter = 'all';
+const STAGES       = ['modelagem3d','extracaoGab','programacao','montagem','preparacao','espumacao','modelagemTec','costura','tapecaria','montFinal'];
+const STAGE_LABELS = ['Modelagem 3D','Extração Gabarito','Programação','Montagem','Preparação','Espumação','Modelagem Téc.','Costura','Tapeçaria','Montagem Final'];
+const REFRESH_INTERVAL = 60 * 1000;
+
+let allData      = [];
+let activeFilter = 'all'; // Volta para o padrão TOTAL
+let currentItem  = null;
 let refreshTimer = null;
 
-/* ── DATE HELPERS ─────────────────────────────────────────── */
 function parseDate(str) {
   if (!str || !str.trim()) return null;
   const s = str.trim();
@@ -259,18 +303,8 @@ function fmtDate(str) {
   return d.toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit',year:'2-digit'});
 }
 
-/* ── STATUS ────────────────────────────────────────────────────
-   Verde (green) = 100% de progresso (FINALIZADO)
-   Branco (white) = > 0% e < 100% de progresso (EM ANDAMENTO)
-   Branco (white) = 0% de progresso (SEM INICIAR)
-   Laranja (orange) = +10 dias desde recebimento SEM Program. e Listas (ALERTA)
-   Vermelho (red) = +15 dias desde recebimento SEM Program. e Listas (ATRASADO)
-─────────────────────────────────────────────────────────────── */
 function getStatus(item) {
-  // 100% → sempre verde
   if (item.progresso >= 100) return 'green';
-
-  // Alerta e Atraso (mantendo lógica baseada em dias e etapa de programação)
   if (!item.stages.programacao && item.dataRecebimento) {
     const dias = daysDiff(item.dataRecebimento);
     if (dias !== null) {
@@ -278,60 +312,35 @@ function getStatus(item) {
       if (dias > 10) return 'orange';
     }
   }
-
-  // Se não for alerta/atraso, retorna branco (que engloba 0% e >0%)
   return 'white';
 }
 
-/* ── SORT ──────────────────────────────────────────────────────
-   Hierarquia de Ordenação:
-     1. 100% (Finalizados)
-     2. Atrasados (Vermelho)
-     3. Em Alerta (Laranja)
-     4. Restante em ordem decrescente de % (90% -> 0%)
-─────────────────────────────────────────────────────────────── */
 function getSortRank(item) {
   const status = getStatus(item);
-  if (item.progresso >= 100) return 0; // 100% primeiro
-  if (status === 'red')      return 1; // Atrasados segundo
-  if (status === 'orange')   return 2; // Alerta terceiro
-  return 3; // O resto (em andamento ou sem iniciar)
+  if (item.progresso >= 100) return 0;
+  if (status === 'red')      return 1;
+  if (status === 'orange')   return 2;
+  return 3;
 }
-
 function smartSort(a, b) {
   const rankA = getSortRank(a);
   const rankB = getSortRank(b);
-
   if (rankA !== rankB) return rankA - rankB;
-
-  // Bloco dos 100% (Rank 0)
   if (rankA === 0) {
     const da = parseDate(a.dataRecebimento)?.getTime() ?? 0;
     const db = parseDate(b.dataRecebimento)?.getTime() ?? 0;
-    
-    // Se um tem data e o outro não, o sem data (0) fica em CIMA
     if (da === 0 && db !== 0) return -1;
     if (db === 0 && da !== 0) return 1;
-    
-    // Se ambos têm data, os MAIS ANTIGOS em cima, MAIS RECENTES embaixo
     if (da !== db) return da - db;
-    
     return a.rowIndex - b.rowIndex;
   }
-
-  // Outros blocos
-  if (b.progresso !== a.progresso) {
-    return b.progresso - a.progresso;
-  }
-
+  if (b.progresso !== a.progresso) return b.progresso - a.progresso;
   const da = parseDate(a.dataRecebimento)?.getTime() ?? 0;
   const db = parseDate(b.dataRecebimento)?.getTime() ?? 0;
   if (db !== da) return db - da;
-
   return a.rowIndex - b.rowIndex;
 }
 
-/* ── CSV PARSE ───────────────────────────────────────────── */
 function splitCSV(line) {
   const r = []; let cur = '', inQ = false;
   for (const c of line) {
@@ -353,14 +362,7 @@ function parseCSV(text) {
   let headerIdx = -1;
   for (let i = 0; i < Math.min(8, lines.length); i++) {
     const low = lines[i].toLowerCase();
-    if (low.includes('produto') && (low.includes('respons') || low.includes('recebimento'))) {
-      headerIdx = i; break;
-    }
-  }
-  if (headerIdx === -1) {
-    for (let i = 0; i < Math.min(8, lines.length); i++) {
-      if (lines[i].toLowerCase().includes('produto')) { headerIdx = i; break; }
-    }
+    if (low.includes('produto')) { headerIdx = i; break; }
   }
   if (headerIdx === -1) headerIdx = 2;
 
@@ -370,62 +372,44 @@ function parseCSV(text) {
     const produto = clean(cols[5]);
     if (!produto || produto.length < 3) continue;
 
-    const stageVals = cols.slice(10, 20);
     const stages = {};
-    STAGES.forEach((s, idx) => stages[s] = isOK(stageVals[idx]));
-
-    const dataRec = clean(cols[7]);
-    const dataIni = clean(cols[8]);
-    const dias    = daysDiff(dataRec);
+    STAGES.forEach((s, idx) => stages[s] = isOK(cols[10 + idx]));
 
     const rawProg = clean(cols[20]);
     let progresso = 0;
     if (rawProg) {
       const num = rawProg.replace('%','').replace(',','.').trim();
       const val = parseFloat(num);
-      if (!isNaN(val)) {
-        progresso = val <= 1 && rawProg.includes('.') ? Math.round(val * 100) : Math.round(val);
-      }
+      if (!isNaN(val)) progresso = val <= 1 && rawProg.includes('.') ? Math.round(val * 100) : Math.round(val);
     }
 
     rows.push({
-      rowIndex:        i,
+      rowIndex: i + 1,
       dataSolicitacao: clean(cols[0]),
-      tipo:            clean(cols[1]),
-      nPedido:         clean(cols[2]),
-      codCadastro:     clean(cols[3]),
+      tipo: clean(cols[1]),
+      nPedido: clean(cols[2]),
       produto,
-      responsavel:     clean(cols[6]),
-      dataRecebimento: dataRec,
-      dataInicio:      dataIni,
-      dataEntrega:     clean(cols[9]),
+      responsavel: clean(cols[6]),
+      dataRecebimento: clean(cols[7]),
+      dataEntrega: clean(cols[9]),
       stages,
-      progresso,
-      diasSemInicio:   dias ?? 0,
+      progresso
     });
   }
   return rows;
 }
 
-/* ── LOAD ────────────────────────────────────────────────── */
 async function loadCSV(isSilent = false) {
   const icon = document.getElementById('refreshIcon');
   if (!isSilent) icon.classList.add('spinning');
-  
   const statusEl = document.getElementById('lastUpdated');
   if (!isSilent) statusEl.textContent = 'Atualizando...';
 
   try {
-    const res = await fetch(CSV_URL + '&nocache=' + Date.now(), {
-      cache: 'no-store',
-      headers: { 'Cache-Control': 'no-cache, no-store, must-revalidate', 'Pragma': 'no-cache' }
-    });
-    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const res = await fetch(CSV_URL + '&nocache=' + Date.now());
     const text = await res.text();
-    const newData = parseCSV(text);
-    if (!newData.length) throw new Error('Nenhum dado recebido.');
-
-    allData = newData;
+    allData = parseCSV(text);
+    
     document.getElementById('stateBox').style.display  = 'none';
     document.getElementById('tableWrap').style.display = 'block';
     
@@ -433,25 +417,9 @@ async function loadCSV(isSilent = false) {
     renderTable();
 
     const now = new Date();
-    statusEl.textContent = `Atualizado: ${now.toLocaleTimeString('pt-BR')}  ·  ${allData.length} protótipos`;
-    
+    statusEl.textContent = `Atualizado: ${now.toLocaleTimeString('pt-BR')}  ·  ${allData.length} itens`;
     resetAutoRefresh();
-    
-  } catch(e) {
-    if (!isSilent) {
-      document.getElementById('stateBox').innerHTML = `
-        <div style="font-size:34px;margin-bottom:12px">⚠️</div>
-        <p style="font-size:13px;line-height:1.7;max-width:460px;margin:0 auto">
-          <strong>Não foi possível carregar os dados.</strong><br>${e.message}<br><br>
-          Certifique-se que a planilha está publicada:<br>
-          <em>Arquivo → Compartilhar → Publicar na web → CSV</em>
-        </p><br>
-        <button onclick="loadCSV()" style="padding:8px 20px;border:none;border-radius:6px;background:var(--dark);color:var(--cream);cursor:pointer;font-family:'DM Sans',sans-serif;font-size:13px">↻ Tentar novamente</button>`;
-      document.getElementById('stateBox').style.display  = 'block';
-      document.getElementById('tableWrap').style.display = 'none';
-      statusEl.textContent = 'Erro ao carregar.';
-    }
-  }
+  } catch(e) { console.error(e); }
   if (!isSilent) icon.classList.remove('spinning');
 }
 
@@ -460,7 +428,6 @@ function resetAutoRefresh() {
   refreshTimer = setTimeout(() => loadCSV(true), REFRESH_INTERVAL);
 }
 
-/* ── FILTERS ─────────────────────────────────────────────── */
 function populateFilters() {
   const resps = [...new Set(allData.map(d => d.responsavel).filter(Boolean))].sort();
   const sel = document.getElementById('filterResp');
@@ -468,12 +435,17 @@ function populateFilters() {
   sel.innerHTML = '<option value="">Todos os responsáveis</option>';
   resps.forEach(r => sel.innerHTML += `<option value="${r}">${r}</option>`);
   sel.value = cur;
+
+  if (!document.querySelector('.stat-card.active')) {
+    const card = document.getElementById('sc-' + activeFilter);
+    if (card) setFilter(activeFilter, card);
+  }
 }
 function setFilter(f, el) {
   activeFilter = f;
   document.querySelectorAll('.stat-card').forEach(c => c.classList.remove('active'));
   el.classList.add('active');
-  document.getElementById('filterStatusSel').value = f === 'all' ? '' : f;
+  document.getElementById('filterStatusSel').value = (f === 'all' ? '' : f);
   renderTable();
 }
 function syncFilterSel() {
@@ -484,96 +456,64 @@ function syncFilterSel() {
   renderTable();
 }
 
-/* ── RENDER ──────────────────────────────────────────────── */
 function renderTable() {
   const search = document.getElementById('searchInput').value.toLowerCase();
   const resp   = document.getElementById('filterResp').value;
   const stFilt = document.getElementById('filterStatusSel').value;
 
   let filtered = allData.filter(item => {
-    const s   = getStatus(item);
-    const ok1 = !search ||
-      item.produto.toLowerCase().includes(search) ||
-      (item.responsavel||'').toLowerCase().includes(search) ||
-      (item.nPedido||'').includes(search) ||
-      (item.codCadastro||'').includes(search);
-    const ok2 = !resp   || item.responsavel === resp;
-    
+    const s = getStatus(item);
+    const ok1 = !search || item.produto.toLowerCase().includes(search) || (item.responsavel||'').toLowerCase().includes(search) || (item.nPedido||'').includes(search);
+    const ok2 = !resp || item.responsavel === resp;
     let ok3 = !stFilt || s === stFilt;
-    if (stFilt === 'zero') {
-      ok3 = item.progresso === 0;
-    } else if (stFilt === 'white') {
-      ok3 = item.progresso > 0 && item.progresso < 100;
-    }
-    
+    if (stFilt === 'zero') ok3 = item.progresso === 0;
+    else if (stFilt === 'white') ok3 = item.progresso > 0 && item.progresso < 100;
     return ok1 && ok2 && ok3;
   });
 
   filtered.sort(smartSort);
 
-  // Counts
   const c = { all: allData.length, red:0, orange:0, white:0, green:0, zero:0 };
   allData.forEach(item => { 
     const s = getStatus(item); 
     if (s === 'red') c.red++;
     else if (s === 'orange') c.orange++;
     else if (s === 'green') c.green++;
-    
     if (item.progresso > 0 && item.progresso < 100) c.white++;
     if (item.progresso === 0) c.zero++;
   });
-  ['all','red','orange','white','green','zero'].forEach(k =>
-    document.getElementById('cnt-'+k).textContent = c[k]);
+  ['all','red','orange','white','green','zero'].forEach(k => document.getElementById('cnt-'+k).textContent = c[k]);
 
   const tbody = document.getElementById('tableBody');
   tbody.innerHTML = '';
-
-  if (!filtered.length) {
-    tbody.innerHTML = `<tr><td colspan="11" style="text-align:center;padding:50px;color:var(--text-muted)">Nenhum protótipo encontrado</td></tr>`;
-    return;
-  }
-
-  const badgeMap = {
-    red:    '<span class="badge b-red">Atrasado</span>',
-    orange: '<span class="badge b-orange">Alerta</span>',
-    green:  '<span class="badge b-green">Finalizado</span>',
-    white:  '',
-  };
 
   let lastDoneRow = null;
 
   filtered.forEach(item => {
     const status = getStatus(item);
     const dias   = item.dataRecebimento ? daysDiff(item.dataRecebimento) : null;
-
+    const p      = item.progresso;
+    
     let diasHtml = '<span style="color:var(--text-muted);font-family:\'DM Mono\',monospace;font-size:11px">—</span>';
-    if (status === 'green') {
-      diasHtml = `<span class="dias-badge d-green">✓ Finalizado</span>`;
-    } else if (dias !== null) {
-      const cls  = status === 'red' ? 'd-red' : status === 'orange' ? 'd-orange' : 'd-gray';
-      const icon = status === 'red' ? '⚠' : status === 'orange' ? '●' : '○';
-      diasHtml = `<span class="dias-badge ${cls}">${icon} ${dias}d</span>`;
+    if (status === 'green') diasHtml = `<span class="dias-badge d-green">✓ Finalizado</span>`;
+    else if (dias !== null) {
+      const cls = status === 'red' ? 'd-red' : status === 'orange' ? 'd-orange' : 'd-gray';
+      diasHtml = `<span class="dias-badge ${cls}">${status==='red'?'⚠':'●'} ${dias}d</span>`;
     }
 
-    const stepsHtml = `<div class="steps">${STAGES.map((s,i) =>
+    const stepsHtml = `<div class="steps" onclick="openModal(${item.rowIndex})">${STAGES.map((s,i) =>
       `<div class="step${item.stages[s]?' done':''}" title="${STAGE_LABELS[i]}"></div>`
     ).join('')}</div>`;
 
-    const p = item.progresso;
     const pColor = p === 0 ? '#ddd' : p < 30 ? 'var(--red)' : p < 70 ? 'var(--orange)' : p < 100 ? 'var(--accent)' : 'var(--green)';
     const progHtml = `<div class="prog-wrap">
       <div class="prog-bar"><div class="prog-fill" style="width:${p}%;background:${pColor}"></div></div>
       <span style="font-family:'DM Mono',monospace;font-size:11px;color:var(--text-muted);min-width:28px;text-align:right">${p}%</span>
     </div>`;
 
-    let currentBadge = badgeMap[status];
-    if (status === 'white') {
-      if (p > 0) {
-        currentBadge = '<span class="badge b-gray" style="background:#3498db;color:white">Em andamento</span>';
-      } else {
-        currentBadge = '<span class="badge b-gray">Sem iniciar</span>';
-      }
-    }
+    const badgeMap = { red:'Atrasado', orange:'Alerta', green:'Finalizado' };
+    let currentBadge = status === 'white' ? (p > 0 ? 'Em andamento' : 'Sem iniciar') : badgeMap[status];
+    let badgeClass = status === 'white' ? (p > 0 ? 'b-blue' : 'b-gray') : `b-${status}`;
 
     const tr = document.createElement('tr');
     tr.className = `s-${status}`;
@@ -590,11 +530,12 @@ function renderTable() {
       <td>${diasHtml}</td>
       <td>${stepsHtml}</td>
       <td>${progHtml}</td>
-      <td>${currentBadge}</td>
+      <td><span class="badge ${badgeClass}">${currentBadge}</span></td>
     `;
     tbody.appendChild(tr);
   });
 
+  // AUTO-SCROLL ORIGINAL
   if (lastDoneRow) {
     requestAnimationFrame(() => {
       const scrollEl = document.querySelector('.scroll-body');
@@ -604,10 +545,42 @@ function renderTable() {
   }
 }
 
-/* ── INIT ────────────────────────────────────────────────── */
-document.getElementById('headerDate').textContent =
-  new Date().toLocaleDateString('pt-BR',{weekday:'long',year:'numeric',month:'long',day:'numeric'});
+function openModal(rowIndex) {
+  currentItem = allData.find(d => d.rowIndex === rowIndex);
+  if (!currentItem) return;
+  document.getElementById('modalTitle').textContent = currentItem.produto;
+  document.getElementById('modalSubtitle').textContent = `Pedido: ${currentItem.nPedido || '—'}`;
+  document.getElementById('editResponsavel').value = currentItem.responsavel || '';
+  const grid = document.getElementById('modalStages');
+  grid.innerHTML = '';
+  STAGES.forEach((s, i) => {
+    const isChecked = currentItem.stages[s];
+    const item = document.createElement('div');
+    item.className = `stage-item ${isChecked ? 'checked' : ''}`;
+    item.onclick = () => { const chk = item.querySelector('input'); chk.checked = !chk.checked; item.classList.toggle('checked', chk.checked); };
+    item.innerHTML = `<input type="checkbox" ${isChecked ? 'checked' : ''} id="chk-${s}"><span class="stage-label">${STAGE_LABELS[i]}</span>`;
+    grid.appendChild(item);
+  });
+  document.getElementById('modalOverlay').style.display = 'flex';
+}
+function closeModal() { document.getElementById('modalOverlay').style.display = 'none'; currentItem = null; }
 
+async function saveChanges() {
+  if (!currentItem) return;
+  if (SCRIPT_URL === 'SUA_URL_DO_APPS_SCRIPT_AQUI') { alert('Configure a SCRIPT_URL no código.'); return; }
+  const btn = document.getElementById('btnSave');
+  btn.disabled = true;
+  const updatedStages = {};
+  STAGES.forEach(s => { updatedStages[s] = document.getElementById('chk-' + s).checked; });
+  const updatedResp = document.getElementById('editResponsavel').value;
+  try {
+    await fetch(SCRIPT_URL, { method: 'POST', mode: 'no-cors', body: JSON.stringify({ rowIndex: currentItem.rowIndex, stages: updatedStages, responsavel: updatedResp }) });
+    showToast(); closeModal(); setTimeout(loadCSV, 1000);
+  } catch (e) { alert('Erro: ' + e.message); } finally { btn.disabled = false; }
+}
+function showToast() { const t = document.getElementById('toast'); t.classList.add('show'); setTimeout(() => t.classList.remove('show'), 3000); }
+
+document.getElementById('headerDate').textContent = new Date().toLocaleDateString('pt-BR',{weekday:'long',year:'numeric',month:'long',day:'numeric'});
 loadCSV();
 </script>
 </body>
