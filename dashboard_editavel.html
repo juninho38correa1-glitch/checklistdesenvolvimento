@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Studyo4 — Controle de Protótipos (Editável)</title>
+<title>Studyo4 — Controle de Protótipos</title>
 <link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display&family=DM+Mono:wght@300;400;500&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
 <style>
   :root {
@@ -23,6 +23,7 @@
 
   * { box-sizing: border-box; margin: 0; padding: 0; }
 
+  /* Page layout: sticky top + scrollable body */
   html, body { height: 100%; overflow: hidden; }
   body { font-family: 'DM Sans', sans-serif; background: var(--cream); color: var(--dark); display: flex; flex-direction: column; }
   .sticky-top { flex-shrink: 0; }
@@ -65,17 +66,32 @@
 
   .last-updated { padding: 3px 30px; font-family: 'DM Mono', monospace; font-size: 9px; color: var(--text-muted); background: var(--cream); border-bottom: 1px solid var(--border); }
 
-  /* TABLE */
+  /* STATE BOX */
+  .state-box { text-align: center; padding: 80px 20px; color: var(--text-muted); }
+  .loader { display: inline-block; width: 34px; height: 34px; border: 3px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: spin 0.8s linear infinite; margin-bottom: 14px; }
+
+  /* TABLE — thead is sticky within scroll-body */
   .table-wrap { padding: 0 30px 30px; min-width: 1000px; }
   table { width: 100%; border-collapse: collapse; font-size: 11.5px; margin-top: 0; }
+
   thead tr { background: var(--dark); color: var(--cream); }
   thead { position: sticky; top: 0; z-index: 5; }
-  th { padding: 6px 10px; text-align: left; font-family: 'DM Mono', monospace; font-size: 9px; letter-spacing: 1px; text-transform: uppercase; font-weight: 400; white-space: nowrap; border-right: 1px solid rgba(255,255,255,0.07); }
+
+  th { padding: 6px 10px; text-align: left; font-family: 'DM Mono', monospace; font-size: 9px; letter-spacing: 1px; text-transform: uppercase; font-weight: 400; white-space: nowrap; border-right: 1px solid rgba(255,255,255,0.07); user-select: none; }
+  th:last-child { border-right: none; }
+  th .sort-note { font-size: 8px; opacity: 0.4; margin-left: 3px; }
+
   tbody tr { border-bottom: 1px solid var(--border); height: 32px; }
   tbody tr:hover { filter: brightness(0.95); }
   td { padding: 4px 10px; vertical-align: middle; white-space: nowrap; }
 
-  /* BADGES & PROGRESS */
+  /* ROW COLORS - Restauradas conforme original */
+  tr.s-red    { background: var(--red-soft); }
+  tr.s-orange { background: var(--orange-soft); }
+  tr.s-green  { background: var(--green-soft); }
+  tr.s-white  { background: #ffffff; }
+
+  /* BADGES */
   .badge { display: inline-block; padding: 2px 8px; border-radius: 20px; font-size: 10px; font-weight: 600; letter-spacing: 0.5px; text-transform: uppercase; }
   .b-red    { background: var(--red);    color: white; }
   .b-orange { background: var(--orange); color: white; }
@@ -89,9 +105,8 @@
   .d-green  { background: #e0f5ea; color: #1e7e45;      border: 1px solid #b8e2ca; }
   .d-gray   { background: #f0ece4; color: #888;         border: 1px solid #ddd; }
 
-  .steps { display: flex; gap: 3px; align-items: center; cursor: pointer; padding: 5px 0; }
-  .steps:hover .step { transform: scale(1.2); }
-  .step { width: 10px; height: 10px; border-radius: 2px; background: #e0d8cc; transition: transform 0.2s; }
+  .steps { display: flex; gap: 3px; align-items: center; cursor: pointer; }
+  .step { width: 10px; height: 10px; border-radius: 2px; background: #e0d8cc; }
   .step.done { background: var(--green); }
 
   .prog-wrap { display: flex; align-items: center; gap: 8px; min-width: 90px; }
@@ -232,9 +247,7 @@
       <div class="modal-title" id="modalTitle">Nome do Produto</div>
       <div class="modal-subtitle" id="modalSubtitle">Responsável: João · Pedido: 12345</div>
     </div>
-    <div class="stages-grid" id="modalStages">
-      <!-- Injetado via JS -->
-    </div>
+    <div class="stages-grid" id="modalStages"></div>
     <div class="modal-footer">
       <button class="btn btn-cancel" onclick="closeModal()">Cancelar</button>
       <button class="btn btn-save" id="btnSave" onclick="saveStages()">
@@ -247,9 +260,8 @@
 <div id="toast">Alteração salva com sucesso!</div>
 
 <script>
-// CONFIGURAÇÕES IMPORTANTES
+// CONFIGURAÇÕES
 const CSV_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vQ6sr9_mKF3RsBXbk67qOX1SSydCVJDIzM3EzhF14yA5ooZ8mjcB3JQDU1d2DCbfPTGSRgchGgdr99V/pub?gid=1451091770&single=true&output=csv';
-// COLOQUE A URL DO SEU GOOGLE APPS SCRIPT AQUI APÓS CRIAR
 const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbzH_mbu8kg7HBmVRonOUdKTBiZ2YTkix76hsYvmE1d9I4UmD_brIw5zrwZAGc5aAfmR/exec'; 
 
 const STAGES       = ['modelagem3d','extracaoGab','programacao','montagem','preparacao','espumacao','modelagemTec','costura','tapecaria','montFinal'];
@@ -257,11 +269,11 @@ const STAGE_LABELS = ['Modelagem 3D','Extração Gabarito','Programação','Mont
 const REFRESH_INTERVAL = 60 * 1000;
 
 let allData      = [];
-let activeFilter = 'white'; // Inicia com "Em Andamento" conforme pedido anterior
+let activeFilter = 'white'; 
 let currentItem  = null;
 let refreshTimer = null;
 
-/* ── DATE HELPERS ─────────────────────────────────────────── */
+/* ── HELPERS ─────────────────────────────────────────── */
 function parseDate(str) {
   if (!str || !str.trim()) return null;
   const s = str.trim();
@@ -367,7 +379,7 @@ function parseCSV(text) {
     }
 
     rows.push({
-      rowIndex: i + 1, // +1 porque CSV é 0-based e Sheets é 1-based
+      rowIndex: i + 1,
       dataSolicitacao: clean(cols[0]),
       tipo: clean(cols[1]),
       nPedido: clean(cols[2]),
@@ -386,7 +398,6 @@ function parseCSV(text) {
 async function loadCSV(isSilent = false) {
   const icon = document.getElementById('refreshIcon');
   if (!isSilent) icon.classList.add('spinning');
-  
   const statusEl = document.getElementById('lastUpdated');
   if (!isSilent) statusEl.textContent = 'Atualizando...';
 
@@ -403,11 +414,8 @@ async function loadCSV(isSilent = false) {
 
     const now = new Date();
     statusEl.textContent = `Atualizado: ${now.toLocaleTimeString('pt-BR')}  ·  ${allData.length} itens`;
-    
     resetAutoRefresh();
-  } catch(e) {
-    console.error(e);
-  }
+  } catch(e) { console.error(e); }
   if (!isSilent) icon.classList.remove('spinning');
 }
 
@@ -425,7 +433,6 @@ function populateFilters() {
   resps.forEach(r => sel.innerHTML += `<option value="${r}">${r}</option>`);
   sel.value = cur;
 
-  // Aplica filtro inicial (Em Andamento)
   if (!document.querySelector('.stat-card.active')) {
     const card = document.getElementById('sc-' + activeFilter);
     if (card) setFilter(activeFilter, card);
@@ -464,7 +471,6 @@ function renderTable() {
 
   filtered.sort(smartSort);
 
-  // Counts
   const c = { all: allData.length, red:0, orange:0, white:0, green:0, zero:0 };
   allData.forEach(item => { 
     const s = getStatus(item); 
@@ -524,94 +530,42 @@ function renderTable() {
   });
 }
 
-/* ── MODAL LOGIC ─────────────────────────────────────────── */
+/* ── MODAL ─────────────────────────────────────────── */
 function openModal(rowIndex) {
   currentItem = allData.find(d => d.rowIndex === rowIndex);
   if (!currentItem) return;
-
   document.getElementById('modalTitle').textContent = currentItem.produto;
   document.getElementById('modalSubtitle').textContent = `Responsável: ${currentItem.responsavel || '—'} · Pedido: ${currentItem.nPedido || '—'}`;
-  
   const grid = document.getElementById('modalStages');
   grid.innerHTML = '';
-
   STAGES.forEach((s, i) => {
     const isChecked = currentItem.stages[s];
     const item = document.createElement('div');
     item.className = `stage-item ${isChecked ? 'checked' : ''}`;
-    item.onclick = () => toggleStage(item, s);
-    item.innerHTML = `
-      <input type="checkbox" ${isChecked ? 'checked' : ''} id="chk-${s}">
-      <span class="stage-label">${STAGE_LABELS[i]}</span>
-    `;
+    item.onclick = () => { const chk = item.querySelector('input'); chk.checked = !chk.checked; item.classList.toggle('checked', chk.checked); };
+    item.innerHTML = `<input type="checkbox" ${isChecked ? 'checked' : ''} id="chk-${s}"><span class="stage-label">${STAGE_LABELS[i]}</span>`;
     grid.appendChild(item);
   });
-
   document.getElementById('modalOverlay').style.display = 'flex';
 }
-
-function closeModal() {
-  document.getElementById('modalOverlay').style.display = 'none';
-  currentItem = null;
-}
-
-function toggleStage(el, stageKey) {
-  const chk = el.querySelector('input');
-  chk.checked = !chk.checked;
-  el.classList.toggle('checked', chk.checked);
-}
+function closeModal() { document.getElementById('modalOverlay').style.display = 'none'; currentItem = null; }
 
 async function saveStages() {
   if (!currentItem) return;
-  if (SCRIPT_URL === 'SUA_URL_DO_APPS_SCRIPT_AQUI') {
-    alert('Erro: Você precisa configurar a SCRIPT_URL no código para salvar na planilha.');
-    return;
-  }
-
+  if (SCRIPT_URL === 'SUA_URL_DO_APPS_SCRIPT_AQUI') { alert('Configure a SCRIPT_URL no código.'); return; }
   const btn = document.getElementById('btnSave');
-  const icon = document.getElementById('saveIcon');
   btn.disabled = true;
-  icon.textContent = '⏳';
-
   const updatedStages = {};
-  STAGES.forEach(s => {
-    updatedStages[s] = document.getElementById('chk-' + s).checked;
-  });
-
+  STAGES.forEach(s => { updatedStages[s] = document.getElementById('chk-' + s).checked; });
   try {
-    const response = await fetch(SCRIPT_URL, {
-      method: 'POST',
-      mode: 'no-cors', // Necessário para Google Apps Script
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        rowIndex: currentItem.rowIndex,
-        stages: updatedStages
-      })
-    });
-
-    // Como usamos no-cors, não conseguimos ler o JSON de resposta, 
-    // então assumimos sucesso se não houver erro de rede.
-    showToast();
-    closeModal();
-    setTimeout(loadCSV, 1000); // Recarrega após 1s para ver a mudança
-  } catch (e) {
-    alert('Erro ao salvar: ' + e.message);
-  } finally {
-    btn.disabled = false;
-    icon.textContent = '💾';
-  }
+    await fetch(SCRIPT_URL, { method: 'POST', mode: 'no-cors', body: JSON.stringify({ rowIndex: currentItem.rowIndex, stages: updatedStages }) });
+    showToast(); closeModal(); setTimeout(loadCSV, 1000);
+  } catch (e) { alert('Erro: ' + e.message); } finally { btn.disabled = false; }
 }
-
-function showToast() {
-  const t = document.getElementById('toast');
-  t.classList.add('show');
-  setTimeout(() => t.classList.remove('show'), 3000);
-}
+function showToast() { const t = document.getElementById('toast'); t.classList.add('show'); setTimeout(() => t.classList.remove('show'), 3000); }
 
 /* ── INIT ────────────────────────────────────────────────── */
-document.getElementById('headerDate').textContent =
-  new Date().toLocaleDateString('pt-BR',{weekday:'long',year:'numeric',month:'long',day:'numeric'});
-
+document.getElementById('headerDate').textContent = new Date().toLocaleDateString('pt-BR',{weekday:'long',year:'numeric',month:'long',day:'numeric'});
 loadCSV();
 </script>
 </body>
