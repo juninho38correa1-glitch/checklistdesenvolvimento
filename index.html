@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Studyo4 — Controle de Protótipos</title>
 <link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display&family=DM+Mono:wght@300;400;500&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <style>
   :root {
     --cream: #F5F0E8;
@@ -39,11 +40,9 @@
   .logo-text { font-family: 'DM Sans', sans-serif; font-size: 14px; font-weight: 300; color: var(--cream); letter-spacing: 3px; text-transform: uppercase; }
   .logo-sub { font-size: 8px; color: var(--accent); letter-spacing: 2px; text-transform: uppercase; margin-top: 1px; font-weight: 400; }
   .header-right { display: flex; align-items: center; gap: 16px; }
-  .header-date { font-family: 'DM Mono', monospace; font-size: 11px; color: var(--text-muted); }
-  .btn-refresh { background: none; border: 1px solid rgba(200,169,110,0.4); border-radius: 5px; color: var(--accent); font-family: 'DM Sans', sans-serif; font-size: 11px; padding: 5px 12px; cursor: pointer; display: flex; align-items: center; gap: 5px; transition: border-color 0.2s, background 0.2s; }
-  .btn-refresh:hover { border-color: var(--accent); background: rgba(200,169,110,0.1); }
+  .header-date { font-family: 'DM Mono', monospace; font-size: 15px; font-weight: 500; color: var(--cream); text-transform: capitalize; }
+  .obs-flag { display: inline-flex; align-items: center; justify-content: center; width: 18px; height: 18px; border-radius: 50%; background: var(--accent); color: var(--dark); font-size: 10px; font-weight: 700; margin-right: 6px; cursor: pointer; vertical-align: middle; }
   @keyframes spin { to { transform: rotate(360deg); } }
-  .spinning { display: inline-block; animation: spin 0.7s linear infinite; }
 
   /* STATS */
   .stats-bar { background: var(--dark); padding: 0 30px 10px; display: flex; gap: 8px; flex-wrap: wrap; }
@@ -65,6 +64,12 @@
   select { border: 1px solid var(--border); border-radius: 4px; padding: 4px 8px; font-family: 'DM Sans', sans-serif; font-size: 11px; color: var(--dark); background: white; cursor: pointer; outline: none; }
 
   .last-updated { padding: 3px 30px; font-family: 'DM Mono', monospace; font-size: 9px; color: var(--text-muted); background: var(--cream); border-bottom: 1px solid var(--border); }
+
+  /* ALERT BANNER */
+  .alert-banner { display: none; align-items: center; justify-content: space-between; gap: 10px; padding: 8px 30px; font-family: 'DM Sans', sans-serif; font-size: 12px; font-weight: 600; background: var(--orange-soft); color: #b85f0a; border-bottom: 1px solid var(--orange); }
+  .alert-banner.danger { background: var(--red-soft); color: var(--red); border-bottom-color: var(--red); }
+  .alert-banner .alert-close { cursor: pointer; font-size: 16px; line-height: 1; opacity: 0.6; }
+  .alert-banner .alert-close:hover { opacity: 1; }
 
   /* STATE BOX */
   .state-box { text-align: center; padding: 80px 20px; color: var(--text-muted); }
@@ -134,6 +139,20 @@
   .stage-item input { width: 16px; height: 16px; cursor: pointer; accent-color: var(--green); }
   .stage-label { font-size: 12px; font-weight: 500; color: var(--dark); }
 
+  /* RELATÓRIO DO PRODUTO */
+  .report-summary { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 16px; margin-bottom: 18px; }
+  .report-item { font-size: 12px; }
+  .report-item .label { display: block; font-size: 9px; text-transform: uppercase; letter-spacing: 1px; color: var(--text-muted); margin-bottom: 2px; }
+  .report-item .value { font-weight: 600; color: var(--dark); }
+  .timeline { max-height: 260px; overflow-y: auto; border-top: 1px solid var(--border); padding-top: 10px; }
+  .timeline-item { display: flex; gap: 10px; padding: 6px 0; font-size: 12px; border-bottom: 1px dashed var(--border); }
+  .timeline-item:last-child { border-bottom: none; }
+  .timeline-dot { width: 9px; height: 9px; border-radius: 50%; margin-top: 4px; flex-shrink: 0; }
+  .timeline-dot.on  { background: var(--green); }
+  .timeline-dot.off { background: #ccc; }
+  .timeline-time { font-family: 'DM Mono', monospace; font-size: 10px; color: var(--text-muted); white-space: nowrap; }
+  .timeline-empty { text-align: center; color: var(--text-muted); font-size: 12px; padding: 20px 0; }
+
   .modal-footer { display: flex; justify-content: flex-end; gap: 10px; padding-top: 15px; border-top: 1px solid var(--border); }
   .btn { padding: 10px 20px; border-radius: 6px; font-family: 'DM Sans', sans-serif; font-size: 13px; font-weight: 600; cursor: pointer; border: none; transition: opacity 0.2s; }
   .btn-cancel { background: #eee; color: #666; }
@@ -160,9 +179,6 @@
     </div>
     <div class="header-right">
       <div class="header-date" id="headerDate"></div>
-      <button class="btn-refresh" onclick="loadCSV()">
-        <span id="refreshIcon">↻</span> Atualizar dados
-      </button>
     </div>
   </header>
 
@@ -218,6 +234,11 @@
     </select>
     <div class="last-updated" id="lastUpdated" style="border:none;padding:0;margin-left:auto">Carregando...</div>
   </div>
+
+  <div class="alert-banner" id="alertBanner">
+    <span id="alertBannerText"></span>
+    <span class="alert-close" onclick="document.getElementById('alertBanner').style.display='none'">&times;</span>
+  </div>
 </div>
 
 <div class="scroll-body">
@@ -234,6 +255,7 @@
           <th>Recebimento</th>
           <th>Entrega</th>
           <th>Dias s/ início</th>
+          <th>Tempo Produção</th>
           <th>Etapas</th>
           <th>Progresso</th>
           <th>Status</th>
@@ -286,20 +308,65 @@
   </div>
 </div>
 
+<!-- MODAL DE RELATÓRIO DO PRODUTO -->
+<div class="modal-overlay" id="modalReportOverlay">
+  <div class="modal-card" style="width:560px">
+    <span class="modal-close" onclick="closeModal('modalReportOverlay')">&times;</span>
+    <div class="modal-header">
+      <div class="modal-title" id="modalReportTitle">Nome do Produto</div>
+      <div class="modal-subtitle" id="modalReportSubtitle">Pedido: 12345</div>
+    </div>
+    <div class="report-summary" id="modalReportSummary"></div>
+    <div class="edit-section">
+      <label class="section-label">Observações</label>
+      <div class="timeline" id="modalReportObs" style="max-height:140px;margin-bottom:10px"><div class="timeline-empty">Carregando observações...</div></div>
+      <div style="display:flex;gap:8px">
+        <input type="text" id="newObsInput" class="edit-input" placeholder="Adicionar observação (ex: comercial retirou para retransmissão)" onkeydown="if(event.key==='Enter') addObservacao()">
+        <button class="btn btn-save" style="white-space:nowrap" onclick="addObservacao()">+ Add</button>
+      </div>
+    </div>
+    <div class="edit-section">
+      <label class="section-label">Histórico de Etapas</label>
+      <div class="timeline" id="modalReportTimeline"><div class="timeline-empty">Carregando histórico...</div></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-cancel" onclick="closeModal('modalReportOverlay')">Fechar</button>
+    </div>
+  </div>
+</div>
+
 <div id="toast">Alteração salva com sucesso!</div>
 
 <script>
 const CSV_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vQ6sr9_mKF3RsBXbk67qOX1SSydCVJDIzM3EzhF14yA5ooZ8mjcB3JQDU1d2DCbfPTGSRgchGgdr99V/pub?gid=1451091770&single=true&output=csv';
-const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbzH_mbu8kg7HBmVRonOUdKTBiZ2YTkix76hsYvmE1d9I4UmD_brIw5zrwZAGc5aAfmR/exec'; 
+const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbzH_mbu8kg7HBmVRonOUdKTBiZ2YTkix76hsYvmE1d9I4UmD_brIw5zrwZAGc5aAfmR/exec';
+
+const SUPABASE_URL = 'https://qzuhcbizkyvuhbshsdit.supabase.co';
+const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InF6dWhjYml6a3l2dWhic2hzZGl0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODEwNjkzODEsImV4cCI6MjA5NjY0NTM4MX0.aaQyk_wtitAQLjXyLGSWu1DniU3rLqk3Vb6ClhtWuaM';
+const supabaseClient = window.supabase ? window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY) : null;
 
 const STAGES       = ['modelagem3d','extracaoGab','programacao','montagem','preparacao','espumacao','modelagemTec','costura','tapecaria','montFinal'];
 const STAGE_LABELS = ['Modelagem 3D','Extração Gabarito','Programação','Montagem','Preparação','Espumação','Modelagem Téc.','Costura','Tapeçaria','Montagem Final'];
 const REFRESH_INTERVAL = 60 * 1000;
 
-let allData      = [];
-let activeFilter = 'all'; 
-let currentItem  = null;
-let refreshTimer = null;
+// Etapas que demarcam o início e o fim do período "em produção"
+const PRODUCAO_INICIO_ETAPA = 'extracaoGab';
+const PRODUCAO_FIM_ETAPA    = 'espumacao';
+const PRODUCAO_ALERTA_DIAS  = 10;
+const PRODUCAO_ATRASO_DIAS  = 15;
+
+const STATUS_SNAPSHOT_KEY = 'studyo4_status_snapshot';
+
+let allData         = [];
+let activeFilter    = 'all';
+let currentItem     = null;
+let refreshTimer    = null;
+let productionTimes = {};
+let observationCounts = {};
+
+function itemKey(item) {
+  return item.nPedido ? `ped:${item.nPedido}` : `prod:${item.produto}`;
+}
 
 function parseDate(str) {
   if (!str || !str.trim()) return null;
@@ -325,6 +392,162 @@ function fmtInputDate(str) {
   const d = parseDate(str);
   if (!d) return '';
   return d.toISOString().split('T')[0];
+}
+
+/* ── TEMPO EM PRODUÇÃO (Supabase) ──────────────────────── */
+async function loadProductionTimes() {
+  const map = {};
+  try {
+    const { data, error } = await supabaseClient
+      .from('etapa_logs')
+      .select('row_index, n_pedido, produto, etapa, status, created_at')
+      .in('etapa', [PRODUCAO_INICIO_ETAPA, PRODUCAO_FIM_ETAPA])
+      .eq('status', true)
+      .order('created_at', { ascending: true });
+    if (error) { console.error('Erro ao buscar logs de produção:', error); return map; }
+    data.forEach(row => {
+      const key = row.n_pedido ? `ped:${row.n_pedido}` : `prod:${row.produto}`;
+      if (!map[key]) map[key] = { start: null, end: null };
+      if (row.etapa === PRODUCAO_INICIO_ETAPA && !map[key].start) {
+        map[key].start = row.created_at;
+      }
+      if (row.etapa === PRODUCAO_FIM_ETAPA && map[key].start && !map[key].end && row.created_at >= map[key].start) {
+        map[key].end = row.created_at;
+      }
+    });
+  } catch (e) {
+    console.error('Falha ao conectar ao Supabase (tempo de produção):', e);
+  }
+  return map;
+}
+
+function productionTimeHtml(item) {
+  const pt = productionTimes[itemKey(item)];
+  if (!pt || !pt.start) return '<span style="color:var(--text-muted);font-family:\'DM Mono\',monospace;font-size:11px">—</span>';
+  const start = new Date(pt.start);
+  const end   = pt.end ? new Date(pt.end) : new Date();
+  const dias  = Math.floor((end - start) / 86400000);
+  if (pt.end) {
+    return `<span class="dias-badge d-green">✓ ${dias}d</span>`;
+  }
+  const cls = dias > PRODUCAO_ATRASO_DIAS ? 'd-red' : dias > PRODUCAO_ALERTA_DIAS ? 'd-orange' : 'd-gray';
+  const icon = dias > PRODUCAO_ATRASO_DIAS ? '⚠' : '●';
+  return `<span class="dias-badge ${cls}">${icon} ${dias}d em produção</span>`;
+}
+
+/* ── OBSERVAÇÕES (Supabase) ────────────────────────────── */
+async function loadObservationCounts() {
+  const map = {};
+  try {
+    const { data, error } = await supabaseClient.from('pedido_observacoes').select('n_pedido, produto');
+    if (error) { console.error('Erro ao buscar observações:', error); return map; }
+    data.forEach(row => {
+      const key = row.n_pedido ? `ped:${row.n_pedido}` : `prod:${row.produto}`;
+      map[key] = (map[key] || 0) + 1;
+    });
+  } catch (e) {
+    console.error('Falha ao conectar ao Supabase (observações):', e);
+  }
+  return map;
+}
+
+function obsFlagHtml(item) {
+  const count = observationCounts[itemKey(item)] || 0;
+  if (!count) return '';
+  return `<span class="obs-flag" title="${count} observação(ões)" onclick="event.stopPropagation();openReportModal(${item.rowIndex})">${count}</span>`;
+}
+
+async function loadObservacoesList(item) {
+  let query = supabaseClient.from('pedido_observacoes').select('texto, autor, created_at').order('created_at', { ascending: false });
+  query = item.nPedido ? query.eq('n_pedido', item.nPedido) : query.eq('produto', item.produto);
+  const { data, error } = await query;
+  if (error) throw error;
+  return data || [];
+}
+
+function renderObservacoes(list) {
+  const el = document.getElementById('modalReportObs');
+  if (!list.length) { el.innerHTML = '<div class="timeline-empty">Nenhuma observação registrada.</div>'; return; }
+  el.innerHTML = list.map(row => {
+    const dt = new Date(row.created_at);
+    const dtStr = dt.toLocaleDateString('pt-BR') + ' ' + dt.toLocaleTimeString('pt-BR', {hour:'2-digit',minute:'2-digit'});
+    return `<div class="timeline-item">
+      <div class="timeline-dot on" style="background:var(--accent)"></div>
+      <div style="flex:1">${row.texto}</div>
+      <div class="timeline-time">${dtStr}</div>
+    </div>`;
+  }).join('');
+}
+
+async function addObservacao() {
+  if (!currentItem) return;
+  const input = document.getElementById('newObsInput');
+  const texto = input.value.trim();
+  if (!texto) return;
+  try {
+    const { error } = await supabaseClient.from('pedido_observacoes').insert({
+      n_pedido: currentItem.nPedido || null,
+      produto: currentItem.produto,
+      texto
+    });
+    if (error) throw error;
+    input.value = '';
+    const list = await loadObservacoesList(currentItem);
+    renderObservacoes(list);
+    observationCounts = await loadObservationCounts();
+    renderTable();
+  } catch (e) {
+    console.error('Erro ao salvar observação:', e);
+    alert('Erro ao salvar observação: ' + e.message);
+  }
+}
+
+/* ── LOG DE ETAPAS (Supabase) ──────────────────────────── */
+async function logStageChanges(item, oldStages, newStages) {
+  const changed = STAGES.filter(s => !!oldStages[s] !== !!newStages[s]);
+  if (!changed.length) return;
+  const rows = changed.map(s => ({
+    row_index: item.rowIndex,
+    n_pedido: item.nPedido || null,
+    produto: item.produto,
+    etapa: s,
+    status: !!newStages[s]
+  }));
+  try {
+    const { error } = await supabaseClient.from('etapa_logs').insert(rows);
+    if (error) console.error('Erro ao gravar log de etapa:', error);
+  } catch (e) {
+    console.error('Falha ao conectar ao Supabase (log de etapa):', e);
+  }
+}
+
+/* ── ALERTA VISUAL DE STATUS ────────────────────────────── */
+function checkStatusAlerts() {
+  let prev = {};
+  try { prev = JSON.parse(localStorage.getItem(STATUS_SNAPSHOT_KEY) || '{}'); } catch (e) {}
+
+  const current = {};
+  const newAlerts = [];
+  allData.forEach(item => {
+    const key = itemKey(item);
+    const status = getStatus(item);
+    current[key] = status;
+    if ((status === 'red' || status === 'orange') && prev[key] !== undefined && prev[key] !== status) {
+      newAlerts.push({ produto: item.produto, status });
+    }
+  });
+  localStorage.setItem(STATUS_SNAPSHOT_KEY, JSON.stringify(current));
+  showAlertBanner(newAlerts);
+}
+
+function showAlertBanner(alerts) {
+  const banner = document.getElementById('alertBanner');
+  if (!alerts.length) return;
+  const hasRed = alerts.some(a => a.status === 'red');
+  banner.className = 'alert-banner' + (hasRed ? ' danger' : '');
+  const lista = alerts.map(a => `${a.produto} (${a.status === 'red' ? '🔴 atrasado' : '🟠 alerta'})`).join(', ');
+  document.getElementById('alertBannerText').textContent = `⚠ Novo(s) alerta(s) de prazo: ${lista}`;
+  banner.style.display = 'flex';
 }
 
 function getStatus(item) {
@@ -420,23 +643,31 @@ function parseCSV(text) {
 }
 
 async function loadCSV(isSilent = false) {
-  const icon = document.getElementById('refreshIcon');
-  if (!isSilent) icon.classList.add('spinning');
   const statusEl = document.getElementById('lastUpdated');
   if (!isSilent) statusEl.textContent = 'Atualizando...';
   try {
     const res = await fetch(CSV_URL + '&nocache=' + Date.now());
+    if (!res.ok) throw new Error(`Falha ao buscar planilha (HTTP ${res.status})`);
     const text = await res.text();
     allData = parseCSV(text);
+    productionTimes = await loadProductionTimes();
+    observationCounts = await loadObservationCounts();
+    checkStatusAlerts();
     document.getElementById('stateBox').style.display  = 'none';
     document.getElementById('tableWrap').style.display = 'block';
     populateFilters();
     renderTable();
     const now = new Date();
     statusEl.textContent = `Atualizado: ${now.toLocaleTimeString('pt-BR')}  ·  ${allData.length} itens`;
-    resetAutoRefresh();
-  } catch(e) { console.error(e); }
-  if (!isSilent) icon.classList.remove('spinning');
+  } catch(e) {
+    console.error(e);
+    statusEl.textContent = 'Erro ao atualizar — tentando novamente...';
+    if (!allData.length) {
+      document.getElementById('stateBox').innerHTML =
+        `<div style="color:var(--red)">Não foi possível carregar os dados.<br><span style="font-size:11px;color:var(--text-muted)">${e.message}</span></div>`;
+    }
+  }
+  resetAutoRefresh();
 }
 
 function resetAutoRefresh() {
@@ -527,10 +758,11 @@ function renderTable() {
       <td><span class="badge b-blue" style="font-size:9px">${item.tipo||'—'}</span></td>
       <td style="font-family:'DM Mono',monospace;font-size:11px;color:var(--text-muted)">${item.nPedido||'—'}</td>
       <td><strong style="font-size:13px">${item.responsavel||'—'}</strong></td>
-      <td style="max-width:270px;white-space:normal;line-height:1.35;font-size:12px">${item.produto}</td>
+      <td style="max-width:270px;white-space:normal;line-height:1.35;font-size:12px;cursor:pointer;text-decoration:underline" onclick="openReportModal(${item.rowIndex})">${obsFlagHtml(item)}${item.produto}</td>
       <td style="font-family:'DM Mono',monospace;font-size:11px;cursor:pointer;text-decoration:underline" onclick="openDateModal(${item.rowIndex})">${fmtDate(item.dataRecebimento)}</td>
       <td style="font-family:'DM Mono',monospace;font-size:11px">${fmtDate(item.dataEntrega)}</td>
       <td>${diasHtml}</td>
+      <td>${productionTimeHtml(item)}</td>
       <td>${stepsHtml}</td>
       <td>${progHtml}</td>
       <td><span class="badge ${badgeClass}">${currentBadge}</span></td>
@@ -566,6 +798,69 @@ function openStagesModal(rowIndex) {
   document.getElementById('modalStagesOverlay').style.display = 'flex';
 }
 
+async function openReportModal(rowIndex) {
+  currentItem = allData.find(d => d.rowIndex === rowIndex);
+  if (!currentItem) return;
+  const item = currentItem;
+
+  document.getElementById('modalReportTitle').textContent = item.produto;
+  document.getElementById('modalReportSubtitle').textContent = `Pedido: ${item.nPedido || '—'} · Responsável: ${item.responsavel || '—'}`;
+
+  const status = getStatus(item);
+  const statusLabelMap = { red: '🔴 Atrasado', orange: '🟠 Em Alerta', green: '🟢 Finalizado', white: item.progresso > 0 ? '⚪ Em Andamento' : '🔘 Sem Iniciar' };
+  const pt = productionTimes[itemKey(item)];
+  let prodLabel = '—';
+  if (pt && pt.start) {
+    const dias = Math.floor(((pt.end ? new Date(pt.end) : new Date()) - new Date(pt.start)) / 86400000);
+    prodLabel = pt.end ? `${dias}d (concluído)` : `${dias}d (em andamento)`;
+  }
+
+  document.getElementById('modalReportSummary').innerHTML = `
+    <div class="report-item"><span class="label">Status</span><span class="value">${statusLabelMap[status]}</span></div>
+    <div class="report-item"><span class="label">Progresso</span><span class="value">${item.progresso}%</span></div>
+    <div class="report-item"><span class="label">Data Solicitação</span><span class="value">${fmtDate(item.dataSolicitacao)}</span></div>
+    <div class="report-item"><span class="label">Data Recebimento</span><span class="value">${fmtDate(item.dataRecebimento)}</span></div>
+    <div class="report-item"><span class="label">Data Entrega</span><span class="value">${fmtDate(item.dataEntrega)}</span></div>
+    <div class="report-item"><span class="label">Tempo em Produção</span><span class="value">${prodLabel}</span></div>
+  `;
+
+  document.getElementById('modalReportOverlay').style.display = 'flex';
+  document.getElementById('newObsInput').value = '';
+
+  document.getElementById('modalReportObs').innerHTML = '<div class="timeline-empty">Carregando observações...</div>';
+  loadObservacoesList(item)
+    .then(renderObservacoes)
+    .catch(e => { console.error('Erro ao buscar observações:', e); document.getElementById('modalReportObs').innerHTML = '<div class="timeline-empty">Não foi possível carregar.</div>'; });
+
+  const timelineEl = document.getElementById('modalReportTimeline');
+  timelineEl.innerHTML = '<div class="timeline-empty">Carregando histórico...</div>';
+  try {
+    let query = supabaseClient.from('etapa_logs').select('etapa, status, created_at').order('created_at', { ascending: false });
+    query = item.nPedido ? query.eq('n_pedido', item.nPedido) : query.eq('produto', item.produto);
+    const { data, error } = await query;
+    if (error) throw error;
+    if (!data || !data.length) {
+      timelineEl.innerHTML = '<div class="timeline-empty">Nenhuma alteração de etapa registrada ainda.</div>';
+      return;
+    }
+    timelineEl.innerHTML = data.map(row => {
+      const idx = STAGES.indexOf(row.etapa);
+      const label = idx >= 0 ? STAGE_LABELS[idx] : row.etapa;
+      const dt = new Date(row.created_at);
+      const dtStr = dt.toLocaleDateString('pt-BR') + ' ' + dt.toLocaleTimeString('pt-BR', {hour:'2-digit',minute:'2-digit'});
+      const acao = row.status ? 'marcada como concluída' : 'desmarcada';
+      return `<div class="timeline-item">
+        <div class="timeline-dot ${row.status ? 'on' : 'off'}"></div>
+        <div style="flex:1">${label} — <strong>${acao}</strong></div>
+        <div class="timeline-time">${dtStr}</div>
+      </div>`;
+    }).join('');
+  } catch (e) {
+    console.error('Erro ao buscar histórico:', e);
+    timelineEl.innerHTML = '<div class="timeline-empty">Não foi possível carregar o histórico.</div>';
+  }
+}
+
 function openDateModal(rowIndex) {
   currentItem = allData.find(d => d.rowIndex === rowIndex);
   if (!currentItem) return;
@@ -581,6 +876,7 @@ async function saveStagesChanges() {
   const updatedStages = {};
   STAGES.forEach(s => { updatedStages[s] = document.getElementById('chk-' + s).checked; });
   const updatedResp = document.getElementById('editResponsavel').value;
+  await logStageChanges(currentItem, currentItem.stages, updatedStages);
   await callAPI({ rowIndex: currentItem.rowIndex, stages: updatedStages, responsavel: updatedResp });
   closeModal('modalStagesOverlay');
 }
@@ -607,7 +903,11 @@ async function callAPI(payload) {
 
 function showToast() { const t = document.getElementById('toast'); t.classList.add('show'); setTimeout(() => t.classList.remove('show'), 3000); }
 
-document.getElementById('headerDate').textContent = new Date().toLocaleDateString('pt-BR',{weekday:'long',year:'numeric',month:'long',day:'numeric'});
+function updateHeaderDate() {
+  document.getElementById('headerDate').textContent = new Date().toLocaleDateString('pt-BR',{weekday:'long',year:'numeric',month:'long',day:'numeric'});
+}
+updateHeaderDate();
+setInterval(updateHeaderDate, 60 * 1000);
 loadCSV();
 </script>
 </body>
