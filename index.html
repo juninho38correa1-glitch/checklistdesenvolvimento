@@ -365,7 +365,10 @@ let productionTimes = {};
 let observationCounts = {};
 
 function itemKey(item) {
-  return item.nPedido ? `ped:${item.nPedido}` : `prod:${item.produto}`;
+  return `${item.nPedido || ''}::${item.produto}`;
+}
+function logKey(row) {
+  return `${row.n_pedido || ''}::${row.produto}`;
 }
 
 function parseDate(str) {
@@ -406,7 +409,7 @@ async function loadProductionTimes() {
       .order('created_at', { ascending: true });
     if (error) { console.error('Erro ao buscar logs de produção:', error); return map; }
     data.forEach(row => {
-      const key = row.n_pedido ? `ped:${row.n_pedido}` : `prod:${row.produto}`;
+      const key = logKey(row);
       if (!map[key]) map[key] = { start: null, end: null };
       if (row.etapa === PRODUCAO_INICIO_ETAPA && !map[key].start) {
         map[key].start = row.created_at;
@@ -442,7 +445,7 @@ async function loadObservationCounts() {
     const { data, error } = await supabaseClient.from('pedido_observacoes').select('n_pedido, produto');
     if (error) { console.error('Erro ao buscar observações:', error); return map; }
     data.forEach(row => {
-      const key = row.n_pedido ? `ped:${row.n_pedido}` : `prod:${row.produto}`;
+      const key = logKey(row);
       map[key] = (map[key] || 0) + 1;
     });
   } catch (e) {
@@ -458,8 +461,8 @@ function obsFlagHtml(item) {
 }
 
 async function loadObservacoesList(item) {
-  let query = supabaseClient.from('pedido_observacoes').select('texto, autor, created_at').order('created_at', { ascending: false });
-  query = item.nPedido ? query.eq('n_pedido', item.nPedido) : query.eq('produto', item.produto);
+  let query = supabaseClient.from('pedido_observacoes').select('texto, autor, created_at').eq('produto', item.produto).order('created_at', { ascending: false });
+  if (item.nPedido) query = query.eq('n_pedido', item.nPedido);
   const { data, error } = await query;
   if (error) throw error;
   return data || [];
@@ -835,8 +838,8 @@ async function openReportModal(rowIndex) {
   const timelineEl = document.getElementById('modalReportTimeline');
   timelineEl.innerHTML = '<div class="timeline-empty">Carregando histórico...</div>';
   try {
-    let query = supabaseClient.from('etapa_logs').select('etapa, status, created_at').order('created_at', { ascending: false });
-    query = item.nPedido ? query.eq('n_pedido', item.nPedido) : query.eq('produto', item.produto);
+    let query = supabaseClient.from('etapa_logs').select('etapa, status, created_at').eq('produto', item.produto).order('created_at', { ascending: false });
+    if (item.nPedido) query = query.eq('n_pedido', item.nPedido);
     const { data, error } = await query;
     if (error) throw error;
     if (!data || !data.length) {
