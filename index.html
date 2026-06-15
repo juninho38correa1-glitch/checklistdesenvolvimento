@@ -64,6 +64,8 @@
   select { border: 1px solid var(--border); border-radius: 4px; padding: 4px 8px; font-family: 'DM Sans', sans-serif; font-size: 11px; color: var(--dark); background: white; cursor: pointer; outline: none; }
 
   .last-updated { padding: 3px 30px; font-family: 'DM Mono', monospace; font-size: 9px; color: var(--text-muted); background: var(--cream); border-bottom: 1px solid var(--border); }
+  .operador-badge { font-size: 10px; font-weight: 600; color: var(--text-muted); border: 1px solid var(--border); border-radius: 20px; padding: 4px 12px; cursor: pointer; white-space: nowrap; transition: all .15s; }
+  .operador-badge:hover { border-color: var(--accent); color: var(--accent); }
 
   /* ALERT BANNER */
   .alert-banner { display: none; align-items: center; justify-content: space-between; gap: 10px; padding: 8px 30px; font-family: 'DM Sans', sans-serif; font-size: 12px; font-weight: 600; background: var(--orange-soft); color: #b85f0a; border-bottom: 1px solid var(--orange); }
@@ -153,6 +155,36 @@
   .timeline-time { font-family: 'DM Mono', monospace; font-size: 10px; color: var(--text-muted); white-space: nowrap; }
   .timeline-empty { text-align: center; color: var(--text-muted); font-size: 12px; padding: 20px 0; }
 
+  /* GANTT */
+  .gantt { margin-bottom: 8px; }
+  .gantt-row { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+  .gantt-label { width: 85px; flex-shrink: 0; color: var(--text-muted); text-transform: uppercase; font-size: 9px; letter-spacing: 1px; font-weight: 600; }
+  .gantt-track { position: relative; flex: 1; height: 20px; background: #f0ece4; border-radius: 4px; }
+  .gantt-bar { position: absolute; top: 0; height: 100%; border-radius: 4px; display: flex; align-items: center; padding: 0 6px; font-size: 10px; color: white; font-weight: 600; white-space: nowrap; overflow: hidden; }
+  .gantt-marker { position: absolute; top: -2px; width: 2px; height: 24px; background: var(--red); }
+  .gantt-marker-label { position: absolute; top: -15px; font-size: 9px; color: var(--red); white-space: nowrap; transform: translateX(-50%); font-weight: 600; }
+  .gantt-dot { position: absolute; top: 2px; width: 16px; height: 16px; border-radius: 50%; transform: translateX(-50%); display: flex; align-items: center; justify-content: center; font-size: 8px; font-weight: 700; color: white; border: 2px solid white; box-shadow: 0 1px 2px rgba(0,0,0,0.2); }
+  .gantt-dot.done { background: var(--green); }
+  .gantt-axis { display: flex; justify-content: space-between; font-family: 'DM Mono', monospace; font-size: 9px; color: var(--text-muted); margin-top: 2px; padding-left: 95px; }
+
+  /* PDF / IMPRESSÃO */
+  .print-header { display: none; }
+  @media print {
+    body.printing-report > *:not(#modalReportOverlay) { display: none !important; }
+    body.printing-report #modalReportOverlay { position: absolute; top: 0; left: 0; width: 100%; height: auto; background: none; display: block !important; backdrop-filter: none; }
+    body.printing-report #modalReportOverlay .modal-card { box-shadow: none; width: 100%; max-width: 100%; border-radius: 0; max-height: none; overflow: visible; }
+    body.printing-report .timeline { max-height: none; overflow: visible; }
+    body.printing-report .modal-close,
+    body.printing-report .modal-footer,
+    body.printing-report .edit-input,
+    body.printing-report #newObsInput,
+    body.printing-report .btn-save,
+    body.printing-report .obs-flag { display: none !important; }
+    body.printing-report .print-header { display: block; margin-bottom: 14px; }
+    body.printing-report .print-header .print-company { font-family: 'DM Serif Display', serif; font-size: 20px; }
+    body.printing-report .print-header .print-meta { font-size: 10px; color: var(--text-muted); margin-top: 2px; }
+  }
+
   .modal-footer { display: flex; justify-content: flex-end; gap: 10px; padding-top: 15px; border-top: 1px solid var(--border); }
   .btn { padding: 10px 20px; border-radius: 6px; font-family: 'DM Sans', sans-serif; font-size: 13px; font-weight: 600; cursor: pointer; border: none; transition: opacity 0.2s; }
   .btn-cancel { background: #eee; color: #666; }
@@ -232,6 +264,7 @@
       <option value="zero">🔘 Sem Iniciar (0%)</option>
       <option value="green">🟢 Finalizados (100%)</option>
     </select>
+    <div class="operador-badge" id="operadorBadge" onclick="promptOperador()" title="Clique para definir quem está usando este computador"></div>
     <div class="last-updated" id="lastUpdated" style="border:none;padding:0;margin-left:auto">Carregando...</div>
   </div>
 
@@ -312,11 +345,19 @@
 <div class="modal-overlay" id="modalReportOverlay">
   <div class="modal-card" style="width:560px">
     <span class="modal-close" onclick="closeModal('modalReportOverlay')">&times;</span>
+    <div class="print-header">
+      <div class="print-company">STUDYO 4 ESTOFADOS — Relatório do Produto</div>
+      <div class="print-meta" id="modalPrintMeta"></div>
+    </div>
     <div class="modal-header">
       <div class="modal-title" id="modalReportTitle">Nome do Produto</div>
       <div class="modal-subtitle" id="modalReportSubtitle">Pedido: 12345</div>
     </div>
     <div class="report-summary" id="modalReportSummary"></div>
+    <div class="edit-section">
+      <label class="section-label">Linha do Tempo do Processo</label>
+      <div id="modalReportGantt"><div class="timeline-empty">Carregando linha do tempo...</div></div>
+    </div>
     <div class="edit-section">
       <label class="section-label">Observações</label>
       <div class="timeline" id="modalReportObs" style="max-height:140px;margin-bottom:10px"><div class="timeline-empty">Carregando observações...</div></div>
@@ -331,6 +372,7 @@
     </div>
     <div class="modal-footer">
       <button class="btn btn-cancel" onclick="closeModal('modalReportOverlay')">Fechar</button>
+      <button class="btn btn-save" onclick="printReport()">🖨️ Exportar PDF</button>
     </div>
   </div>
 </div>
@@ -356,6 +398,7 @@ const PRODUCAO_ALERTA_DIAS  = 10;
 const PRODUCAO_ATRASO_DIAS  = 15;
 
 const STATUS_SNAPSHOT_KEY = 'studyo4_status_snapshot';
+const OPERADOR_KEY = 'studyo4_operador';
 
 let allData         = [];
 let activeFilter    = 'all';
@@ -474,9 +517,10 @@ function renderObservacoes(list) {
   el.innerHTML = list.map(row => {
     const dt = new Date(row.created_at);
     const dtStr = dt.toLocaleDateString('pt-BR') + ' ' + dt.toLocaleTimeString('pt-BR', {hour:'2-digit',minute:'2-digit'});
+    const autorStr = row.autor ? ` <span style="color:var(--text-muted)">— ${row.autor}</span>` : '';
     return `<div class="timeline-item">
       <div class="timeline-dot on" style="background:var(--accent)"></div>
-      <div style="flex:1">${row.texto}</div>
+      <div style="flex:1">${row.texto}${autorStr}</div>
       <div class="timeline-time">${dtStr}</div>
     </div>`;
   }).join('');
@@ -491,7 +535,8 @@ async function addObservacao() {
     const { error } = await supabaseClient.from('pedido_observacoes').insert({
       n_pedido: currentItem.nPedido || null,
       produto: currentItem.produto,
-      texto
+      texto,
+      autor: getOperador() || null
     });
     if (error) throw error;
     input.value = '';
@@ -505,6 +550,22 @@ async function addObservacao() {
   }
 }
 
+/* ── OPERADOR (quem está usando este computador) ───────── */
+function getOperador() {
+  return localStorage.getItem(OPERADOR_KEY) || '';
+}
+function promptOperador() {
+  const atual = getOperador();
+  const nome = prompt('Quem está usando este computador?', atual);
+  if (nome === null) return;
+  localStorage.setItem(OPERADOR_KEY, nome.trim());
+  renderOperadorBadge();
+}
+function renderOperadorBadge() {
+  const nome = getOperador();
+  document.getElementById('operadorBadge').textContent = nome ? `👤 ${nome}` : '👤 Definir usuário';
+}
+
 /* ── LOG DE ETAPAS (Supabase) ──────────────────────────── */
 async function logStageChanges(item, oldStages, newStages) {
   const changed = STAGES.filter(s => !!oldStages[s] !== !!newStages[s]);
@@ -514,7 +575,8 @@ async function logStageChanges(item, oldStages, newStages) {
     n_pedido: item.nPedido || null,
     produto: item.produto,
     etapa: s,
-    status: !!newStages[s]
+    status: !!newStages[s],
+    usuario: getOperador() || null
   }));
   try {
     const { error } = await supabaseClient.from('etapa_logs').insert(rows);
@@ -818,6 +880,17 @@ async function openReportModal(rowIndex) {
     prodLabel = pt.end ? `${dias}d (concluído)` : `${dias}d (em andamento)`;
   }
 
+  let leadLabel = '—';
+  const solicD = parseDate(item.dataSolicitacao);
+  const recebD = parseDate(item.dataRecebimento);
+  if (solicD && recebD) {
+    const dias = Math.round((recebD - solicD) / 86400000);
+    leadLabel = `${dias}d`;
+  } else if (solicD && !recebD) {
+    const dias = Math.floor((new Date().setHours(0,0,0,0) - solicD.setHours(0,0,0,0)) / 86400000);
+    leadLabel = `${dias}d (aguardando recebimento)`;
+  }
+
   document.getElementById('modalReportSummary').innerHTML = `
     <div class="report-item"><span class="label">Status</span><span class="value">${statusLabelMap[status]}</span></div>
     <div class="report-item"><span class="label">Progresso</span><span class="value">${item.progresso}%</span></div>
@@ -825,6 +898,7 @@ async function openReportModal(rowIndex) {
     <div class="report-item"><span class="label">Data Recebimento</span><span class="value">${fmtDate(item.dataRecebimento)}</span></div>
     <div class="report-item"><span class="label">Data Entrega</span><span class="value">${fmtDate(item.dataEntrega)}</span></div>
     <div class="report-item"><span class="label">Tempo em Produção</span><span class="value">${prodLabel}</span></div>
+    <div class="report-item"><span class="label">Lead Time Comercial</span><span class="value">${leadLabel}</span></div>
   `;
 
   document.getElementById('modalReportOverlay').style.display = 'flex';
@@ -836,12 +910,17 @@ async function openReportModal(rowIndex) {
     .catch(e => { console.error('Erro ao buscar observações:', e); document.getElementById('modalReportObs').innerHTML = '<div class="timeline-empty">Não foi possível carregar.</div>'; });
 
   const timelineEl = document.getElementById('modalReportTimeline');
+  const ganttEl = document.getElementById('modalReportGantt');
   timelineEl.innerHTML = '<div class="timeline-empty">Carregando histórico...</div>';
+  ganttEl.innerHTML = '<div class="timeline-empty">Carregando linha do tempo...</div>';
   try {
-    let query = supabaseClient.from('etapa_logs').select('etapa, status, created_at').eq('produto', item.produto).order('created_at', { ascending: false });
+    let query = supabaseClient.from('etapa_logs').select('etapa, status, created_at, usuario').eq('produto', item.produto).order('created_at', { ascending: false });
     if (item.nPedido) query = query.eq('n_pedido', item.nPedido);
     const { data, error } = await query;
     if (error) throw error;
+
+    ganttEl.innerHTML = buildGanttHtml(item, data || []);
+
     if (!data || !data.length) {
       timelineEl.innerHTML = '<div class="timeline-empty">Nenhuma alteração de etapa registrada ainda.</div>';
       return;
@@ -852,16 +931,116 @@ async function openReportModal(rowIndex) {
       const dt = new Date(row.created_at);
       const dtStr = dt.toLocaleDateString('pt-BR') + ' ' + dt.toLocaleTimeString('pt-BR', {hour:'2-digit',minute:'2-digit'});
       const acao = row.status ? 'marcada como concluída' : 'desmarcada';
+      const autorStr = row.usuario ? ` <span style="color:var(--text-muted)">— ${row.usuario}</span>` : '';
       return `<div class="timeline-item">
         <div class="timeline-dot ${row.status ? 'on' : 'off'}"></div>
-        <div style="flex:1">${label} — <strong>${acao}</strong></div>
+        <div style="flex:1">${label} — <strong>${acao}</strong>${autorStr}</div>
         <div class="timeline-time">${dtStr}</div>
       </div>`;
     }).join('');
   } catch (e) {
     console.error('Erro ao buscar histórico:', e);
     timelineEl.innerHTML = '<div class="timeline-empty">Não foi possível carregar o histórico.</div>';
+    ganttEl.innerHTML = '<div class="timeline-empty">Não foi possível carregar a linha do tempo.</div>';
   }
+}
+
+// Monta a linha do tempo estilo Gantt: lead time comercial, tempo em produção
+// e marcadores de cada etapa concluída + data prevista de entrega.
+function buildGanttHtml(item, logs) {
+  const ascLogs = [...logs].sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
+  const firstTrue = {};
+  ascLogs.forEach(row => {
+    if (row.status && !(row.etapa in firstTrue)) firstTrue[row.etapa] = new Date(row.created_at);
+  });
+
+  const solic   = parseDate(item.dataSolicitacao);
+  const receb   = parseDate(item.dataRecebimento);
+  const entrega = parseDate(item.dataEntrega);
+  const today   = new Date();
+
+  const allDates = [solic, receb, entrega, today, ...Object.values(firstTrue)].filter(Boolean);
+  if (allDates.length < 2) {
+    return '<div class="timeline-empty">Datas insuficientes para montar a linha do tempo.</div>';
+  }
+
+  const minD = new Date(Math.min(...allDates.map(d => d.getTime())));
+  const maxD = new Date(Math.max(...allDates.map(d => d.getTime())));
+  const span = Math.max(1, maxD - minD);
+  const pct = d => Math.min(100, Math.max(0, ((d - minD) / span) * 100));
+  const daysBetween = (a, b) => Math.round((b - a) / 86400000);
+
+  // Renderiza uma barra; se ficar muito estreita, joga o texto pra fora dela
+  const ganttBar = (left, width, color, text, title) => {
+    const narrow = width < 14;
+    const labelStyle = `position:absolute;left:${Math.min(100, left + width + 1)}%;top:1px;font-size:10px;font-weight:600;color:var(--text);white-space:nowrap`;
+    const barInner = narrow ? '' : text;
+    const outerLabel = narrow ? `<div style="${labelStyle}">${text}</div>` : '';
+    return `<div class="gantt-bar" style="left:${left}%;width:${width}%;background:${color}" title="${title}">${barInner}</div>${outerLabel}`;
+  };
+
+  let html = '<div class="gantt">';
+
+  // Comercial: Solicitação -> Recebimento
+  if (solic && receb) {
+    const left = pct(solic);
+    const width = Math.max(1, pct(receb) - left);
+    html += `<div class="gantt-row">
+      <div class="gantt-label">Comercial</div>
+      <div class="gantt-track">${ganttBar(left, width, 'var(--accent)', `${daysBetween(solic, receb)}d`, `Solicitação ${fmtDate(item.dataSolicitacao)} → Recebimento ${fmtDate(item.dataRecebimento)}`)}</div>
+    </div>`;
+  }
+
+  // Produção: tempo entre marcar "Extração Gabarito" e marcar "Espumação"
+  // (intervalo em que o produto fica no setor de produção/retorno)
+  const inicio = firstTrue[PRODUCAO_INICIO_ETAPA];
+  const fim = firstTrue[PRODUCAO_FIM_ETAPA];
+  if (inicio) {
+    const end = fim || today;
+    const left = pct(inicio);
+    const width = Math.max(1, pct(end) - left);
+    const color = fim ? 'var(--green)' : 'var(--orange)';
+    const text = `${daysBetween(inicio, end)}d${fim ? '' : ' (em andamento)'}`;
+    html += `<div class="gantt-row">
+      <div class="gantt-label">Produção<div style="font-size:8px;font-weight:400;text-transform:none;letter-spacing:0">Extração → Espumação</div></div>
+      <div class="gantt-track">${ganttBar(left, width, color, text, `Tempo entre marcar Extração Gabarito (${inicio.toLocaleDateString('pt-BR')}) e marcar Espumação${fim ? ' (' + fim.toLocaleDateString('pt-BR') + ')' : ' (ainda não marcada)'}`)}</div>
+    </div>`;
+  }
+
+  // Marcadores de cada etapa concluída
+  const concluidas = STAGES.filter(s => firstTrue[s]).length;
+  let dotsHtml = '';
+  STAGES.forEach((s, i) => {
+    const done = firstTrue[s];
+    if (!done) return;
+    dotsHtml += `<div class="gantt-dot done" style="left:${pct(done)}%" title="${STAGE_LABELS[i]} — ${done.toLocaleDateString('pt-BR')}">${i + 1}</div>`;
+  });
+  if (dotsHtml) {
+    html += `<div class="gantt-row">
+      <div class="gantt-label">Etapas<div style="font-size:8px;font-weight:400;text-transform:none;letter-spacing:0">${concluidas}/${STAGES.length} concluídas</div></div>
+      <div class="gantt-track">${dotsHtml}</div>
+    </div>`;
+  }
+
+  // Marcador de entrega prevista — fica laranja quando está chegando perto
+  // (≤7 dias) e vermelho quando já passou e o produto não foi finalizado
+  if (entrega) {
+    let markerColor = 'var(--text-muted)';
+    let aviso = '';
+    if (item.progresso < 100) {
+      const diasParaEntrega = daysBetween(today, entrega);
+      if (diasParaEntrega < 0) { markerColor = 'var(--red)'; aviso = ' (atrasado)'; }
+      else if (diasParaEntrega <= 7) { markerColor = 'var(--orange)'; aviso = ' (chegando)'; }
+    }
+    html += `<div class="gantt-row">
+      <div class="gantt-label">Entrega Prev.</div>
+      <div class="gantt-track"><div class="gantt-marker" style="left:${pct(entrega)}%;background:${markerColor}"></div><div class="gantt-marker-label" style="left:${pct(entrega)}%;color:${markerColor}">${fmtDate(item.dataEntrega)}${aviso}</div></div>
+    </div>`;
+  }
+
+  html += `<div class="gantt-axis"><span>${minD.toLocaleDateString('pt-BR')}</span><span>${maxD.toLocaleDateString('pt-BR')}</span></div>`;
+  html += '</div>';
+  return html;
 }
 
 function openDateModal(rowIndex) {
@@ -874,14 +1053,30 @@ function openDateModal(rowIndex) {
 
 function closeModal(id) { document.getElementById(id).style.display = 'none'; currentItem = null; }
 
+function printReport() {
+  const now = new Date();
+  document.getElementById('modalPrintMeta').textContent =
+    `Gerado em ${now.toLocaleDateString('pt-BR')} às ${now.toLocaleTimeString('pt-BR', {hour:'2-digit',minute:'2-digit'})}`;
+  document.body.classList.add('printing-report');
+  window.print();
+  document.body.classList.remove('printing-report');
+}
+
 async function saveStagesChanges() {
   if (!currentItem) return;
-  const updatedStages = {};
-  STAGES.forEach(s => { updatedStages[s] = document.getElementById('chk-' + s).checked; });
-  const updatedResp = document.getElementById('editResponsavel').value;
-  await logStageChanges(currentItem, currentItem.stages, updatedStages);
-  await callAPI({ rowIndex: currentItem.rowIndex, stages: updatedStages, responsavel: updatedResp });
-  closeModal('modalStagesOverlay');
+  const btn = document.getElementById('btnSaveStages');
+  if (btn.disabled) return;
+  btn.disabled = true;
+  try {
+    const updatedStages = {};
+    STAGES.forEach(s => { updatedStages[s] = document.getElementById('chk-' + s).checked; });
+    const updatedResp = document.getElementById('editResponsavel').value;
+    await logStageChanges(currentItem, currentItem.stages, updatedStages);
+    await callAPI({ rowIndex: currentItem.rowIndex, stages: updatedStages, responsavel: updatedResp });
+    closeModal('modalStagesOverlay');
+  } finally {
+    btn.disabled = false;
+  }
 }
 
 async function saveDateChanges() {
@@ -911,6 +1106,7 @@ function updateHeaderDate() {
 }
 updateHeaderDate();
 setInterval(updateHeaderDate, 60 * 1000);
+renderOperadorBadge();
 loadCSV();
 </script>
 </body>
