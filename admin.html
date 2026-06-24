@@ -137,6 +137,31 @@
   .feed-user { font-size: 11px; font-weight: 600; color: var(--accent); }
   .feed-time { font-family: 'DM Mono', monospace; font-size: 10px; color: var(--text-muted); }
   .feed-tipo { font-size: 10px; padding: 1px 7px; border-radius: 20px; font-weight: 600; }
+
+  /* ── FILTRO DE ETAPAS ────────────────────────────────────────── */
+  .stage-filter-bar {
+    display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 14px;
+    padding: 10px 14px; background: white; border: 1px solid var(--border);
+    border-radius: 8px; align-items: center;
+  }
+  .stage-filter-label {
+    font-size: 10px; font-weight: 700; text-transform: uppercase;
+    letter-spacing: 1px; color: var(--text-muted); margin-right: 4px; white-space: nowrap;
+  }
+  .stage-pill {
+    padding: 3px 11px; border-radius: 20px; font-size: 11px; font-weight: 600;
+    cursor: pointer; border: 1px solid var(--border); background: #f5f0e8;
+    color: var(--text-muted); transition: all 0.15s; white-space: nowrap; user-select: none;
+  }
+  .stage-pill:hover { border-color: var(--accent); color: var(--dark); }
+  .stage-pill.active { background: var(--dark); color: var(--cream); border-color: var(--dark); }
+  .stage-pill.active:hover { opacity: 0.85; }
+  .stage-filter-clear {
+    font-size: 10px; color: var(--accent); cursor: pointer; font-weight: 600;
+    margin-left: auto; white-space: nowrap; padding: 3px 8px;
+    border: 1px solid var(--accent); border-radius: 20px; background: none;
+  }
+  .stage-filter-clear:hover { background: var(--accent); color: var(--dark); }
   .tipo-etapa { background: var(--blue-soft); color: #1a6fa8; }
   .tipo-obs   { background: #f5ecd8; color: #8a6930; }
 
@@ -146,6 +171,62 @@
 
   .loader { display: inline-block; width: 24px; height: 24px; border: 3px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: spin 0.8s linear infinite; }
   @keyframes spin { to { transform: rotate(360deg); } }
+
+
+  /* ── ABAS ────────────────────────────────────────────────────── */
+  .tab-bar {
+    display: flex; gap: 0; background: white;
+    border-bottom: 2px solid var(--border); flex-shrink: 0;
+    padding: 0 24px;
+  }
+  .tab-btn {
+    padding: 10px 20px; font-size: 12px; font-weight: 600; cursor: pointer;
+    border: none; background: none; color: var(--text-muted);
+    border-bottom: 2px solid transparent; margin-bottom: -2px;
+    transition: all 0.15s; display: flex; align-items: center; gap: 6px;
+    font-family: 'DM Sans', sans-serif;
+  }
+  .tab-btn:hover { color: var(--dark); }
+  .tab-btn.active { color: var(--dark); border-bottom-color: var(--accent); }
+  .tab-content { display: none; }
+  .tab-content.active { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+
+  /* ── ARQUIVOS CAD ─────────────────────────────────────────────── */
+  .cad-grid { display: grid; grid-template-columns: 320px 1fr; gap: 0; flex: 1; min-height: 0; overflow: hidden; }
+  .cad-left  { border-right: 1px solid var(--border); padding: 20px; background: white; overflow-y: auto; }
+  .cad-right { padding: 20px; overflow-y: auto; }
+
+  .ext-badge {
+    font-family: 'DM Mono', monospace; font-size: 10px; font-weight: 700;
+    padding: 2px 7px; border-radius: 4px; text-transform: uppercase;
+    background: #f0ece4; color: var(--mid); border: 1px solid var(--border);
+  }
+  .ext-dwg  { background: #1a3a5c; color: white; border-color: #1a3a5c; }
+  .ext-dxf  { background: #2c5a8c; color: white; border-color: #2c5a8c; }
+  .ext-stp, .ext-step { background: #2e7d32; color: white; border-color: #2e7d32; }
+  .ext-stl  { background: #6a1b9a; color: white; border-color: #6a1b9a; }
+  .ext-pdf  { background: #c62828; color: white; border-color: #c62828; }
+
+  .evt-badge {
+    font-size: 10px; font-weight: 700; padding: 2px 8px; border-radius: 20px;
+    text-transform: uppercase; letter-spacing: 0.5px;
+  }
+  .evt-modificado { background: var(--blue-soft);   color: #1a6fa8; }
+  .evt-criado     { background: var(--green-soft);   color: #1a6e40; }
+  .evt-excluido   { background: var(--red-soft);     color: var(--red); }
+  .evt-renomeado  { background: var(--orange-soft);  color: #8a4000; }
+
+  .pc-card {
+    border: 1px solid var(--border); border-radius: 8px; padding: 12px 14px;
+    margin-bottom: 8px; cursor: pointer; transition: all 0.15s; background: white;
+  }
+  .pc-card:hover  { border-color: var(--accent); }
+  .pc-card.active { border-color: var(--accent); background: #fdfaf5; box-shadow: 0 0 0 2px rgba(200,169,110,0.2); }
+  .pc-card-top  { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; }
+  .pc-avatar    { width: 32px; height: 32px; border-radius: 6px; background: #1a3a5c; color: white; display: flex; align-items: center; justify-content: center; font-size: 14px; flex-shrink: 0; }
+  .pc-name      { font-weight: 700; font-size: 13px; color: var(--dark); font-family: 'DM Mono', monospace; }
+  .pc-sub       { font-size: 11px; color: var(--text-muted); }
+  .pc-meta      { display: flex; gap: 6px; flex-wrap: wrap; }
 
   ::-webkit-scrollbar { width: 5px; }
   ::-webkit-scrollbar-track { background: #f0ece4; }
@@ -220,7 +301,20 @@
   <span class="last-upd" id="lastUpd">Carregando...</span>
 </div>
 
+<!-- BARRA DE ABAS -->
+<div class="tab-bar">
+  <button class="tab-btn active" onclick="switchTab('etapas',this)">
+    📋 Etapas &amp; Ações
+  </button>
+  <button class="tab-btn" onclick="switchTab('arquivos',this)">
+    📁 Arquivos CAD
+  </button>
+</div>
+
 <div class="scroll-body">
+
+<!-- ABA: ETAPAS -->
+<div id="tab-etapas" class="tab-content active">
   <div class="main-grid">
     <div class="left-panel">
       <div class="panel-title">Atividade por Pessoa</div>
@@ -231,10 +325,60 @@
         <div class="panel-title" style="margin-bottom:0">Feed de Atividade</div>
         <div class="feed-count" id="feedCount"></div>
       </div>
+
+      <!-- FILTRO DE ETAPAS -->
+      <div class="stage-filter-bar" id="stageFilterBar">
+        <span class="stage-filter-label">Etapas</span>
+        <div id="stagePills"></div>
+        <button class="stage-filter-clear" id="stageClearBtn" onclick="clearStageFilter()" style="display:none">✕ Limpar filtro</button>
+      </div>
+
       <div id="feedList"><div style="text-align:center;padding:30px"><div class="loader"></div></div></div>
     </div>
+  </div><!-- /main-grid etapas -->
+</div><!-- /tab-etapas -->
+
+<!-- ABA: ARQUIVOS CAD -->
+<div id="tab-arquivos" class="tab-content">
+  <div class="cad-grid">
+
+    <!-- Esquerda: computadores -->
+    <div class="cad-left">
+      <div class="panel-title">Por Computador</div>
+      <div id="pcList"><div style="text-align:center;padding:30px"><div class="loader"></div></div></div>
+    </div>
+
+    <!-- Direita: feed de arquivos -->
+    <div class="cad-right">
+      <div class="feed-header">
+        <div class="panel-title" style="margin-bottom:0">Alterações de Arquivos</div>
+        <div class="feed-count" id="cadFeedCount"></div>
+      </div>
+
+      <!-- Filtros locais da aba -->
+      <div style="display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap;align-items:center">
+        <select class="filter-sel" id="cadFilterPc" onchange="renderCadFeed()">
+          <option value="">Todos os computadores</option>
+        </select>
+        <select class="filter-sel" id="cadFilterEvt" onchange="renderCadFeed()">
+          <option value="">Todos os eventos</option>
+          <option value="modificado">Modificado</option>
+          <option value="criado">Criado</option>
+          <option value="excluido">Excluído</option>
+          <option value="renomeado">Renomeado</option>
+        </select>
+        <select class="filter-sel" id="cadFilterExt" onchange="renderCadFeed()">
+          <option value="">Todas as extensões</option>
+        </select>
+      </div>
+
+      <div id="cadFeedList"><div style="text-align:center;padding:30px"><div class="loader"></div></div></div>
+    </div>
+
   </div>
-</div>
+</div><!-- /tab-arquivos -->
+
+</div><!-- /scroll-body -->
 
 <script>
 const SUPABASE_URL      = 'https://qzuhcbizkyvuhbshsdit.supabase.co';
@@ -250,6 +394,7 @@ let combined = [];   // merge dos dois
 let activeRange    = 1;
 let activeUser     = '';
 let activeUserCard = null;
+let selectedStages = new Set();  // etapas selecionadas no filtro (vazio = todas)
 
 /* ── DATAS ────────────────────────────────────────── */
 function startOfRange(days) {
@@ -351,10 +496,51 @@ function currentFiltered() {
   const userSel  = document.getElementById('filterUser').value;
   const tipoSel  = document.getElementById('filterTipo').value;
   return combined.filter(r => {
-    const okUser = !userSel  || r.usuario === userSel;
-    const okTipo = !tipoSel  || r.tipo === tipoSel;
-    return okUser && okTipo;
+    const okUser  = !userSel  || r.usuario === userSel;
+    const okTipo  = !tipoSel  || r.tipo === tipoSel;
+    // Filtro de etapas: só aplica em registros do tipo 'etapa'; obs sempre passam
+    const okEtapa = r.tipo !== 'etapa' || selectedStages.size === 0 || selectedStages.has(r.etapa);
+    return okUser && okTipo && okEtapa;
   });
+}
+
+/* ── FILTRO DE ETAPAS ─────────────────────────────── */
+function buildStagePills() {
+  const container = document.getElementById('stagePills');
+  container.innerHTML = '';
+  STAGES.forEach((key, i) => {
+    const pill = document.createElement('span');
+    pill.className = 'stage-pill' + (selectedStages.has(key) ? ' active' : '');
+    pill.textContent = STAGE_LABELS[i];
+    pill.dataset.key = key;
+    pill.onclick = () => toggleStagePill(key, pill);
+    container.appendChild(pill);
+  });
+  updateClearBtn();
+}
+
+function toggleStagePill(key, pill) {
+  if (selectedStages.has(key)) {
+    selectedStages.delete(key);
+    pill.classList.remove('active');
+  } else {
+    selectedStages.add(key);
+    pill.classList.add('active');
+  }
+  updateClearBtn();
+  renderFeed();
+}
+
+function clearStageFilter() {
+  selectedStages.clear();
+  document.querySelectorAll('.stage-pill').forEach(p => p.classList.remove('active'));
+  updateClearBtn();
+  renderFeed();
+}
+
+function updateClearBtn() {
+  document.getElementById('stageClearBtn').style.display =
+    selectedStages.size > 0 ? 'inline-block' : 'none';
 }
 
 /* ── STATS ────────────────────────────────────────── */
@@ -510,7 +696,148 @@ function updateHeaderDate() {
 updateHeaderDate();
 setInterval(updateHeaderDate, 60000);
 setInterval(loadAll, 60000); // auto-refresh a cada 1 min
+buildStagePills();
 loadAll();
+/* ── ABAS ─────────────────────────────────────────────────── */
+function switchTab(tab, btn) {
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+  document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
+  btn.classList.add('active');
+  document.getElementById('tab-' + tab).classList.add('active');
+  if (tab === 'arquivos' && !cadCarregado) { loadCadLogs(); }
+}
+
+/* ── ARQUIVOS CAD ──────────────────────────────────────────── */
+let cadLogs     = [];
+let cadCarregado = false;
+let activePcCard = null;
+
+async function loadCadLogs() {
+  const since = startOfRange(activeRange);
+  let query = sb.from('arquivo_logs')
+    .select('arquivo, extensao, pasta, evento, computador, usuario_windows, created_at')
+    .order('created_at', { ascending: false })
+    .limit(500);
+  if (since) query = query.gte('created_at', since.toISOString());
+  const { data, error } = await query;
+  if (error) { console.error('Erro ao buscar arquivo_logs:', error); return; }
+  cadLogs = data || [];
+  cadCarregado = true;
+  populateCadFilters();
+  renderCadPcs();
+  renderCadFeed();
+}
+
+function populateCadFilters() {
+  // Computadores
+  const pcs = [...new Set(cadLogs.map(r => r.computador).filter(Boolean))].sort();
+  const selPc = document.getElementById('cadFilterPc');
+  selPc.innerHTML = '<option value="">Todos os computadores</option>';
+  pcs.forEach(p => selPc.innerHTML += `<option value="${p}">${p}</option>`);
+
+  // Extensões
+  const exts = [...new Set(cadLogs.map(r => r.extensao).filter(Boolean))].sort();
+  const selExt = document.getElementById('cadFilterExt');
+  selExt.innerHTML = '<option value="">Todas as extensões</option>';
+  exts.forEach(e => selExt.innerHTML += `<option value="${e}">${e.toUpperCase()}</option>`);
+}
+
+function renderCadPcs() {
+  const map = {};
+  cadLogs.forEach(r => {
+    const key = r.computador || '__desconhecido__';
+    if (!map[key]) map[key] = { nome: r.computador, total: 0, usuarios: new Set(), ultima: null };
+    map[key].total++;
+    if (r.usuario_windows) map[key].usuarios.add(r.usuario_windows);
+    if (!map[key].ultima || r.created_at > map[key].ultima) map[key].ultima = r.created_at;
+  });
+
+  const sorted = Object.values(map).sort((a, b) => b.total - a.total);
+  if (!sorted.length) {
+    document.getElementById('pcList').innerHTML =
+      '<div class="empty-state"><div class="empty-icon">🖥️</div><div class="empty-text">Nenhum registro no período.</div></div>';
+    return;
+  }
+
+  document.getElementById('pcList').innerHTML = sorted.map(pc => {
+    const nome = pc.nome || 'Desconhecido';
+    const usuarios = [...pc.usuarios].join(', ') || '—';
+    return `<div class="pc-card" onclick="filterCadByPc('${nome.replace(/'/g,"\'")}', this)">
+      <div class="pc-card-top">
+        <div class="pc-avatar">🖥</div>
+        <div>
+          <div class="pc-name">${nome}</div>
+          <div class="pc-sub">${usuarios}</div>
+        </div>
+      </div>
+      <div class="pc-meta">
+        <span class="user-tag tag-blue">${pc.total} alteração(ões)</span>
+        <span class="user-tag tag-gray">Última: ${pc.ultima ? fmtDatetime(pc.ultima) : '—'}</span>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function filterCadByPc(nome, card) {
+  const sel = document.getElementById('cadFilterPc');
+  if (sel.value === nome) {
+    sel.value = '';
+    card.classList.remove('active');
+    activePcCard = null;
+  } else {
+    sel.value = nome;
+    if (activePcCard) activePcCard.classList.remove('active');
+    card.classList.add('active');
+    activePcCard = card;
+  }
+  renderCadFeed();
+}
+
+function renderCadFeed() {
+  const filterPc  = document.getElementById('cadFilterPc').value;
+  const filterEvt = document.getElementById('cadFilterEvt').value;
+  const filterExt = document.getElementById('cadFilterExt').value;
+
+  const filtered = cadLogs.filter(r => {
+    const okPc  = !filterPc  || r.computador === filterPc;
+    const okEvt = !filterEvt || r.evento === filterEvt;
+    const okExt = !filterExt || r.extensao === filterExt;
+    return okPc && okEvt && okExt;
+  });
+
+  document.getElementById('cadFeedCount').textContent = `${filtered.length} registro(s)`;
+
+  if (!filtered.length) {
+    document.getElementById('cadFeedList').innerHTML =
+      '<div class="empty-state"><div class="empty-icon">📁</div><div class="empty-text">Nenhuma alteração encontrada.</div></div>';
+    return;
+  }
+
+  const evtIcon = { modificado: '✏️', criado: '✨', excluido: '🗑️', renomeado: '🔁' };
+
+  document.getElementById('cadFeedList').innerHTML = filtered.map(r => {
+    const ext   = (r.extensao || '').replace('.', '').toLowerCase();
+    const evt   = r.evento || 'modificado';
+    const pasta = r.pasta && r.pasta !== 'raiz' ? `<span style="font-family:'DM Mono',monospace;font-size:10px;color:var(--text-muted)">${r.pasta}\</span>` : '';
+    const pc    = r.computador || '?';
+    const user  = r.usuario_windows ? ` / ${r.usuario_windows}` : '';
+    return `<div class="feed-item">
+      <div class="feed-dot" style="background:${evt==='modificado'?'var(--blue)':evt==='criado'?'var(--green)':evt==='excluido'?'var(--red)':'var(--orange)'}"></div>
+      <div class="feed-body">
+        <div class="feed-action">
+          ${evtIcon[evt]||'📄'} ${pasta}<strong>${r.arquivo}</strong>
+        </div>
+        <div class="feed-meta">
+          <span class="ext-badge ext-${ext}">${ext.toUpperCase() || '?'}</span>
+          <span class="evt-badge evt-${evt}">${evt}</span>
+          <span class="feed-user">🖥 ${pc}${user}</span>
+          <span class="feed-time">${fmtDatetime(r.created_at)}</span>
+        </div>
+      </div>
+    </div>`;
+  }).join('');
+}
+
 </script>
 </body>
 </html>
