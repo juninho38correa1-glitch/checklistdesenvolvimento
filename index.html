@@ -197,39 +197,6 @@
   ::-webkit-scrollbar { width: 5px; height: 5px; }
   ::-webkit-scrollbar-track { background: #f0ece4; }
   ::-webkit-scrollbar-thumb { background: #c8b898; border-radius: 3px; }
-
-  /* ── MODAL DE IDENTIFICAÇÃO OBRIGATÓRIA ────────────────────────── */
-  #operadorModal {
-    position: fixed; top: 0; left: 0; width: 100%; height: 100%;
-    background: rgba(26,23,20,0.88); z-index: 9999;
-    display: none; align-items: center; justify-content: center;
-    backdrop-filter: blur(4px);
-  }
-  #operadorModal .ocard {
-    background: var(--cream); border-radius: 14px; padding: 36px 30px;
-    width: 360px; max-width: 95%; box-shadow: 0 24px 60px rgba(0,0,0,0.4);
-    text-align: center; border-top: 3px solid var(--accent);
-  }
-  .oicon  { font-size: 42px; margin-bottom: 14px; }
-  .otitle { font-family: 'DM Serif Display', serif; font-size: 22px; color: var(--dark); margin-bottom: 6px; }
-  .osub   { font-size: 12px; color: var(--text-muted); margin-bottom: 24px; line-height: 1.5; }
-  .oinput {
-    width: 100%; padding: 13px 14px; border: 2px solid var(--border);
-    border-radius: 8px; font-family: 'DM Sans', sans-serif; font-size: 15px;
-    outline: none; text-align: center; margin-bottom: 12px; background: white;
-    transition: border-color 0.2s; color: var(--dark);
-  }
-  .oinput:focus { border-color: var(--accent); }
-  .oinput.error { border-color: var(--red); }
-  .obtn {
-    width: 100%; padding: 13px; background: var(--dark); color: var(--cream);
-    border: none; border-radius: 8px; font-family: 'DM Sans', sans-serif;
-    font-size: 14px; font-weight: 600; cursor: pointer; letter-spacing: 0.5px;
-    transition: opacity 0.2s;
-  }
-  .obtn:hover { opacity: 0.85; }
-  .owarn { font-size: 11px; color: var(--red); margin-top: 8px; min-height: 16px; }
-
 </style>
 </head>
 <body>
@@ -407,20 +374,6 @@
       <button class="btn btn-cancel" onclick="closeModal('modalReportOverlay')">Fechar</button>
       <button class="btn btn-save" onclick="printReport()">🖨️ Exportar PDF</button>
     </div>
-  </div>
-</div>
-
-
-<!-- MODAL DE IDENTIFICAÇÃO OBRIGATÓRIA -->
-<div id="operadorModal">
-  <div class="ocard">
-    <div class="oicon">👤</div>
-    <div class="otitle">Quem está usando?</div>
-    <div class="osub">Identifique-se para que suas ações fiquem registradas corretamente no sistema.</div>
-    <input type="text" id="operadorInput" class="oinput" placeholder="Seu nome completo"
-           maxlength="60" onkeydown="if(event.key==='Enter') confirmarOperador()">
-    <button class="obtn" onclick="confirmarOperador()">Entrar no Sistema</button>
-    <div class="owarn" id="operadorWarn"></div>
   </div>
 </div>
 
@@ -602,42 +555,15 @@ function getOperador() {
   return localStorage.getItem(OPERADOR_KEY) || '';
 }
 function promptOperador() {
-  // Abre o modal para trocar de usuário
-  const input = document.getElementById('operadorInput');
-  const warn  = document.getElementById('operadorWarn');
-  input.value = getOperador() || '';
-  warn.textContent = '';
-  input.classList.remove('error');
-  document.getElementById('operadorModal').style.display = 'flex';
-  setTimeout(() => input.focus(), 100);
-}
-
-function confirmarOperador() {
-  const input = document.getElementById('operadorInput');
-  const warn  = document.getElementById('operadorWarn');
-  const nome  = input.value.trim();
-  if (!nome || nome.length < 2) {
-    input.classList.add('error');
-    warn.textContent = 'Por favor, informe seu nome (mínimo 2 caracteres).';
-    input.focus();
-    return;
-  }
-  input.classList.remove('error');
-  warn.textContent = '';
-  localStorage.setItem(OPERADOR_KEY, nome);
-  document.getElementById('operadorModal').style.display = 'none';
+  const atual = getOperador();
+  const nome = prompt('Quem está usando este computador?', atual);
+  if (nome === null) return;
+  localStorage.setItem(OPERADOR_KEY, nome.trim());
   renderOperadorBadge();
 }
 function renderOperadorBadge() {
   const nome = getOperador();
   document.getElementById('operadorBadge').textContent = nome ? `👤 ${nome}` : '👤 Definir usuário';
-}
-
-function showOperadorSeNecessario() {
-  if (!getOperador()) {
-    document.getElementById('operadorModal').style.display = 'flex';
-    setTimeout(() => document.getElementById('operadorInput').focus(), 120);
-  }
 }
 
 /* ── LOG DE ETAPAS (Supabase) ──────────────────────────── */
@@ -971,8 +897,10 @@ async function openReportModal(rowIndex) {
     <div class="report-item"><span class="label">Data Solicitação</span><span class="value">${fmtDate(item.dataSolicitacao)}</span></div>
     <div class="report-item"><span class="label">Data Recebimento</span><span class="value">${fmtDate(item.dataRecebimento)}</span></div>
     <div class="report-item"><span class="label">Data Entrega</span><span class="value">${fmtDate(item.dataEntrega)}</span></div>
-    <div class="report-item"><span class="label">Tempo em Produção</span><span class="value">${prodLabel}</span></div>
     <div class="report-item"><span class="label">Lead Time Comercial</span><span class="value">${leadLabel}</span></div>
+    <div class="report-item"><span class="label">Lead Time de Criação</span><span class="value" id="reportLeadCriacao">—</span></div>
+    <div class="report-item"><span class="label">Tempo em Produção</span><span class="value">${prodLabel}</span></div>
+    <div class="report-item"><span class="label">Lead Modelagem Téc.</span><span class="value" id="reportLeadModTec">—</span></div>
   `;
 
   document.getElementById('modalReportOverlay').style.display = 'flex';
@@ -994,6 +922,38 @@ async function openReportModal(rowIndex) {
     if (error) throw error;
 
     ganttEl.innerHTML = buildGanttHtml(item, data || []);
+
+    // Lead Time de Criação: Recebimento -> tick da Modelagem 3D
+    const modelagemDate = firstTrueDate(data || [], 'modelagem3d');
+    const recebForCriacao = parseDate(item.dataRecebimento);
+    const leadCriacaoEl = document.getElementById('reportLeadCriacao');
+    if (leadCriacaoEl) {
+      if (recebForCriacao && modelagemDate) {
+        const dias = Math.round((modelagemDate.setHours(0,0,0,0) - recebForCriacao.setHours(0,0,0,0)) / 86400000);
+        leadCriacaoEl.textContent = `${dias}d`;
+      } else if (recebForCriacao && !modelagemDate) {
+        const dias = Math.floor((new Date().setHours(0,0,0,0) - recebForCriacao.setHours(0,0,0,0)) / 86400000);
+        leadCriacaoEl.textContent = `${dias}d (aguardando Modelagem 3D)`;
+      } else {
+        leadCriacaoEl.textContent = '—';
+      }
+    }
+
+    // Lead Modelagem Téc.: tick da Espumação -> tick da Modelagem Téc.
+    const espumaDate = firstTrueDate(data || [], 'espumacao');
+    const modTecDate = firstTrueDate(data || [], 'modelagemTec');
+    const leadModTecEl = document.getElementById('reportLeadModTec');
+    if (leadModTecEl) {
+      if (espumaDate && modTecDate) {
+        const dias = Math.round((new Date(modTecDate).setHours(0,0,0,0) - new Date(espumaDate).setHours(0,0,0,0)) / 86400000);
+        leadModTecEl.textContent = `${dias}d`;
+      } else if (espumaDate && !modTecDate) {
+        const dias = Math.floor((new Date().setHours(0,0,0,0) - new Date(espumaDate).setHours(0,0,0,0)) / 86400000);
+        leadModTecEl.textContent = `${dias}d (aguardando Mod. Téc.)`;
+      } else {
+        leadModTecEl.textContent = '—';
+      }
+    }
 
     if (!data || !data.length) {
       timelineEl.innerHTML = '<div class="timeline-empty">Nenhuma alteração de etapa registrada ainda.</div>';
@@ -1017,6 +977,13 @@ async function openReportModal(rowIndex) {
     timelineEl.innerHTML = '<div class="timeline-empty">Não foi possível carregar o histórico.</div>';
     ganttEl.innerHTML = '<div class="timeline-empty">Não foi possível carregar a linha do tempo.</div>';
   }
+}
+
+// Retorna a data do primeiro tick (status=true) de uma etapa nos logs, ou null.
+function firstTrueDate(logs, etapa) {
+  const asc = [...logs].sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
+  const row = asc.find(r => r.etapa === etapa && r.status);
+  return row ? new Date(row.created_at) : null;
 }
 
 // Monta a linha do tempo estilo Gantt: lead time comercial, tempo em produção
@@ -1043,6 +1010,8 @@ function buildGanttHtml(item, logs) {
   const span = Math.max(1, maxD - minD);
   const pct = d => Math.min(100, Math.max(0, ((d - minD) / span) * 100));
   const daysBetween = (a, b) => Math.round((b - a) / 86400000);
+  // Diferença em dias-calendário (zera horas/fuso), pra bater com o resumo
+  const calDays = (a, b) => Math.round((new Date(b).setHours(0,0,0,0) - new Date(a).setHours(0,0,0,0)) / 86400000);
 
   // Renderiza uma barra; se ficar muito estreita, joga o texto pra fora dela
   const ganttBar = (left, width, color, text, title) => {
@@ -1065,6 +1034,21 @@ function buildGanttHtml(item, logs) {
     </div>`;
   }
 
+  // Criação: Recebimento -> tick da Modelagem 3D (tempo da equipe de dev
+  // pra fazer o 3D depois de receber o produto do comercial)
+  const modelagem = firstTrue['modelagem3d'];
+  if (receb) {
+    const end = modelagem || today;
+    const left = pct(receb);
+    const width = Math.max(1, pct(end) - left);
+    const color = modelagem ? '#8E7CC3' : 'var(--orange)';
+    const text = `${calDays(receb, end)}d${modelagem ? '' : ' (aguardando 3D)'}`;
+    html += `<div class="gantt-row">
+      <div class="gantt-label">Criação<div style="font-size:8px;font-weight:400;text-transform:none;letter-spacing:0">Receb. → Modelagem 3D</div></div>
+      <div class="gantt-track">${ganttBar(left, width, color, text, `Recebimento ${fmtDate(item.dataRecebimento)}${modelagem ? ' → Modelagem 3D ' + modelagem.toLocaleDateString('pt-BR') : ' → Modelagem 3D ainda não marcada'}`)}</div>
+    </div>`;
+  }
+
   // Produção: tempo entre marcar "Extração Gabarito" e marcar "Espumação"
   // (intervalo em que o produto fica no setor de produção/retorno)
   const inicio = firstTrue[PRODUCAO_INICIO_ETAPA];
@@ -1078,6 +1062,21 @@ function buildGanttHtml(item, logs) {
     html += `<div class="gantt-row">
       <div class="gantt-label">Produção<div style="font-size:8px;font-weight:400;text-transform:none;letter-spacing:0">Extração → Espumação</div></div>
       <div class="gantt-track">${ganttBar(left, width, color, text, `Tempo entre marcar Extração Gabarito (${inicio.toLocaleDateString('pt-BR')}) e marcar Espumação${fim ? ' (' + fim.toLocaleDateString('pt-BR') + ')' : ' (ainda não marcada)'}`)}</div>
+    </div>`;
+  }
+
+  // Modelagem Téc.: tick da Espumação -> tick da Modelagem Téc.
+  const espuma = firstTrue['espumacao'];
+  const modTec = firstTrue['modelagemTec'];
+  if (espuma) {
+    const end = modTec || today;
+    const left = pct(espuma);
+    const width = Math.max(1, pct(end) - left);
+    const color = modTec ? '#2E86C1' : 'var(--orange)';
+    const text = `${calDays(espuma, end)}d${modTec ? '' : ' (aguardando Mod. Téc.)'}`;
+    html += `<div class="gantt-row">
+      <div class="gantt-label">Mod. Téc.<div style="font-size:8px;font-weight:400;text-transform:none;letter-spacing:0">Espumação → Mod. Téc.</div></div>
+      <div class="gantt-track">${ganttBar(left, width, color, text, `Espumação ${espuma.toLocaleDateString('pt-BR')}${modTec ? ' → Modelagem Téc. ' + modTec.toLocaleDateString('pt-BR') : ' → Modelagem Téc. ainda não marcada'}`)}</div>
     </div>`;
   }
 
@@ -1181,7 +1180,6 @@ function updateHeaderDate() {
 updateHeaderDate();
 setInterval(updateHeaderDate, 60 * 1000);
 renderOperadorBadge();
-showOperadorSeNecessario();
 loadCSV();
 </script>
 </body>
