@@ -62,6 +62,10 @@
   .search-box { flex: 1; min-width: 160px; display: flex; align-items: center; gap: 6px; background: white; border: 1px solid var(--border); border-radius: 4px; padding: 4px 10px; }
   .search-box input { border: none; outline: none; font-family: 'DM Sans', sans-serif; font-size: 12px; color: var(--dark); width: 100%; background: transparent; }
   select { border: 1px solid var(--border); border-radius: 4px; padding: 4px 8px; font-family: 'DM Sans', sans-serif; font-size: 11px; color: var(--dark); background: white; cursor: pointer; outline: none; }
+  .date-filter { display: flex; align-items: center; gap: 5px; background: white; border: 1px solid var(--border); border-radius: 4px; padding: 3px 8px; }
+  .date-filter input[type="date"] { border: 1px solid var(--border); border-radius: 4px; padding: 3px 5px; font-family: 'DM Mono', monospace; font-size: 11px; color: var(--dark); background: white; outline: none; }
+  .date-filter .df-label { font-size: 11px; color: var(--text-muted); }
+  .date-filter .df-clear { border: none; background: var(--red-soft); color: var(--red); border-radius: 4px; width: 20px; height: 20px; cursor: pointer; font-size: 11px; line-height: 1; }
 
   .last-updated { padding: 3px 30px; font-family: 'DM Mono', monospace; font-size: 9px; color: var(--text-muted); background: var(--cream); border-bottom: 1px solid var(--border); }
   .operador-badge { font-size: 10px; font-weight: 600; color: var(--text-muted); border: 1px solid var(--border); border-radius: 20px; padding: 4px 12px; cursor: pointer; white-space: nowrap; transition: all .15s; }
@@ -139,6 +143,9 @@
   .stage-item:hover { background: var(--cream); }
   .stage-item.checked { background: var(--green-soft); border-color: var(--green); }
   .stage-item input { width: 16px; height: 16px; cursor: pointer; accent-color: var(--green); }
+  .stage-item.extra-tick { border-style: dashed; border-color: var(--accent); }
+  .stage-item.extra-tick .stage-label::after { content: ' • interno'; font-size: 9px; color: var(--accent); font-weight: 600; }
+  .stage-item.extra-tick.checked { background: #EFE7D6; border-color: var(--accent); }
   .stage-label { font-size: 12px; font-weight: 500; color: var(--dark); }
 
   /* RELATÓRIO DO PRODUTO */
@@ -264,6 +271,21 @@
       <option value="zero">🔘 Sem Iniciar (0%)</option>
       <option value="green">🟢 Finalizados (100%)</option>
     </select>
+    <div class="date-filter">
+      <select id="filterDateField" onchange="renderTable()" title="Qual data usar no filtro">
+        <option value="atividade">Feito pelo Dev — todas</option>
+        <option value="atv:modelagem3d">Frente: Modelagem 3D</option>
+        <option value="atv:modelagemTec">Frente: Modelagem Téc.</option>
+        <option value="dataRecebimento">Recebimento</option>
+        <option value="dataSolicitacao">Solicitação</option>
+        <option value="dataEntrega">Entrega</option>
+      </select>
+      <span class="df-label">de</span>
+      <input type="date" id="filterDateFrom" onchange="renderTable()">
+      <span class="df-label">até</span>
+      <input type="date" id="filterDateTo" onchange="renderTable()">
+      <button class="df-clear" id="btnClearDate" onclick="clearDateFilter()" title="Limpar filtro de data" style="display:none">✕</button>
+    </div>
     <div class="operador-badge" id="operadorBadge" onclick="promptOperador()" title="Clique para definir quem está usando este computador"></div>
     <div class="last-updated" id="lastUpdated" style="border:none;padding:0;margin-left:auto">Carregando...</div>
   </div>
@@ -400,12 +422,30 @@ const PRODUCAO_ATRASO_DIAS  = 15;
 const STATUS_SNAPSHOT_KEY = 'studyo4_status_snapshot';
 const OPERADOR_KEY = 'studyo4_operador';
 
+// Ticagens extras — NÃO vêm da planilha nem vão pra ela. Ficam só no Supabase
+// (gravadas como "etapa virtual" na tabela etapa_logs). Cada uma aparece na tela
+// de ticagem logo após a etapa definida em "after".
+const EXTRA_TICKS = [
+  { key: 'repassadoCompras', label: 'Repassado itens p/ Compras', after: 'programacao' }
+];
+const EXTRA_LABELS = Object.fromEntries(EXTRA_TICKS.map(e => [e.key, e.label]));
+
+// Frentes do Dev — grupos de etapas para o filtro "Feito pelo Dev".
+// Cada frente junta as ticagens das etapas listadas.
+const FRENTES = {
+  modelagem3d:  { label: 'Frente: Modelagem 3D',  etapas: ['modelagem3d'] },
+  modelagemTec: { label: 'Frente: Modelagem Téc.', etapas: ['modelagemTec'] },
+  erika:        { label: 'Frente: Erika (Extração + Prog. + Compras)', etapas: ['extracaoGab','programacao','repassadoCompras'] }
+};
+
 let allData         = [];
 let activeFilter    = 'all';
 let currentItem     = null;
 let refreshTimer    = null;
 let productionTimes = {};
 let observationCounts = {};
+let extraTicks      = {};  // itemKey -> { repassadoCompras: bool }
+let activityDates   = {};  // itemKey -> Set de 'YYYY-MM-DD' (etapas concluídas)
 
 function itemKey(item) {
   return `${item.nPedido || ''}::${item.produto}`;
@@ -479,6 +519,84 @@ function productionTimeHtml(item) {
   const cls = dias > PRODUCAO_ATRASO_DIAS ? 'd-red' : dias > PRODUCAO_ALERTA_DIAS ? 'd-orange' : 'd-gray';
   const icon = dias > PRODUCAO_ATRASO_DIAS ? '⚠' : '●';
   return `<span class="dias-badge ${cls}">${icon} ${dias}d em produção</span>`;
+}
+
+/* ── TICAGENS EXTRAS (Supabase, etapa virtual) ─────────── */
+async function loadExtraTicks() {
+  const map = {};
+  const keys = EXTRA_TICKS.map(e => e.key);
+  try {
+    const { data, error } = await supabaseClient
+      .from('etapa_logs')
+      .select('n_pedido, produto, etapa, status, created_at')
+      .in('etapa', keys)
+      .order('created_at', { ascending: true });
+    if (error) { console.error('Erro ao buscar ticagens extras:', error); return map; }
+    // ascendente: a última linha de cada chave/etapa prevalece (estado atual)
+    data.forEach(row => {
+      const k = logKey(row);
+      if (!map[k]) map[k] = {};
+      map[k][row.etapa] = row.status;
+    });
+  } catch (e) {
+    console.error('Falha ao conectar ao Supabase (ticagens extras):', e);
+  }
+  return map;
+}
+
+async function logExtraTick(item, etapaKey, novoStatus) {
+  try {
+    const { error } = await supabaseClient.from('etapa_logs').insert({
+      row_index: item.rowIndex,
+      n_pedido: item.nPedido || null,
+      produto: item.produto,
+      etapa: etapaKey,
+      status: novoStatus,
+      usuario: getOperador() || null
+    });
+    if (error) console.error('Erro ao gravar ticagem extra:', error);
+  } catch (e) {
+    console.error('Falha ao conectar ao Supabase (ticagem extra):', e);
+  }
+}
+
+/* ── ATIVIDADE DO DEV (Supabase) ───────────────────────── */
+// Datas em que o setor concluiu (ticou) etapas de cada produto, por etapa.
+// Serve pro filtro "Feito pelo Dev": itemKey -> { etapa -> Set de 'YYYY-MM-DD' }.
+async function loadActivityDates() {
+  const map = {};
+  try {
+    const { data, error } = await supabaseClient
+      .from('etapa_logs')
+      .select('n_pedido, produto, etapa, status, created_at')
+      .eq('status', true)
+      .order('created_at', { ascending: true });
+    if (error) { console.error('Erro ao buscar atividade do dev:', error); return map; }
+    data.forEach(row => {
+      const k = logKey(row);
+      if (!map[k]) map[k] = {};
+      if (!map[k][row.etapa]) map[k][row.etapa] = new Set();
+      const d = new Date(row.created_at);
+      const dia = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+      map[k][row.etapa].add(dia);
+    });
+  } catch (e) {
+    console.error('Falha ao conectar ao Supabase (atividade do dev):', e);
+  }
+  return map;
+}
+
+// Retorna o Set de dias de atividade de um produto conforme o modo do filtro:
+// 'atividade' = todas as etapas; 'atv:<etapa>' = só aquela etapa.
+function activityDaysFor(item, mode) {
+  const rec = activityDates[itemKey(item)];
+  if (!rec) return null;
+  if (mode === 'atividade') {
+    const all = new Set();
+    Object.values(rec).forEach(set => set.forEach(d => all.add(d)));
+    return all;
+  }
+  return rec[mode.slice(4)] || null;  // remove o prefixo 'atv:'
 }
 
 /* ── OBSERVAÇÕES (Supabase) ────────────────────────────── */
@@ -717,6 +835,8 @@ async function loadCSV(isSilent = false) {
     allData = parseCSV(text);
     productionTimes = await loadProductionTimes();
     observationCounts = await loadObservationCounts();
+    extraTicks = await loadExtraTicks();
+    activityDates = await loadActivityDates();
     checkStatusAlerts();
     document.getElementById('stateBox').style.display  = 'none';
     document.getElementById('tableWrap').style.display = 'block';
@@ -759,6 +879,11 @@ function setFilter(f, el) {
   document.getElementById('filterStatusSel').value = (f === 'all' ? '' : f);
   renderTable();
 }
+function clearDateFilter() {
+  document.getElementById('filterDateFrom').value = '';
+  document.getElementById('filterDateTo').value = '';
+  renderTable();
+}
 function syncFilterSel() {
   const v = document.getElementById('filterStatusSel').value;
   activeFilter = v || 'all';
@@ -771,6 +896,15 @@ function renderTable() {
   const search = document.getElementById('searchInput').value.toLowerCase();
   const resp   = document.getElementById('filterResp').value;
   const stFilt = document.getElementById('filterStatusSel').value;
+
+  // Filtro por data: 1 campo = dia único; ambos = intervalo (de..até)
+  const dateField = document.getElementById('filterDateField').value;
+  const fromRaw = document.getElementById('filterDateFrom').value;
+  const toRaw   = document.getElementById('filterDateTo').value;
+  const dFrom = fromRaw ? new Date(fromRaw + 'T00:00:00') : null;
+  const dTo   = toRaw   ? new Date(toRaw   + 'T00:00:00') : null;
+  document.getElementById('btnClearDate').style.display = (dFrom || dTo) ? '' : 'none';
+
   let filtered = allData.filter(item => {
     const s = getStatus(item);
     const ok1 = !search || item.produto.toLowerCase().includes(search) || (item.responsavel||'').toLowerCase().includes(search) || (item.nPedido||'').includes(search);
@@ -778,7 +912,25 @@ function renderTable() {
     let ok3 = !stFilt || s === stFilt;
     if (stFilt === 'zero') ok3 = item.progresso === 0;
     else if (stFilt === 'white') ok3 = item.progresso > 0 && item.progresso < 100;
-    return ok1 && ok2 && ok3;
+
+    const inRange = (t) => {
+      if (dFrom && dTo) return t >= dFrom.getTime() && t <= dTo.getTime();
+      if (dFrom)        return t === dFrom.getTime();
+      return t === dTo.getTime();
+    };
+    let ok4 = true;
+    if (dFrom || dTo) {
+      if (dateField === 'atividade' || dateField.startsWith('atv:')) {
+        // Produto teve a etapa (ou qualquer etapa) ticada dentro do período?
+        const dias = activityDaysFor(item, dateField);
+        ok4 = !!dias && [...dias].some(ds => inRange(new Date(ds + 'T00:00:00').getTime()));
+      } else {
+        const d = parseDate(item[dateField]);
+        if (!d) { ok4 = false; }
+        else { d.setHours(0,0,0,0); ok4 = inRange(d.getTime()); }
+      }
+    }
+    return ok1 && ok2 && ok3 && ok4;
   });
   filtered.sort(smartSort);
   const c = { all: allData.length, red:0, orange:0, white:0, green:0, zero:0 };
@@ -852,6 +1004,7 @@ function openStagesModal(rowIndex) {
   document.getElementById('editResponsavel').value = currentItem.responsavel || '';
   const grid = document.getElementById('modalStagesGrid');
   grid.innerHTML = '';
+  const curExtras = extraTicks[itemKey(currentItem)] || {};
   STAGES.forEach((s, i) => {
     const isChecked = currentItem.stages[s];
     const item = document.createElement('div');
@@ -859,6 +1012,15 @@ function openStagesModal(rowIndex) {
     item.onclick = () => { const chk = item.querySelector('input'); chk.checked = !chk.checked; item.classList.toggle('checked', chk.checked); };
     item.innerHTML = `<input type="checkbox" ${isChecked ? 'checked' : ''} id="chk-${s}"><span class="stage-label">${STAGE_LABELS[i]}</span>`;
     grid.appendChild(item);
+    // Insere ticagens extras (Supabase) logo após a etapa indicada em "after"
+    EXTRA_TICKS.filter(e => e.after === s).forEach(e => {
+      const ck = !!curExtras[e.key];
+      const ex = document.createElement('div');
+      ex.className = `stage-item extra-tick ${ck ? 'checked' : ''}`;
+      ex.onclick = () => { const chk = ex.querySelector('input'); chk.checked = !chk.checked; ex.classList.toggle('checked', chk.checked); };
+      ex.innerHTML = `<input type="checkbox" ${ck ? 'checked' : ''} id="chk-extra-${e.key}"><span class="stage-label">${e.label}</span>`;
+      grid.appendChild(ex);
+    });
   });
   document.getElementById('modalStagesOverlay').style.display = 'flex';
 }
@@ -961,7 +1123,7 @@ async function openReportModal(rowIndex) {
     }
     timelineEl.innerHTML = data.map(row => {
       const idx = STAGES.indexOf(row.etapa);
-      const label = idx >= 0 ? STAGE_LABELS[idx] : row.etapa;
+      const label = idx >= 0 ? STAGE_LABELS[idx] : (EXTRA_LABELS[row.etapa] || row.etapa);
       const dt = new Date(row.created_at);
       const dtStr = dt.toLocaleDateString('pt-BR') + ' ' + dt.toLocaleTimeString('pt-BR', {hour:'2-digit',minute:'2-digit'});
       const acao = row.status ? 'marcada como concluída' : 'desmarcada';
@@ -1141,11 +1303,28 @@ async function saveStagesChanges() {
   if (btn.disabled) return;
   btn.disabled = true;
   try {
+    const item = currentItem;
     const updatedStages = {};
     STAGES.forEach(s => { updatedStages[s] = document.getElementById('chk-' + s).checked; });
     const updatedResp = document.getElementById('editResponsavel').value;
-    await logStageChanges(currentItem, currentItem.stages, updatedStages);
-    await callAPI({ rowIndex: currentItem.rowIndex, stages: updatedStages, responsavel: updatedResp });
+    await logStageChanges(item, item.stages, updatedStages);
+
+    // Ticagens extras (Supabase, fora da planilha): grava só o que mudou
+    const key = itemKey(item);
+    const curExtras = extraTicks[key] || {};
+    for (const e of EXTRA_TICKS) {
+      const el = document.getElementById('chk-extra-' + e.key);
+      if (!el) continue;
+      const novo = el.checked;
+      const antigo = !!curExtras[e.key];
+      if (novo !== antigo) {
+        await logExtraTick(item, e.key, novo);
+        if (!extraTicks[key]) extraTicks[key] = {};
+        extraTicks[key][e.key] = novo;
+      }
+    }
+
+    await callAPI({ rowIndex: item.rowIndex, stages: updatedStages, responsavel: updatedResp });
     closeModal('modalStagesOverlay');
   } finally {
     btn.disabled = false;
@@ -1180,6 +1359,16 @@ function updateHeaderDate() {
 updateHeaderDate();
 setInterval(updateHeaderDate, 60 * 1000);
 renderOperadorBadge();
+
+// ESC fecha qualquer modal aberto (a última aberta, se houver várias)
+document.addEventListener('keydown', (e) => {
+  if (e.key !== 'Escape') return;
+  const abertas = [...document.querySelectorAll('.modal-overlay')].filter(m => m.style.display === 'flex');
+  if (abertas.length) {
+    closeModal(abertas[abertas.length - 1].id);
+  }
+});
+
 loadCSV();
 </script>
 </body>
