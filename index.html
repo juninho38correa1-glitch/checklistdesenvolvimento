@@ -66,6 +66,9 @@
   .date-filter input[type="date"] { border: 1px solid var(--border); border-radius: 4px; padding: 3px 5px; font-family: 'DM Mono', monospace; font-size: 11px; color: var(--dark); background: white; outline: none; }
   .date-filter .df-label { font-size: 11px; color: var(--text-muted); }
   .date-filter .df-clear { border: none; background: var(--red-soft); color: var(--red); border-radius: 4px; width: 20px; height: 20px; cursor: pointer; font-size: 11px; line-height: 1; }
+  .filter-count { font-family: 'DM Mono', monospace; font-size: 11px; font-weight: 500; color: var(--dark); background: white; border: 1px solid var(--border); border-radius: 4px; padding: 4px 10px; white-space: nowrap; }
+  .btn-print { font-family: 'DM Sans', sans-serif; font-size: 11px; font-weight: 600; color: var(--dark); background: white; border: 1px solid var(--border); border-radius: 4px; padding: 4px 10px; cursor: pointer; white-space: nowrap; transition: all .15s; }
+  .btn-print:hover { border-color: var(--accent); color: var(--accent); }
 
   .last-updated { padding: 3px 30px; font-family: 'DM Mono', monospace; font-size: 9px; color: var(--text-muted); background: var(--cream); border-bottom: 1px solid var(--border); }
   .operador-badge { font-size: 10px; font-weight: 600; color: var(--text-muted); border: 1px solid var(--border); border-radius: 20px; padding: 4px 12px; cursor: pointer; white-space: nowrap; transition: all .15s; }
@@ -192,6 +195,35 @@
     body.printing-report .print-header .print-meta { font-size: 10px; color: var(--text-muted); margin-top: 2px; }
   }
 
+  /* IMPRESSÃO DA LISTA FILTRADA */
+  #printListArea { display: none; }
+  @media print {
+    @page { margin: 12mm; }
+    /* Libera altura/overflow (o layout base usa height:100% + overflow:hidden,
+       que senão corta a impressão em uma única página) */
+    html, body { height: auto !important; overflow: visible !important; display: block !important; }
+    body.printing-list #printListArea, body.printing-report #modalReportOverlay { padding: 4mm; }
+    body.printing-list > *:not(#printListArea) { display: none !important; }
+    body.printing-list #printListArea { display: block !important; }
+    body.printing-list #printListArea .pl-company { font-family: 'DM Serif Display', serif; font-size: 20px; }
+    body.printing-list #printListArea .pl-count { font-size: 13px; font-weight: 700; color: var(--dark); margin: 4px 0 2px; }
+    body.printing-list #printListArea .pl-meta { font-size: 10px; color: var(--text-muted); margin: 2px 0 12px; }
+    body.printing-list #printListArea table { width: 100%; border-collapse: collapse; font-size: 10px; table-layout: fixed; }
+    body.printing-list #printListArea thead { display: table-header-group; }  /* repete cabeçalho a cada página */
+    body.printing-list #printListArea tr { page-break-inside: avoid; }
+    body.printing-list #printListArea th, body.printing-list #printListArea td { border: 1px solid #ccc; padding: 4px 6px; text-align: center; vertical-align: middle; word-break: break-word; overflow-wrap: anywhere; }
+    body.printing-list #printListArea th { background: #f0ece3; }
+    /* larguras proporcionais das 8 colunas (table-layout: fixed) */
+    body.printing-list #printListArea th:nth-child(1), body.printing-list #printListArea td:nth-child(1) { width: 8%; }
+    body.printing-list #printListArea th:nth-child(2), body.printing-list #printListArea td:nth-child(2) { width: 41%; }
+    body.printing-list #printListArea th:nth-child(3), body.printing-list #printListArea td:nth-child(3) { width: 11%; }
+    body.printing-list #printListArea th:nth-child(4), body.printing-list #printListArea td:nth-child(4) { width: 7%; }
+    body.printing-list #printListArea th:nth-child(5), body.printing-list #printListArea td:nth-child(5) { width: 7%; }
+    body.printing-list #printListArea th:nth-child(6), body.printing-list #printListArea td:nth-child(6) { width: 3%; }
+    body.printing-list #printListArea th:nth-child(7), body.printing-list #printListArea td:nth-child(7) { width: 7%; }
+    body.printing-list #printListArea th:nth-child(8), body.printing-list #printListArea td:nth-child(8) { width: 16%; }
+  }
+
   .modal-footer { display: flex; justify-content: flex-end; gap: 10px; padding-top: 15px; border-top: 1px solid var(--border); }
   .btn { padding: 10px 20px; border-radius: 6px; font-family: 'DM Sans', sans-serif; font-size: 13px; font-weight: 600; cursor: pointer; border: none; transition: opacity 0.2s; }
   .btn-cancel { background: #eee; color: #666; }
@@ -273,19 +305,22 @@
     </select>
     <div class="date-filter">
       <select id="filterDateField" onchange="renderTable()" title="Qual data usar no filtro">
-        <option value="atividade">Feito pelo Dev — todas</option>
-        <option value="atv:modelagem3d">Frente: Modelagem 3D</option>
-        <option value="atv:modelagemTec">Frente: Modelagem Téc.</option>
+        <option value="frente:dev">Feito pelo Dev (3D + Téc.)</option>
+        <option value="frente:modelagem3d">Frente: Modelagem 3D</option>
+        <option value="frente:modelagemTec">Frente: Modelagem Téc.</option>
+        <option value="frente:erika">Frente: Erika (Extração + Prog. + Compras)</option>
         <option value="dataRecebimento">Recebimento</option>
         <option value="dataSolicitacao">Solicitação</option>
         <option value="dataEntrega">Entrega</option>
       </select>
       <span class="df-label">de</span>
-      <input type="date" id="filterDateFrom" onchange="renderTable()">
+      <input type="date" id="filterDateFrom" onchange="renderTable()" onkeydown="if(event.key==='Tab' && !event.shiftKey){event.preventDefault(); document.getElementById('filterDateTo').focus();}">
       <span class="df-label">até</span>
       <input type="date" id="filterDateTo" onchange="renderTable()">
       <button class="df-clear" id="btnClearDate" onclick="clearDateFilter()" title="Limpar filtro de data" style="display:none">✕</button>
     </div>
+    <div class="filter-count" id="filterCount" title="Produtos exibidos com os filtros atuais">—</div>
+    <button class="btn-print" id="btnPrintList" onclick="printList()" title="Imprimir a lista filtrada">🖨️ Imprimir</button>
     <div class="operador-badge" id="operadorBadge" onclick="promptOperador()" title="Clique para definir quem está usando este computador"></div>
     <div class="last-updated" id="lastUpdated" style="border:none;padding:0;margin-left:auto">Carregando...</div>
   </div>
@@ -399,6 +434,8 @@
   </div>
 </div>
 
+<div id="printListArea"></div>
+
 <div id="toast">Alteração salva com sucesso!</div>
 
 <script>
@@ -433,6 +470,7 @@ const EXTRA_LABELS = Object.fromEntries(EXTRA_TICKS.map(e => [e.key, e.label]));
 // Frentes do Dev — grupos de etapas para o filtro "Feito pelo Dev".
 // Cada frente junta as ticagens das etapas listadas.
 const FRENTES = {
+  dev:          { label: 'Feito pelo Dev (3D + Téc.)', etapas: ['modelagem3d','modelagemTec'] },
   modelagem3d:  { label: 'Frente: Modelagem 3D',  etapas: ['modelagem3d'] },
   modelagemTec: { label: 'Frente: Modelagem Téc.', etapas: ['modelagemTec'] },
   erika:        { label: 'Frente: Erika (Extração + Prog. + Compras)', etapas: ['extracaoGab','programacao','repassadoCompras'] }
@@ -446,6 +484,7 @@ let productionTimes = {};
 let observationCounts = {};
 let extraTicks      = {};  // itemKey -> { repassadoCompras: bool }
 let activityDates   = {};  // itemKey -> Set de 'YYYY-MM-DD' (etapas concluídas)
+let lastFiltered    = [];  // últimos produtos exibidos (para impressão)
 
 function itemKey(item) {
   return `${item.nPedido || ''}::${item.produto}`;
@@ -586,17 +625,44 @@ async function loadActivityDates() {
   return map;
 }
 
+// Nome amigável de uma etapa (real da planilha ou virtual/extra).
+function etapaLabel(et) {
+  const i = STAGES.indexOf(et);
+  return i >= 0 ? STAGE_LABELS[i] : (EXTRA_LABELS[et] || et);
+}
+
+// Lista as etapas (da frente/modo) que foram ticadas dentro do período, com datas.
+// Retorna string tipo "Modelagem 3D (10/07); Modelagem Téc. (12/07)" ou '—'.
+function etapasTicadasNoPeriodo(item, mode, dFrom, dTo) {
+  const rec = activityDates[itemKey(item)];
+  if (!rec) return '—';
+  const etapas = (FRENTES[mode.slice(7)] || { etapas: [] }).etapas;
+  const inRange = (t) => (dFrom && dTo) ? (t >= dFrom.getTime() && t <= dTo.getTime())
+                        : dFrom ? (t === dFrom.getTime()) : (t === dTo.getTime());
+  const partes = [];
+  etapas.forEach(et => {
+    const set = rec[et];
+    if (!set) return;
+    const dias = [...set].filter(ds => inRange(new Date(ds + 'T00:00:00').getTime())).sort();
+    if (dias.length) {
+      const datas = dias.map(d => d.split('-').reverse().slice(0, 2).join('/')).join(', ');
+      const label = etapaLabel(et).replace('Modelagem', 'Mod.');  // abrevia na impressão
+      partes.push(`${label} (${datas})`);
+    }
+  });
+  return partes.length ? partes.join('; ') : '—';
+}
+
 // Retorna o Set de dias de atividade de um produto conforme o modo do filtro:
-// 'atividade' = todas as etapas; 'atv:<etapa>' = só aquela etapa.
+// 'atividade' = todas as etapas; 'frente:<nome>' = as etapas daquela frente.
 function activityDaysFor(item, mode) {
   const rec = activityDates[itemKey(item)];
   if (!rec) return null;
-  if (mode === 'atividade') {
-    const all = new Set();
-    Object.values(rec).forEach(set => set.forEach(d => all.add(d)));
-    return all;
-  }
-  return rec[mode.slice(4)] || null;  // remove o prefixo 'atv:'
+  const fr = FRENTES[mode.slice(7)];  // remove o prefixo 'frente:'
+  const etapas = fr ? fr.etapas : [];
+  const all = new Set();
+  etapas.forEach(et => { if (rec[et]) rec[et].forEach(d => all.add(d)); });
+  return all.size ? all : null;
 }
 
 /* ── OBSERVAÇÕES (Supabase) ────────────────────────────── */
@@ -920,8 +986,8 @@ function renderTable() {
     };
     let ok4 = true;
     if (dFrom || dTo) {
-      if (dateField === 'atividade' || dateField.startsWith('atv:')) {
-        // Produto teve a etapa (ou qualquer etapa) ticada dentro do período?
+      if (dateField.startsWith('frente:')) {
+        // Produto teve alguma etapa da frente ticada dentro do período?
         const dias = activityDaysFor(item, dateField);
         ok4 = !!dias && [...dias].some(ds => inRange(new Date(ds + 'T00:00:00').getTime()));
       } else {
@@ -933,6 +999,10 @@ function renderTable() {
     return ok1 && ok2 && ok3 && ok4;
   });
   filtered.sort(smartSort);
+  lastFiltered = filtered;
+  const total = allData.length;
+  const fc = document.getElementById('filterCount');
+  fc.textContent = filtered.length === total ? `${total} produtos` : `${filtered.length} de ${total} produtos`;
   const c = { all: allData.length, red:0, orange:0, white:0, green:0, zero:0 };
   allData.forEach(item => { 
     const s = getStatus(item); 
@@ -1288,13 +1358,95 @@ function openDateModal(rowIndex) {
 
 function closeModal(id) { document.getElementById(id).style.display = 'none'; currentItem = null; }
 
+// Define a orientação da página só para a próxima impressão.
+function setPrintOrientation(mode) {
+  let el = document.getElementById('printOrient');
+  if (!el) { el = document.createElement('style'); el.id = 'printOrient'; document.head.appendChild(el); }
+  el.textContent = `@page { size: A4 ${mode}; margin: 12mm; }`;
+}
+
 function printReport() {
   const now = new Date();
   document.getElementById('modalPrintMeta').textContent =
     `Gerado em ${now.toLocaleDateString('pt-BR')} às ${now.toLocaleTimeString('pt-BR', {hour:'2-digit',minute:'2-digit'})}`;
+  setPrintOrientation('portrait');
   document.body.classList.add('printing-report');
   window.print();
   document.body.classList.remove('printing-report');
+}
+
+// Descreve os filtros ativos em texto, pro cabeçalho da impressão
+function describeFilters() {
+  const partes = [];
+  const search = document.getElementById('searchInput').value.trim();
+  const resp   = document.getElementById('filterResp').value;
+  const stFilt = document.getElementById('filterStatusSel').value;
+  const dateField = document.getElementById('filterDateField').value;
+  const from = document.getElementById('filterDateFrom').value;
+  const to   = document.getElementById('filterDateTo').value;
+  if (search) partes.push(`Busca: "${search}"`);
+  if (resp)   partes.push(`Responsável: ${resp}`);
+  const stLabels = { red:'Atrasados', orange:'Em Alerta', white:'Em Andamento', zero:'Sem Iniciar', green:'Finalizados' };
+  if (stFilt) partes.push(`Status: ${stLabels[stFilt] || stFilt}`);
+  if (from || to) {
+    const fieldLabels = { dataRecebimento:'Recebimento', dataSolicitacao:'Solicitação', dataEntrega:'Entrega' };
+    let campo = fieldLabels[dateField];
+    if (dateField.startsWith('frente:')) campo = (FRENTES[dateField.slice(7)] || {}).label || dateField;
+    const fmt = s => s ? s.split('-').reverse().join('/') : '';
+    const periodo = (from && to) ? `${fmt(from)} a ${fmt(to)}` : `${fmt(from || to)}`;
+    partes.push(`${campo}: ${periodo}`);
+  }
+  return partes.length ? partes.join('  ·  ') : 'Todos os produtos (sem filtros)';
+}
+
+function printList() {
+  const now = new Date();
+
+  // Coluna adaptativa: se o filtro é por atividade do Dev (frente), mostra as
+  // etapas ticadas no período; senão, mostra o total de etapas concluídas.
+  const dateField = document.getElementById('filterDateField').value;
+  const fromRaw = document.getElementById('filterDateFrom').value;
+  const toRaw   = document.getElementById('filterDateTo').value;
+  const dFrom = fromRaw ? new Date(fromRaw + 'T00:00:00') : null;
+  const dTo   = toRaw   ? new Date(toRaw   + 'T00:00:00') : null;
+  const modoAtividade = dateField.startsWith('frente:') && (dFrom || dTo);
+  const colHeader = modoAtividade ? 'Etapas ticadas no período' : 'Etapas concl.';
+
+  const rows = lastFiltered.map(item => {
+    const st = getStatus(item);
+    const stLabel = { red:'Atrasado', orange:'Alerta', green:'Finalizado', white: item.progresso>0?'Em andamento':'Sem iniciar' }[st];
+    const etapasCol = modoAtividade
+      ? etapasTicadasNoPeriodo(item, dateField, dFrom, dTo)
+      : `${STAGES.filter(s => item.stages[s]).length}/${STAGES.length}`;
+    return `<tr>
+      <td>${item.nPedido || '—'}</td>
+      <td>${item.produto}</td>
+      <td>${item.responsavel || '—'}</td>
+      <td>${fmtDate(item.dataRecebimento)}</td>
+      <td>${fmtDate(item.dataEntrega)}</td>
+      <td>${item.progresso}%</td>
+      <td>${stLabel}</td>
+      <td>${etapasCol}</td>
+    </tr>`;
+  }).join('');
+  document.getElementById('printListArea').innerHTML = `
+    <div class="pl-company">STUDYO 4 ESTOFADOS — Lista de Produtos</div>
+    <div class="pl-count">Total: ${lastFiltered.length} produto(s)</div>
+    <div class="pl-meta">
+      ${describeFilters()}<br>
+      Gerado em ${now.toLocaleDateString('pt-BR')} às ${now.toLocaleTimeString('pt-BR', {hour:'2-digit',minute:'2-digit'})}
+    </div>
+    <table>
+      <thead><tr>
+        <th>Nº Ped.</th><th>Produto</th><th>Responsável</th>
+        <th>Recebimento</th><th>Entrega</th><th>Prog.</th><th>Status</th><th>${colHeader}</th>
+      </tr></thead>
+      <tbody>${rows}</tbody>
+    </table>`;
+  setPrintOrientation('landscape');
+  document.body.classList.add('printing-list');
+  window.print();
+  document.body.classList.remove('printing-list');
 }
 
 async function saveStagesChanges() {
