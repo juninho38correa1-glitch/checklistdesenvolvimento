@@ -324,7 +324,7 @@
     </div>
     <div class="filter-count" id="filterCount" title="Produtos exibidos com os filtros atuais">—</div>
     <button class="btn-print" id="btnPrintList" onclick="printList()" title="Imprimir a lista filtrada">🖨️ Imprimir</button>
-    <div class="operador-badge" id="operadorBadge" onclick="promptOperador()" title="Clique para definir quem está usando este computador"></div>
+    <div class="operador-badge" id="operadorBadge" onclick="sair()" title="Usuário logado — clique para sair"></div>
     <div class="last-updated" id="lastUpdated" style="border:none;padding:0;margin-left:auto">Carregando...</div>
   </div>
 
@@ -460,7 +460,7 @@ const PRODUCAO_ALERTA_DIAS  = 10;
 const PRODUCAO_ATRASO_DIAS  = 15;
 
 const STATUS_SNAPSHOT_KEY = 'studyo4_status_snapshot';
-const OPERADOR_KEY = 'studyo4_operador';
+const SESSAO_KEY = 'studyo4_sessao';   // mesma chave usada pelo portal
 
 // Ticagens extras — NÃO vêm da planilha nem vão pra ela. Ficam só no Supabase
 // (gravadas como "etapa virtual" na tabela etapa_logs). Cada uma aparece na tela
@@ -737,20 +737,28 @@ async function addObservacao() {
   }
 }
 
-/* ── OPERADOR (quem está usando este computador) ───────── */
-function getOperador() {
-  return localStorage.getItem(OPERADOR_KEY) || '';
+/* ── SESSÃO (login único, compartilhado com o portal) ──── */
+// A identidade vem do login do portal (index.html). Assim "quem ticou" e
+// "quem recebe notificação" são a mesma pessoa cadastrada em `usuarios`.
+let sessao = null;
+
+function carregarSessao() {
+  try { sessao = JSON.parse(localStorage.getItem(SESSAO_KEY) || 'null'); } catch (e) { sessao = null; }
+  if (!sessao || !sessao.id) {          // sem login → volta pro portal
+    location.href = 'index.html';
+    return false;
+  }
+  return true;
 }
-function promptOperador() {
-  const atual = getOperador();
-  const nome = prompt('Quem está usando este computador?', atual);
-  if (nome === null) return;
-  localStorage.setItem(OPERADOR_KEY, nome.trim());
-  renderOperadorBadge();
+function getOperador() {
+  return sessao ? sessao.nome : '';
 }
 function renderOperadorBadge() {
-  const nome = getOperador();
-  document.getElementById('operadorBadge').textContent = nome ? `👤 ${nome}` : '👤 Definir usuário';
+  document.getElementById('operadorBadge').textContent = '👤 ' + getOperador();
+}
+function sair() {
+  localStorage.removeItem(SESSAO_KEY);
+  location.href = 'index.html';
 }
 
 /* ── LOG DE ETAPAS (Supabase) ──────────────────────────── */
@@ -1511,6 +1519,9 @@ function showToast() { const t = document.getElementById('toast'); t.classList.a
 function updateHeaderDate() {
   document.getElementById('headerDate').textContent = new Date().toLocaleDateString('pt-BR',{weekday:'long',year:'numeric',month:'long',day:'numeric'});
 }
+// Exige login do portal antes de qualquer coisa (redireciona se não houver)
+if (!carregarSessao()) throw new Error('sem sessão — redirecionando para o portal');
+
 updateHeaderDate();
 setInterval(updateHeaderDate, 60 * 1000);
 renderOperadorBadge();
