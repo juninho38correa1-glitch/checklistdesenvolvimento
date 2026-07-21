@@ -1,0 +1,512 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Studyo4 — Solicitações</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display&family=DM+Mono:wght@300;400;500&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+  :root {
+    --cream:#F5F0E8; --dark:#1A1714; --mid:#3D3830; --accent:#C8A96E;
+    --red:#C0392B; --orange:#E67E22; --green:#27AE60; --blue:#2E86C1; --roxo:#8E7CC3;
+    --border:#E0D8CC; --text-muted:#8A8278;
+  }
+  * { box-sizing:border-box; margin:0; padding:0; }
+  body { font-family:'DM Sans',sans-serif; background:var(--cream); color:var(--dark); min-height:100vh; }
+  .hidden { display:none !important; }
+
+  header { background:var(--dark); color:var(--cream); padding:12px 26px; display:flex; align-items:center; gap:14px; }
+  .brand { font-family:'DM Serif Display',serif; font-size:19px; }
+  .brand .accent { color:var(--accent); }
+  .spacer { flex:1; }
+  .btn-voltar { font-size:11px; font-weight:600; color:var(--cream); background:rgba(255,255,255,.1); border:1px solid rgba(255,255,255,.15); border-radius:20px; padding:5px 12px; text-decoration:none; white-space:nowrap; }
+  .btn-voltar:hover { background:var(--accent); color:var(--dark); }
+  .user-chip { font-size:12px; font-weight:600; background:rgba(255,255,255,.1); border-radius:20px; padding:6px 14px; }
+  .bell { position:relative; cursor:pointer; font-size:17px; }
+  .bell .badge { position:absolute; top:-6px; right:-8px; background:var(--red); color:#fff; font-size:9px; font-weight:700; border-radius:10px; padding:1px 5px; }
+
+  .container { max-width:1000px; margin:0 auto; padding:22px 26px 50px; }
+  .toolbar { display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-bottom:18px; }
+  .tab { border:1px solid var(--border); background:#fff; border-radius:20px; padding:6px 14px; font-size:12px; font-weight:600; cursor:pointer; }
+  .tab.active { background:var(--dark); color:var(--cream); border-color:var(--dark); }
+  select, input, textarea { border:1px solid var(--border); border-radius:8px; padding:8px 10px; font-family:'DM Sans',sans-serif; font-size:13px; color:var(--dark); background:#fff; outline:none; }
+  select:focus, input:focus, textarea:focus { border-color:var(--accent); }
+  textarea { resize:vertical; min-height:64px; width:100%; }
+  .btn { border:none; border-radius:8px; padding:9px 16px; font-size:13px; font-weight:600; cursor:pointer; font-family:'DM Sans',sans-serif; }
+  .btn-primary { background:var(--dark); color:var(--cream); }
+  .btn-primary:hover { opacity:.9; }
+  .btn-ghost { background:#fff; border:1px solid var(--border); color:var(--dark); }
+  .btn-ghost:hover { border-color:var(--accent); color:var(--accent); }
+  .btn-sm { padding:6px 11px; font-size:12px; }
+
+  .card-nova { background:#fff; border:1px solid var(--border); border-radius:12px; padding:18px; margin-bottom:18px; }
+  .grid2 { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+  .field-label { font-size:10px; font-weight:600; color:var(--text-muted); text-transform:uppercase; letter-spacing:.5px; margin-bottom:4px; display:block; }
+  .full { width:100%; }
+
+  .sol-card { background:#fff; border:1px solid var(--border); border-left:4px solid var(--border); border-radius:10px; padding:14px 16px; margin-bottom:10px; cursor:pointer; transition:box-shadow .15s, transform .1s; }
+  .sol-card:hover { box-shadow:0 6px 16px rgba(0,0,0,.07); transform:translateY(-1px); }
+  .sol-card.p-urgente { border-left-color:var(--red); }
+  .sol-card.p-alta    { border-left-color:var(--orange); }
+  .sol-card.p-normal  { border-left-color:var(--accent); }
+  .sol-card.p-baixa   { border-left-color:var(--border); }
+  .sol-card.concluida { opacity:.6; }
+  .sol-top { display:flex; align-items:center; gap:8px; margin-bottom:5px; flex-wrap:wrap; }
+  .sol-titulo { font-weight:600; font-size:14px; flex:1; min-width:180px; }
+  .sol-meta { font-size:11px; color:var(--text-muted); display:flex; gap:12px; flex-wrap:wrap; }
+  .pill { font-size:9px; font-weight:700; border-radius:20px; padding:2px 8px; text-transform:uppercase; letter-spacing:.4px; }
+  .pill.aberta { background:#e8eef5; color:var(--blue); }
+  .pill.em_andamento { background:#fae9d3; color:var(--orange); }
+  .pill.concluida { background:#d5efe0; color:var(--green); }
+  .pill.cancelada { background:#eee; color:var(--text-muted); }
+  .pill.urgente { background:#f5d5d2; color:var(--red); }
+  .pill.alta { background:#fae9d3; color:var(--orange); }
+  .pill.link { background:#efe7d6; color:#8a6d3b; }
+  .pill.atraso { background:var(--red); color:#fff; }
+  .pill.encadeada { background:#e7e2f3; color:var(--roxo); }
+
+  .overlay { position:fixed; inset:0; background:rgba(0,0,0,.5); display:none; align-items:center; justify-content:center; z-index:100; padding:20px; backdrop-filter:blur(2px); }
+  .modal { background:#fff; border-radius:14px; width:620px; max-width:100%; max-height:90vh; overflow-y:auto; padding:24px; position:relative; }
+  .modal h2 { font-family:'DM Serif Display',serif; font-size:21px; margin-bottom:3px; padding-right:26px; }
+  .modal .close { position:absolute; top:14px; right:16px; font-size:24px; cursor:pointer; color:var(--text-muted); }
+  .section-label { font-size:10px; font-weight:600; color:var(--text-muted); text-transform:uppercase; letter-spacing:.5px; margin:18px 0 8px; display:block; border-top:1px solid var(--border); padding-top:14px; }
+
+  .tl-item { display:flex; gap:10px; padding:9px 2px; border-bottom:1px dashed var(--border); font-size:13px; }
+  .tl-ic { width:22px; text-align:center; flex-shrink:0; }
+  .tl-body { flex:1; }
+  .tl-meta { font-size:10px; color:var(--text-muted); font-family:'DM Mono',monospace; margin-top:2px; }
+  .empty { color:var(--text-muted); font-size:13px; text-align:center; padding:20px; }
+  .notif-item { border-bottom:1px solid var(--border); padding:10px 2px; font-size:13px; }
+  .notif-item.unread { background:#faf6ee; }
+  .notif-item .m { color:var(--text-muted); font-size:11px; margin-top:2px; }
+</style>
+</head>
+<body>
+
+<header>
+  <a class="btn-voltar" href="index.html">← Início</a>
+  <div class="brand">Solicita<span class="accent">ções</span></div>
+  <div class="spacer"></div>
+  <div class="bell" onclick="abrirNotificacoes()" title="Notificações">🔔<span class="badge hidden" id="bellBadge">0</span></div>
+  <div class="user-chip" id="userChip">—</div>
+</header>
+
+<div class="container">
+  <div class="toolbar">
+    <div class="tab active" id="tab-minhas"   onclick="setFiltro('minhas',this)">Minhas tarefas</div>
+    <div class="tab"        id="tab-criadas"  onclick="setFiltro('criadas',this)">Criadas por mim</div>
+    <div class="tab"        id="tab-todas"    onclick="setFiltro('todas',this)">Todas</div>
+    <select id="filtroStatus" onchange="renderLista()">
+      <option value="abertas">Em aberto</option>
+      <option value="">Todos os status</option>
+      <option value="aberta">Aberta</option>
+      <option value="em_andamento">Em andamento</option>
+      <option value="concluida">Concluída</option>
+      <option value="cancelada">Cancelada</option>
+    </select>
+    <div style="flex:1"></div>
+    <span id="contador" style="font-family:'DM Mono',monospace;font-size:11px;color:var(--text-muted)"></span>
+    <button class="btn btn-primary btn-sm" onclick="toggleNova()">+ Nova solicitação</button>
+  </div>
+
+  <div class="card-nova hidden" id="cardNova">
+    <label class="field-label">Título</label>
+    <input class="full" id="nvTitulo" placeholder="Ex: Alterar documentação e arquivos de corte do LANDSCAPE">
+    <label class="field-label" style="margin-top:10px">Descrição (opcional)</label>
+    <textarea id="nvDescricao" placeholder="Detalhe o que precisa ser feito..."></textarea>
+    <div class="grid2" style="margin-top:10px">
+      <div>
+        <label class="field-label">Responsável</label>
+        <select class="full" id="nvResponsavel"></select>
+      </div>
+      <div>
+        <label class="field-label">Prioridade</label>
+        <select class="full" id="nvPrioridade">
+          <option value="baixa">Baixa</option>
+          <option value="normal" selected>Normal</option>
+          <option value="alta">Alta</option>
+          <option value="urgente">Urgente</option>
+        </select>
+      </div>
+      <div>
+        <label class="field-label">Nº Pedido (opcional)</label>
+        <input class="full" id="nvPedido" placeholder="Ex: 117043">
+      </div>
+      <div>
+        <label class="field-label">Produto (opcional)</label>
+        <input class="full" id="nvProduto" placeholder="Ex: CAMA DELFT QUEEN">
+      </div>
+    </div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:14px">
+      <button class="btn btn-ghost btn-sm" onclick="toggleNova()">Cancelar</button>
+      <button class="btn btn-primary btn-sm" id="btnCriar" onclick="criarSolicitacao()">Criar solicitação</button>
+    </div>
+  </div>
+
+  <div id="lista"><div class="empty">Carregando...</div></div>
+</div>
+
+<!-- DETALHE -->
+<div class="overlay" id="detOverlay">
+  <div class="modal">
+    <span class="close" onclick="fecharOverlay('detOverlay')">&times;</span>
+    <h2 id="detTitulo">—</h2>
+    <div class="sol-meta" id="detMeta"></div>
+    <div id="detDescricao" style="margin-top:12px;font-size:13px;white-space:pre-wrap"></div>
+
+    <span class="section-label">Linha do tempo</span>
+    <div id="detTimeline"><div class="empty">Carregando...</div></div>
+
+    <span class="section-label">Ações</span>
+    <div id="detAcoes"></div>
+  </div>
+</div>
+
+<!-- ENCAMINHAR -->
+<div class="overlay" id="encOverlay">
+  <div class="modal" style="width:460px">
+    <span class="close" onclick="fecharOverlay('encOverlay')">&times;</span>
+    <h2>Encaminhar</h2>
+    <div style="font-size:12px;color:var(--text-muted);margin-bottom:6px">
+      Cria uma <b>nova solicitação</b> para outra pessoa, encadeada a esta.
+    </div>
+    <label class="field-label" style="margin-top:10px">Para quem</label>
+    <select class="full" id="encPara"></select>
+    <label class="field-label" style="margin-top:10px">Título da nova solicitação</label>
+    <input class="full" id="encTitulo" placeholder="Ex: Comprar chapa p/ corte a laser">
+    <label class="field-label" style="margin-top:10px">Observação do encaminhamento</label>
+    <textarea id="encTexto" placeholder="O que a pessoa precisa saber..."></textarea>
+    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:14px">
+      <button class="btn btn-ghost btn-sm" onclick="fecharOverlay('encOverlay')">Cancelar</button>
+      <button class="btn btn-primary btn-sm" id="btnEnc" onclick="confirmarEncaminhar()">Encaminhar</button>
+    </div>
+  </div>
+</div>
+
+<!-- NOTIFICAÇÕES -->
+<div class="overlay" id="notifOverlay">
+  <div class="modal" style="width:440px">
+    <span class="close" onclick="fecharOverlay('notifOverlay')">&times;</span>
+    <h2>Notificações</h2>
+    <div id="notifList"><div class="empty">Carregando...</div></div>
+  </div>
+</div>
+
+<script>
+const SUPABASE_URL = 'https://qzuhcbizkyvuhbshsdit.supabase.co';
+const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InF6dWhjYml6a3l2dWhic2hzZGl0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODEwNjkzODEsImV4cCI6MjA5NjY0NTM4MX0.aaQyk_wtitAQLjXyLGSWu1DniU3rLqk3Vb6ClhtWuaM';
+const sb = window.supabase ? window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY) : null;
+const SESSAO_KEY = 'studyo4_sessao';
+
+let sessao = null, usuarios = [], solicitacoes = [], filtro = 'minhas', diasAlerta = 3, detAtual = null;
+
+const LBL_STATUS = { aberta:'Aberta', em_andamento:'Em andamento', concluida:'Concluída', cancelada:'Cancelada' };
+const IC_EVENTO  = { processo:'🔨', comentario:'💬', encaminhamento:'➡️', status:'🔁' };
+
+/* ── SESSÃO ─────────────────────────────────────────── */
+function carregarSessao() {
+  try { sessao = JSON.parse(localStorage.getItem(SESSAO_KEY) || 'null'); } catch (e) { sessao = null; }
+  if (!sessao || !sessao.id) { location.href = 'index.html'; return false; }
+  document.getElementById('userChip').textContent = '👤 ' + sessao.nome;
+  return true;
+}
+const nomeDe = id => (usuarios.find(u => u.id === id) || {}).nome || '—';
+
+/* ── CARGA ──────────────────────────────────────────── */
+async function carregarUsuarios() {
+  const { data } = await sb.from('usuarios').select('id,nome').eq('ativo', true).order('nome');
+  usuarios = data || [];
+  const opts = usuarios.map(u => `<option value="${u.id}">${u.nome}</option>`).join('');
+  document.getElementById('nvResponsavel').innerHTML = opts;
+  document.getElementById('encPara').innerHTML = opts;
+}
+
+async function carregarConfig() {
+  const { data } = await sb.from('configuracoes').select('valor').eq('chave','dias_alerta_solicitacao').maybeSingle();
+  if (data && data.valor) diasAlerta = parseInt(data.valor) || 3;
+}
+
+async function carregarSolicitacoes() {
+  const { data, error } = await sb.from('solicitacoes').select('*').order('created_at', { ascending:false });
+  if (error) { document.getElementById('lista').innerHTML = '<div class="empty">Erro ao carregar. Rodou o SQL da Fase 1?</div>'; return; }
+  solicitacoes = data || [];
+  // contagem de eventos por solicitação
+  const { data: evs } = await sb.from('solicitacao_eventos').select('solicitacao_id');
+  const cont = {};
+  (evs || []).forEach(e => cont[e.solicitacao_id] = (cont[e.solicitacao_id] || 0) + 1);
+  solicitacoes.forEach(s => s._eventos = cont[s.id] || 0);
+  renderLista();
+  verificarAtrasadas();
+}
+
+/* ── LISTA ──────────────────────────────────────────── */
+function setFiltro(f, el) {
+  filtro = f;
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  el.classList.add('active');
+  renderLista();
+}
+
+function diasParados(s) {
+  return Math.floor((Date.now() - new Date(s.updated_at).getTime()) / 86400000);
+}
+
+function renderLista() {
+  const st = document.getElementById('filtroStatus').value;
+  let lista = solicitacoes.filter(s => {
+    if (filtro === 'minhas'  && s.responsavel_id !== sessao.id) return false;
+    if (filtro === 'criadas' && s.criador_id     !== sessao.id) return false;
+    if (st === 'abertas') return s.status === 'aberta' || s.status === 'em_andamento';
+    if (st) return s.status === st;
+    return true;
+  });
+  document.getElementById('contador').textContent = `${lista.length} solicitação(ões)`;
+  const el = document.getElementById('lista');
+  if (!lista.length) { el.innerHTML = '<div class="empty">Nenhuma solicitação por aqui.</div>'; return; }
+
+  el.innerHTML = lista.map(s => {
+    const atrasada = (s.status === 'aberta' || s.status === 'em_andamento') && diasParados(s) >= diasAlerta;
+    const vinc = (s.produto_ref || s.pedido_ref)
+      ? `<span class="pill link">🔗 ${[s.pedido_ref, s.produto_ref].filter(Boolean).join(' · ')}</span>` : '';
+    return `<div class="sol-card p-${s.prioridade} ${s.status==='concluida'?'concluida':''}" onclick="abrirDetalhe('${s.id}')">
+      <div class="sol-top">
+        <span class="pill ${s.status}">${LBL_STATUS[s.status]}</span>
+        ${['urgente','alta'].includes(s.prioridade) ? `<span class="pill ${s.prioridade}">${s.prioridade}</span>` : ''}
+        <span class="sol-titulo">${s.titulo}</span>
+        ${atrasada ? `<span class="pill atraso">parada ${diasParados(s)}d</span>` : ''}
+        ${s.origem_solicitacao_id ? '<span class="pill encadeada">encadeada</span>' : ''}
+      </div>
+      <div class="sol-meta">
+        <span>${nomeDe(s.criador_id)} → <b>${nomeDe(s.responsavel_id)}</b></span>
+        ${vinc}
+        <span>${s._eventos} registro(s)</span>
+        <span>${new Date(s.created_at).toLocaleDateString('pt-BR')}</span>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+/* ── NOVA ───────────────────────────────────────────── */
+function toggleNova() {
+  const c = document.getElementById('cardNova');
+  c.classList.toggle('hidden');
+  if (!c.classList.contains('hidden')) document.getElementById('nvTitulo').focus();
+}
+
+async function criarSolicitacao() {
+  const btn = document.getElementById('btnCriar');
+  const titulo = document.getElementById('nvTitulo').value.trim();
+  if (!titulo) { alert('Informe o título.'); return; }
+  btn.disabled = true;
+  try {
+    const respId = document.getElementById('nvResponsavel').value;
+    const { data, error } = await sb.from('solicitacoes').insert({
+      titulo,
+      descricao: document.getElementById('nvDescricao').value.trim() || null,
+      criador_id: sessao.id,
+      responsavel_id: respId,
+      prioridade: document.getElementById('nvPrioridade').value,
+      pedido_ref: document.getElementById('nvPedido').value.trim() || null,
+      produto_ref: document.getElementById('nvProduto').value.trim() || null
+    }).select().single();
+    if (error) throw error;
+    await notificar(respId, 'Nova solicitação para você', titulo, data.id);
+    ['nvTitulo','nvDescricao','nvPedido','nvProduto'].forEach(i => document.getElementById(i).value = '');
+    toggleNova();
+    await carregarSolicitacoes();
+  } catch (e) { alert('Erro: ' + e.message); }
+  finally { btn.disabled = false; }
+}
+
+/* ── DETALHE ────────────────────────────────────────── */
+async function abrirDetalhe(id) {
+  detAtual = solicitacoes.find(s => s.id === id);
+  if (!detAtual) return;
+  const s = detAtual;
+  document.getElementById('detTitulo').textContent = s.titulo;
+  const vinc = (s.produto_ref || s.pedido_ref) ? ` · 🔗 ${[s.pedido_ref, s.produto_ref].filter(Boolean).join(' · ')}` : '';
+  document.getElementById('detMeta').innerHTML =
+    `<span class="pill ${s.status}">${LBL_STATUS[s.status]}</span>
+     <span>${nomeDe(s.criador_id)} → <b>${nomeDe(s.responsavel_id)}</b></span>
+     <span>prioridade: ${s.prioridade}</span>
+     <span>${new Date(s.created_at).toLocaleString('pt-BR')}${vinc}</span>`;
+  document.getElementById('detDescricao').textContent = s.descricao || '';
+  renderAcoes(s);
+  abrirOverlay('detOverlay');
+
+  const tl = document.getElementById('detTimeline');
+  tl.innerHTML = '<div class="empty">Carregando...</div>';
+  const { data, error } = await sb.from('solicitacao_eventos').select('*')
+    .eq('solicitacao_id', id).order('created_at', { ascending:false });
+  if (error) { tl.innerHTML = '<div class="empty">Erro ao carregar.</div>'; return; }
+  if (!data.length) { tl.innerHTML = '<div class="empty">Nenhum registro ainda.</div>'; return; }
+  tl.innerHTML = data.map(e => `<div class="tl-item">
+      <div class="tl-ic">${IC_EVENTO[e.tipo] || '•'}</div>
+      <div class="tl-body">${e.texto}
+        <div class="tl-meta">${nomeDe(e.autor_id)} · ${new Date(e.created_at).toLocaleString('pt-BR')}</div>
+      </div>
+    </div>`).join('');
+}
+
+function renderAcoes(s) {
+  const concl = s.status === 'concluida' || s.status === 'cancelada';
+  document.getElementById('detAcoes').innerHTML = concl
+    ? `<div class="empty">Solicitação ${LBL_STATUS[s.status].toLowerCase()}.</div>`
+    : `<textarea id="acTexto" placeholder="Descreva o que foi feito, ou deixe um comentário..."></textarea>
+       <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">
+         <button class="btn btn-ghost btn-sm" onclick="registrarEvento('processo')">🔨 Registrar processo</button>
+         <button class="btn btn-ghost btn-sm" onclick="registrarEvento('comentario')">💬 Comentar</button>
+         <button class="btn btn-ghost btn-sm" onclick="abrirEncaminhar()">➡️ Encaminhar</button>
+         <button class="btn btn-primary btn-sm" onclick="concluir()">✓ Concluir</button>
+       </div>`;
+}
+
+async function registrarEvento(tipo) {
+  const texto = document.getElementById('acTexto').value.trim();
+  if (!texto) { alert('Escreva algo antes.'); return; }
+  const s = detAtual;
+  await sb.from('solicitacao_eventos').insert({ solicitacao_id:s.id, autor_id:sessao.id, tipo, texto });
+  const novoStatus = s.status === 'aberta' ? 'em_andamento' : s.status;
+  await sb.from('solicitacoes').update({ status:novoStatus, updated_at:new Date().toISOString() }).eq('id', s.id);
+  // avisa o criador que a solicitação dele andou
+  await notificar(s.criador_id, 'Sua solicitação teve movimento', `${s.titulo}: ${texto.slice(0,80)}`, s.id);
+  await carregarSolicitacoes();
+  abrirDetalhe(s.id);
+}
+
+async function concluir() {
+  const s = detAtual;
+  if (!confirm('Concluir esta solicitação?')) return;
+  await sb.from('solicitacoes').update({
+    status:'concluida', concluida_em:new Date().toISOString(), updated_at:new Date().toISOString()
+  }).eq('id', s.id);
+  await sb.from('solicitacao_eventos').insert({
+    solicitacao_id:s.id, autor_id:sessao.id, tipo:'status', texto:'Solicitação concluída'
+  });
+  await notificar(s.criador_id, 'Solicitação concluída', s.titulo, s.id);
+  fecharOverlay('detOverlay');
+  await carregarSolicitacoes();
+}
+
+/* ── ENCAMINHAR (gera solicitação filha) ────────────── */
+function abrirEncaminhar() {
+  document.getElementById('encTitulo').value = '';
+  document.getElementById('encTexto').value = '';
+  abrirOverlay('encOverlay');
+}
+
+async function confirmarEncaminhar() {
+  const btn = document.getElementById('btnEnc');
+  const paraId = document.getElementById('encPara').value;
+  const titulo = document.getElementById('encTitulo').value.trim();
+  const texto  = document.getElementById('encTexto').value.trim();
+  if (!titulo) { alert('Informe o título da nova solicitação.'); return; }
+  btn.disabled = true;
+  try {
+    const pai = detAtual;
+    // 1) cria a solicitação filha, herdando o vínculo com o produto
+    const { data: filha, error } = await sb.from('solicitacoes').insert({
+      titulo,
+      descricao: texto || null,
+      criador_id: sessao.id,
+      responsavel_id: paraId,
+      prioridade: pai.prioridade,
+      pedido_ref: pai.pedido_ref,
+      produto_ref: pai.produto_ref,
+      origem_solicitacao_id: pai.id
+    }).select().single();
+    if (error) throw error;
+    // 2) registra o encaminhamento na timeline da solicitação de origem
+    await sb.from('solicitacao_eventos').insert({
+      solicitacao_id: pai.id, autor_id: sessao.id, tipo:'encaminhamento',
+      texto: `Encaminhado para ${nomeDe(paraId)}: ${titulo}${texto ? ' — ' + texto : ''}`,
+      solicitacao_filha_id: filha.id
+    });
+    await sb.from('solicitacoes').update({
+      status: pai.status === 'aberta' ? 'em_andamento' : pai.status,
+      updated_at: new Date().toISOString()
+    }).eq('id', pai.id);
+    await notificar(paraId, 'Solicitação encaminhada para você', titulo, filha.id);
+    fecharOverlay('encOverlay');
+    await carregarSolicitacoes();
+    abrirDetalhe(pai.id);
+  } catch (e) { alert('Erro: ' + e.message); }
+  finally { btn.disabled = false; }
+}
+
+/* ── NOTIFICAÇÕES ───────────────────────────────────── */
+async function notificar(paraId, titulo, corpo, ref, origem = 'solicitacao') {
+  if (!paraId || paraId === sessao.id) return;   // não notifica a si mesmo
+  try {
+    await sb.from('notificacoes').insert({ para_usuario_id:paraId, titulo, corpo, origem, ref });
+  } catch (e) { console.error('Falha ao notificar:', e); }
+}
+
+// Alerta de solicitação parada há +X dias (uma notificação por parada)
+async function verificarAtrasadas() {
+  const minhas = solicitacoes.filter(s =>
+    s.responsavel_id === sessao.id &&
+    (s.status === 'aberta' || s.status === 'em_andamento') &&
+    diasParados(s) >= diasAlerta
+  );
+  if (!minhas.length) return;
+  const { data: jaAvisadas } = await sb.from('notificacoes')
+    .select('ref, created_at').eq('para_usuario_id', sessao.id).eq('origem','solicitacao_atraso');
+  for (const s of minhas) {
+    // só avisa de novo se a solicitação se moveu depois do último aviso
+    const aviso = (jaAvisadas || []).find(n => n.ref === s.id);
+    if (aviso && new Date(aviso.created_at) > new Date(s.updated_at)) continue;
+    await sb.from('notificacoes').insert({
+      para_usuario_id: sessao.id,
+      titulo: `Solicitação parada há ${diasParados(s)} dias`,
+      corpo: s.titulo, origem: 'solicitacao_atraso', ref: s.id
+    });
+  }
+  atualizarBell();
+}
+
+async function atualizarBell() {
+  const { count } = await sb.from('notificacoes')
+    .select('id', { count:'exact', head:true }).eq('para_usuario_id', sessao.id).eq('lida', false);
+  const b = document.getElementById('bellBadge');
+  if (count > 0) { b.textContent = count; b.classList.remove('hidden'); } else b.classList.add('hidden');
+}
+
+async function abrirNotificacoes() {
+  abrirOverlay('notifOverlay');
+  const el = document.getElementById('notifList');
+  el.innerHTML = '<div class="empty">Carregando...</div>';
+  const { data } = await sb.from('notificacoes').select('*')
+    .eq('para_usuario_id', sessao.id).order('created_at', { ascending:false }).limit(50);
+  if (!data || !data.length) { el.innerHTML = '<div class="empty">Nenhuma notificação.</div>'; return; }
+  el.innerHTML = data.map(n => `<div class="notif-item ${n.lida?'':'unread'}">
+      <div style="font-weight:600">${n.titulo}</div>
+      ${n.corpo ? `<div class="m">${n.corpo}</div>` : ''}
+      <div class="m">${n.origem||''} · ${new Date(n.created_at).toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'})}</div>
+    </div>`).join('');
+  const naoLidas = data.filter(n => !n.lida).map(n => n.id);
+  if (naoLidas.length) { await sb.from('notificacoes').update({ lida:true }).in('id', naoLidas); atualizarBell(); }
+}
+
+/* ── UTIL ───────────────────────────────────────────── */
+function abrirOverlay(id) { document.getElementById(id).style.display = 'flex'; }
+function fecharOverlay(id) { document.getElementById(id).style.display = 'none'; }
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') {
+    const abertas = [...document.querySelectorAll('.overlay')].filter(o => o.style.display === 'flex');
+    if (abertas.length) abertas[abertas.length-1].style.display = 'none';
+  }
+});
+
+/* ── INIT ───────────────────────────────────────────── */
+(async function init() {
+  if (!carregarSessao()) return;
+  await Promise.all([carregarUsuarios(), carregarConfig()]);
+  await carregarSolicitacoes();
+  atualizarBell();
+  setInterval(atualizarBell, 30000);
+})();
+</script>
+</body>
+</html>
