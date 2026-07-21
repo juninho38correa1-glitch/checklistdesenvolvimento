@@ -466,8 +466,12 @@ const SESSAO_KEY = 'studyo4_sessao';   // mesma chave usada pelo portal
 // (gravadas como "etapa virtual" na tabela etapa_logs). Cada uma aparece na tela
 // de ticagem logo após a etapa definida em "after".
 const EXTRA_TICKS = [
-  { key: 'repassadoCompras', label: 'Repassado itens p/ Compras', after: 'programacao' }
+  { key: 'repassadoCompras', label: 'Repassado itens p/ Compras', after: 'programacao' },
+  // Ao ticar, abre automaticamente uma solicitação de documentação para o
+  // responsável configurado (config `responsavel_documentacao`).
+  { key: 'docVisual', label: '3D e Documentação', after: 'montFinal', abreSolicitacao: true }
 ];
+const DOC_ITENS = 'Medições, ficha técnica, ficha comercial e bloco 3D';
 const EXTRA_LABELS = Object.fromEntries(EXTRA_TICKS.map(e => [e.key, e.label]));
 
 // Frentes do Dev — grupos de etapas para o filtro "Feito pelo Dev".
@@ -584,6 +588,64 @@ async function loadExtraTicks() {
     console.error('Falha ao conectar ao Supabase (ticagens extras):', e);
   }
   return map;
+}
+
+/* ── SOLICITAÇÃO DE DOCUMENTAÇÃO (integra com o módulo Solicitações) ── */
+let respDocumentacao = null;   // pessoa que recebe as solicitações de documentação
+
+async function carregarRespDocumentacao() {
+  try {
+    const { data: cfg } = await supabaseClient.from('configuracoes')
+      .select('valor').eq('chave', 'responsavel_documentacao').maybeSingle();
+    if (!cfg || !cfg.valor) return null;
+    const { data: u } = await supabaseClient.from('usuarios')
+      .select('id,nome').eq('nome', cfg.valor).eq('ativo', true).maybeSingle();
+    return u || null;
+  } catch (e) {
+    console.error('Falha ao buscar responsável por documentação:', e);
+    return null;
+  }
+}
+
+// Abre uma solicitação de 3D/documentação já vinculada ao produto e avisa o responsável.
+async function abrirSolicitacaoDocumentacao(item) {
+  if (!respDocumentacao) {
+    alert('Nenhum responsável por documentação configurado.\nDefina a chave "responsavel_documentacao" no painel admin.');
+    return;
+  }
+  try {
+    // não duplica: já existe uma solicitação em aberto para este produto?
+    let q = supabaseClient.from('solicitacoes').select('id')
+      .eq('produto_ref', item.produto).in('status', ['aberta', 'em_andamento']);
+    q = item.nPedido ? q.eq('pedido_ref', item.nPedido) : q.is('pedido_ref', null);
+    const { data: existentes } = await q;
+    if (existentes && existentes.length) {
+      alert('Já existe uma solicitação de documentação em aberto para este produto.');
+      return;
+    }
+    const { data: sol, error } = await supabaseClient.from('solicitacoes').insert({
+      titulo: `3D e Documentação — ${item.produto}`,
+      descricao: DOC_ITENS,
+      criador_id: sessao.id,
+      responsavel_id: respDocumentacao.id,
+      prioridade: 'normal',
+      pedido_ref: item.nPedido || null,
+      produto_ref: item.produto
+    }).select().single();
+    if (error) throw error;
+    if (respDocumentacao.id !== sessao.id) {
+      await supabaseClient.from('notificacoes').insert({
+        para_usuario_id: respDocumentacao.id,
+        titulo: 'Nova solicitação: 3D e Documentação',
+        corpo: item.produto,
+        origem: 'checklist',
+        ref: sol.id
+      });
+    }
+    alert(`Solicitação de documentação aberta para ${respDocumentacao.nome}.`);
+  } catch (e) {
+    alert('Erro ao abrir solicitação: ' + e.message);
+  }
 }
 
 async function logExtraTick(item, etapaKey, novoStatus) {
@@ -914,6 +976,7 @@ async function loadCSV(isSilent = false) {
     observationCounts = await loadObservationCounts();
     extraTicks = await loadExtraTicks();
     activityDates = await loadActivityDates();
+    if (!respDocumentacao) respDocumentacao = await carregarRespDocumentacao();
     checkStatusAlerts();
     document.getElementById('stateBox').style.display  = 'none';
     document.getElementById('tableWrap').style.display = 'block';
@@ -1484,6 +1547,8 @@ async function saveStagesChanges() {
         await logExtraTick(item, e.key, novo);
         if (!extraTicks[key]) extraTicks[key] = {};
         extraTicks[key][e.key] = novo;
+        // ao MARCAR, abre a solicitação vinculada ao produto (não dispara ao desmarcar)
+        if (novo && e.abreSolicitacao) await abrirSolicitacaoDocumentacao(item);
       }
     }
 
