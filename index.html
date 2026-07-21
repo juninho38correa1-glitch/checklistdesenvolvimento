@@ -101,6 +101,7 @@
     <div class="spacer"></div>
     <div class="bell" id="bell" onclick="abrirNotificacoes()" title="Notificações">🔔<span class="badge hidden" id="bellBadge">0</span></div>
     <div class="user-chip" id="userChip">—</div>
+    <button class="icon-btn" id="btnPush" onclick="alternarPush()" title="Avisos no computador">🔕 Avisos</button>
     <button class="icon-btn" onclick="abrirTrocarPin()" title="Trocar meu PIN">🔑 Meu PIN</button>
     <button class="icon-btn hidden" id="btnAdmin" onclick="abrirAdmin()">⚙️ Admin</button>
     <button class="icon-btn" onclick="sair()">Sair</button>
@@ -246,6 +247,7 @@ function entrarApp() {
   document.getElementById('btnAdmin').classList.toggle('hidden', !sessao.admin);
   document.getElementById('cardAtividade').classList.toggle('hidden', !sessao.admin);
   carregarTituloPortal();
+  renderBotaoPush();
   atualizarBell();
   setInterval(atualizarBell, 30000);
 }
@@ -293,6 +295,87 @@ async function abrirNotificacoes() {
     console.error(e);
     el.innerHTML = '<div class="empty">Não foi possível carregar.</div>';
   }
+}
+
+/* ── PUSH: avisos no computador (mesmo com o site fechado) ── */
+const VAPID_PUBLIC = 'BPD7Ht9r-rDbdbmscitr0VM1_kZJD5fUiH5bb8oUR1sNIQ-7_WuQTSviLcDOGQS7FFIgSaGbh1VQVZQTVyydl9w';
+
+function b64ParaBytes(base64) {
+  const pad = '='.repeat((4 - base64.length % 4) % 4);
+  const b64 = (base64 + pad).replace(/-/g, '+').replace(/_/g, '/');
+  const bin = atob(b64);
+  return Uint8Array.from([...bin].map(c => c.charCodeAt(0)));
+}
+
+function pushSuportado() {
+  return 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
+}
+
+async function assinaturaAtual() {
+  if (!pushSuportado()) return null;
+  const reg = await navigator.serviceWorker.getRegistration();
+  if (!reg) return null;
+  return await reg.pushManager.getSubscription();
+}
+
+async function renderBotaoPush() {
+  const btn = document.getElementById('btnPush');
+  if (!pushSuportado()) { btn.textContent = '🔕 Sem suporte'; btn.disabled = true; return; }
+  if (Notification.permission === 'denied') {
+    btn.textContent = '🔕 Bloqueado'; btn.title = 'Você bloqueou as notificações. Libere nas permissões do site.';
+    return;
+  }
+  const sub = await assinaturaAtual();
+  btn.textContent = sub ? '🔔 Avisos ativos' : '🔕 Ativar avisos';
+  btn.title = sub ? 'Este computador recebe avisos. Clique para desativar.'
+                  : 'Clique para receber avisos neste computador.';
+}
+
+async function alternarPush() {
+  const btn = document.getElementById('btnPush');
+  btn.disabled = true;
+  try {
+    const sub = await assinaturaAtual();
+    if (sub) { await desativarPush(sub); } else { await ativarPush(); }
+  } catch (e) {
+    console.error(e);
+    alert('Não foi possível configurar os avisos: ' + e.message);
+  } finally {
+    btn.disabled = false;
+    renderBotaoPush();
+  }
+}
+
+async function ativarPush() {
+  const permissao = await Notification.requestPermission();
+  if (permissao !== 'granted') { alert('Permissão negada — os avisos não serão exibidos.'); return; }
+
+  const reg = await navigator.serviceWorker.register('sw.js');
+  await navigator.serviceWorker.ready;
+  const sub = await reg.pushManager.subscribe({
+    userVisibleOnly: true,
+    applicationServerKey: b64ParaBytes(VAPID_PUBLIC)
+  });
+
+  const j = sub.toJSON();
+  const { error } = await sb.from('push_subscriptions').upsert({
+    usuario_id: sessao.id,
+    endpoint: sub.endpoint,
+    p256dh: j.keys.p256dh,
+    auth: j.keys.auth,
+    user_agent: navigator.userAgent.slice(0, 200)
+  }, { onConflict: 'endpoint' });
+  if (error) throw error;
+
+  // aviso local confirmando que funcionou
+  reg.showNotification('Avisos ativados', {
+    body: 'Este computador vai receber as notificações do Studyo4.'
+  });
+}
+
+async function desativarPush(sub) {
+  await sb.from('push_subscriptions').delete().eq('endpoint', sub.endpoint);
+  await sub.unsubscribe();
 }
 
 /* ── TROCAR O PRÓPRIO PIN ──────────────────────────── */
