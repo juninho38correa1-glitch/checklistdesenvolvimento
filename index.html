@@ -101,6 +101,7 @@
     <div class="spacer"></div>
     <div class="bell" id="bell" onclick="abrirNotificacoes()" title="Notificações">🔔<span class="badge hidden" id="bellBadge">0</span></div>
     <div class="user-chip" id="userChip">—</div>
+    <button class="icon-btn" onclick="abrirTrocarPin()" title="Trocar meu PIN">🔑 Meu PIN</button>
     <button class="icon-btn hidden" id="btnAdmin" onclick="abrirAdmin()">⚙️ Admin</button>
     <button class="icon-btn" onclick="sair()">Sair</button>
   </header>
@@ -139,6 +140,23 @@
   </div>
 </div>
 
+<!-- MODAL TROCAR PIN -->
+<div class="overlay" id="pinOverlay">
+  <div class="modal" style="width:380px">
+    <span class="close" onclick="fecharOverlay('pinOverlay')">&times;</span>
+    <h2>Trocar meu PIN</h2>
+    <label class="field-label">PIN atual</label>
+    <input type="password" id="pinAtual" inputmode="numeric" maxlength="6" placeholder="••••">
+    <label class="field-label">Novo PIN (mín. 4 dígitos)</label>
+    <input type="password" id="pinNovo" inputmode="numeric" maxlength="6" placeholder="••••">
+    <label class="field-label">Repita o novo PIN</label>
+    <input type="password" id="pinNovo2" inputmode="numeric" maxlength="6" placeholder="••••"
+           onkeydown="if(event.key==='Enter') salvarNovoPin()">
+    <button class="btn btn-primary" onclick="salvarNovoPin()">Salvar novo PIN</button>
+    <div class="login-err" id="pinMsg"></div>
+  </div>
+</div>
+
 <!-- MODAL ADMIN -->
 <div class="overlay" id="adminOverlay">
   <div class="modal">
@@ -156,6 +174,16 @@
       <label class="chk"><input type="checkbox" id="nuAdmin"> admin</label>
       <button class="btn btn-ghost mini" onclick="addUsuario()">+ Add</button>
     </div>
+
+    <span class="section-label">Nomes no histórico</span>
+    <div style="font-size:12px;color:var(--text-muted);margin-bottom:8px">
+      Nomes que aparecem nos registros antigos. Vincule os que não batem com o cadastro
+      para unificar o histórico da pessoa.
+    </div>
+    <table>
+      <thead><tr><th>Nome no histórico</th><th>Registros</th><th>Vincular a</th></tr></thead>
+      <tbody id="admHistorico"><tr><td colspan="3" class="empty">Carregando...</td></tr></tbody>
+    </table>
 
     <span class="section-label">Configurações</span>
     <table>
@@ -268,10 +296,42 @@ async function abrirNotificacoes() {
   }
 }
 
+/* ── TROCAR O PRÓPRIO PIN ──────────────────────────── */
+function abrirTrocarPin() {
+  ['pinAtual','pinNovo','pinNovo2'].forEach(id => document.getElementById(id).value = '');
+  document.getElementById('pinMsg').textContent = '';
+  document.getElementById('pinMsg').style.color = '';
+  abrirOverlay('pinOverlay');
+}
+
+async function salvarNovoPin() {
+  const atual = document.getElementById('pinAtual').value.trim();
+  const novo  = document.getElementById('pinNovo').value.trim();
+  const novo2 = document.getElementById('pinNovo2').value.trim();
+  const msg   = document.getElementById('pinMsg');
+  msg.style.color = '';
+  if (!atual || !novo)      { msg.textContent = 'Preencha todos os campos.'; return; }
+  if (novo.length < 4)      { msg.textContent = 'O novo PIN precisa ter ao menos 4 dígitos.'; return; }
+  if (novo !== novo2)       { msg.textContent = 'A repetição do novo PIN não confere.'; return; }
+  try {
+    const { data, error } = await sb.rpc('alterar_pin', {
+      p_usuario_id: sessao.id, p_pin_atual: atual, p_pin_novo: novo
+    });
+    if (error) throw error;
+    if (data === false) { msg.textContent = 'PIN atual incorreto.'; return; }
+    msg.style.color = 'var(--green)';
+    msg.textContent = 'PIN alterado com sucesso!';
+    setTimeout(() => fecharOverlay('pinOverlay'), 1200);
+  } catch (e) {
+    console.error(e);
+    msg.textContent = 'Erro: ' + (e.message || 'tente novamente');
+  }
+}
+
 /* ── ADMIN ─────────────────────────────────────────── */
 async function abrirAdmin() {
   abrirOverlay('adminOverlay');
-  await Promise.all([carregarAdmUsers(), carregarAdmConfigs()]);
+  await Promise.all([carregarAdmUsers(), carregarAdmConfigs(), carregarAdmHistorico()]);
 }
 
 async function carregarAdmUsers() {
@@ -279,14 +339,75 @@ async function carregarAdmUsers() {
   const { data, error } = await sb.from('usuarios').select('id,nome,funcao,admin,ativo').order('nome');
   if (error) { tb.innerHTML = `<tr><td colspan="4" class="empty">Erro ao carregar.</td></tr>`; return; }
   tb.innerHTML = data.map(u => `<tr>
-    <td>${u.nome}</td>
+    <td><input class="mini" style="width:100%" id="nm-${u.id}" value="${u.nome.replace(/"/g,'&quot;')}"></td>
     <td>${u.funcao || '—'}</td>
     <td>${u.admin ? '<span class="pill admin">admin</span>' : ''}${!u.ativo ? '<span class="pill off">inativo</span>' : ''}</td>
-    <td>
+    <td style="white-space:nowrap">
+      <button class="btn btn-ghost mini" onclick="salvarNome('${u.id}')" title="Salvar nome (propaga para todo o histórico)">Salvar</button>
       <button class="btn btn-ghost mini" onclick="resetPin('${u.id}','${u.nome.replace(/'/g,"\\'")}')">PIN</button>
       <button class="btn btn-ghost mini" onclick="toggleAtivo('${u.id}', ${u.ativo})">${u.ativo ? 'Inativar' : 'Ativar'}</button>
     </td>
   </tr>`).join('');
+}
+
+// Renomeia o usuário propagando o nome em etapa_logs e pedido_observacoes
+async function salvarNome(id) {
+  const novo = document.getElementById('nm-' + id).value.trim();
+  if (!novo) { alert('O nome não pode ficar vazio.'); return; }
+  const { error } = await sb.rpc('renomear_usuario', { p_usuario_id: id, p_nome_novo: novo });
+  if (error) { alert('Erro: ' + error.message); return; }
+  alert('Nome atualizado e propagado para todo o histórico.');
+  // se renomeou a si mesmo, atualiza a sessão
+  if (sessao.id === id) {
+    sessao.nome = novo;
+    localStorage.setItem(SESSAO_KEY, JSON.stringify(sessao));
+    document.getElementById('userChip').textContent = '👤 ' + novo;
+  }
+  await Promise.all([carregarAdmUsers(), carregarAdmHistorico()]);
+}
+
+/* Nomes soltos no histórico (de antes do login unificado) */
+async function carregarAdmHistorico() {
+  const tb = document.getElementById('admHistorico');
+  try {
+    const [logs, obs, users] = await Promise.all([
+      sb.from('etapa_logs').select('usuario'),
+      sb.from('pedido_observacoes').select('autor'),
+      sb.from('usuarios').select('id,nome').order('nome')
+    ]);
+    const cont = {};
+    (logs.data || []).forEach(r => { if (r.usuario) cont[r.usuario] = (cont[r.usuario] || 0) + 1; });
+    (obs.data  || []).forEach(r => { if (r.autor)   cont[r.autor]   = (cont[r.autor]   || 0) + 1; });
+    const cadastrados = new Set((users.data || []).map(u => u.nome));
+    const linhas = Object.entries(cont).sort((a,b) => b[1] - a[1]);
+    if (!linhas.length) { tb.innerHTML = '<tr><td colspan="3" class="empty">Nenhum registro.</td></tr>'; return; }
+    const opts = (users.data || []).map(u => `<option value="${u.id}">${u.nome}</option>`).join('');
+    tb.innerHTML = linhas.map(([nome, qtd]) => {
+      const ok = cadastrados.has(nome);
+      return `<tr>
+        <td>${nome} ${ok ? '<span class="pill admin">cadastrado</span>' : '<span class="pill off">avulso</span>'}</td>
+        <td>${qtd}</td>
+        <td>${ok ? '<span style="color:var(--text-muted);font-size:12px">—</span>' : `
+          <select class="mini" id="vinc-${btoa(unescape(encodeURIComponent(nome))).replace(/=/g,'')}" style="max-width:120px">${opts}</select>
+          <button class="btn btn-ghost mini" onclick="vincularNome('${nome.replace(/'/g,"\\'")}')">Vincular</button>`}
+        </td>
+      </tr>`;
+    }).join('');
+  } catch (e) {
+    console.error(e);
+    tb.innerHTML = '<tr><td colspan="3" class="empty">Erro ao carregar.</td></tr>';
+  }
+}
+
+// Converte todas as ocorrências de um nome avulso para o nome do usuário escolhido
+async function vincularNome(nomeAntigo) {
+  const selId = 'vinc-' + btoa(unescape(encodeURIComponent(nomeAntigo))).replace(/=/g,'');
+  const usuarioId = document.getElementById(selId).value;
+  if (!confirm(`Vincular todos os registros de "${nomeAntigo}" a este usuário?`)) return;
+  const { error } = await sb.rpc('vincular_nome_historico', { p_usuario_id: usuarioId, p_nome_antigo: nomeAntigo });
+  if (error) { alert('Erro: ' + error.message); return; }
+  alert('Histórico unificado.');
+  carregarAdmHistorico();
 }
 
 async function addUsuario() {
