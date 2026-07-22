@@ -198,6 +198,7 @@ const SUPABASE_URL = 'https://qzuhcbizkyvuhbshsdit.supabase.co';
 const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InF6dWhjYml6a3l2dWhic2hzZGl0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODEwNjkzODEsImV4cCI6MjA5NjY0NTM4MX0.aaQyk_wtitAQLjXyLGSWu1DniU3rLqk3Vb6ClhtWuaM';
 const sb = window.supabase ? window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY) : null;
 const SESSAO_KEY = 'studyo4_sessao';
+const PUSH_FN = 'quick-endpoint';   // slug da Edge Function que envia o push
 
 let sessao = null, usuarios = [], solicitacoes = [], filtro = 'minhas', diasAlerta = 3, detAtual = null;
 
@@ -439,8 +440,19 @@ async function confirmarEncaminhar() {
 async function notificar(paraId, titulo, corpo, ref, origem = 'solicitacao') {
   if (!paraId || paraId === sessao.id) return;   // não notifica a si mesmo
   try {
-    await sb.from('notificacoes').insert({ para_usuario_id:paraId, titulo, corpo, origem, ref });
+    const { data, error } = await sb.from('notificacoes')
+      .insert({ para_usuario_id:paraId, titulo, corpo, origem, ref }).select().single();
+    if (error) throw error;
+    dispararPush(data);
   } catch (e) { console.error('Falha ao notificar:', e); }
+}
+
+// Dispara o aviso no computador da pessoa. Nunca bloqueia nem quebra o fluxo:
+// se o push falhar, a notificação continua valendo dentro do sistema (sininho).
+function dispararPush(registro) {
+  if (!registro) return;
+  sb.functions.invoke(PUSH_FN, { body: { record: registro } })
+    .catch(e => console.error('Falha ao enviar push:', e));
 }
 
 // Alerta de solicitação parada há +X dias (uma notificação por parada)
@@ -457,11 +469,12 @@ async function verificarAtrasadas() {
     // só avisa de novo se a solicitação se moveu depois do último aviso
     const aviso = (jaAvisadas || []).find(n => n.ref === s.id);
     if (aviso && new Date(aviso.created_at) > new Date(s.updated_at)) continue;
-    await sb.from('notificacoes').insert({
+    const { data: nova } = await sb.from('notificacoes').insert({
       para_usuario_id: sessao.id,
       titulo: `Solicitação parada há ${diasParados(s)} dias`,
       corpo: s.titulo, origem: 'solicitacao_atraso', ref: s.id
-    });
+    }).select().single();
+    dispararPush(nova);
   }
   atualizarBell();
 }

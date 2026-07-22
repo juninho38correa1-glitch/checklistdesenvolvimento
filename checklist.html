@@ -634,13 +634,18 @@ async function abrirSolicitacaoDocumentacao(item) {
     }).select().single();
     if (error) throw error;
     if (respDocumentacao.id !== sessao.id) {
-      await supabaseClient.from('notificacoes').insert({
+      const { data: notif } = await supabaseClient.from('notificacoes').insert({
         para_usuario_id: respDocumentacao.id,
         titulo: 'Nova solicitação: 3D e Documentação',
         corpo: item.produto,
         origem: 'checklist',
         ref: sol.id
-      });
+      }).select().single();
+      // dispara o aviso no computador do responsável (não bloqueia o fluxo)
+      if (notif) {
+        supabaseClient.functions.invoke('quick-endpoint', { body: { record: notif } })
+          .catch(e => console.error('Falha ao enviar push:', e));
+      }
     }
     alert(`Solicitação de documentação aberta para ${respDocumentacao.nome}.`);
   } catch (e) {
