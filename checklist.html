@@ -414,6 +414,11 @@
       <div class="modal-subtitle" id="modalReportSubtitle">Pedido: 12345</div>
     </div>
     <div class="report-summary" id="modalReportSummary"></div>
+    <div class="edit-section" id="secDocumentacao">
+      <label class="section-label">3D e Documentação</label>
+      <div id="docStatus" style="font-size:12px;color:var(--text-muted);margin-bottom:8px">—</div>
+      <button class="btn btn-save" id="btnDocumentacao" onclick="solicitarDocumentacao()">📐 Solicitar 3D e Documentação</button>
+    </div>
     <div class="edit-section">
       <label class="section-label">Linha do Tempo do Processo</label>
       <div id="modalReportGantt"><div class="timeline-empty">Carregando linha do tempo...</div></div>
@@ -466,10 +471,7 @@ const SESSAO_KEY = 'studyo4_sessao';   // mesma chave usada pelo portal
 // (gravadas como "etapa virtual" na tabela etapa_logs). Cada uma aparece na tela
 // de ticagem logo após a etapa definida em "after".
 const EXTRA_TICKS = [
-  { key: 'repassadoCompras', label: 'Repassado itens p/ Compras', after: 'programacao' },
-  // Ao ticar, abre automaticamente uma solicitação de documentação para o
-  // responsável configurado (config `responsavel_documentacao`).
-  { key: 'docVisual', label: '3D e Documentação', after: 'montFinal', abreSolicitacao: true }
+  { key: 'repassadoCompras', label: 'Repassado itens p/ Compras', after: 'programacao' }
 ];
 const DOC_ITENS = 'Medições, ficha técnica, ficha comercial e bloco 3D';
 const EXTRA_LABELS = Object.fromEntries(EXTRA_TICKS.map(e => [e.key, e.label]));
@@ -648,9 +650,54 @@ async function abrirSolicitacaoDocumentacao(item) {
       }
     }
     alert(`Solicitação de documentação aberta para ${respDocumentacao.nome}.`);
+    return true;
   } catch (e) {
     alert('Erro ao abrir solicitação: ' + e.message);
+    return false;
   }
+}
+
+// Mostra, no relatório do produto, se já existe solicitação de documentação
+async function atualizarStatusDocumentacao(item) {
+  const statusEl = document.getElementById('docStatus');
+  const btn = document.getElementById('btnDocumentacao');
+  statusEl.textContent = 'Verificando...';
+  btn.disabled = true;
+  try {
+    let q = supabaseClient.from('solicitacoes')
+      .select('status, created_at').eq('produto_ref', item.produto)
+      .order('created_at', { ascending: false });
+    q = item.nPedido ? q.eq('pedido_ref', item.nPedido) : q.is('pedido_ref', null);
+    const { data } = await q;
+    const aberta = (data || []).find(s => s.status === 'aberta' || s.status === 'em_andamento');
+    const concluida = (data || []).find(s => s.status === 'concluida');
+    if (aberta) {
+      statusEl.innerHTML = `<span style="color:var(--orange)">● Solicitação em aberto</span> desde ${new Date(aberta.created_at).toLocaleDateString('pt-BR')} · resp. ${respDocumentacao ? respDocumentacao.nome : '—'}`;
+      btn.textContent = '📐 Já solicitado';
+      btn.disabled = true;
+    } else if (concluida) {
+      statusEl.innerHTML = `<span style="color:var(--green)">✓ Documentação já concluída</span>`;
+      btn.textContent = '📐 Solicitar novamente';
+      btn.disabled = false;
+    } else {
+      statusEl.innerHTML = `Nenhuma solicitação ainda. Envie para <b>${respDocumentacao ? respDocumentacao.nome : 'o responsável'}</b>.`;
+      btn.textContent = '📐 Solicitar 3D e Documentação';
+      btn.disabled = false;
+    }
+  } catch (e) {
+    console.error(e);
+    statusEl.textContent = 'Não foi possível verificar.';
+    btn.disabled = false;
+  }
+}
+
+// Botão do relatório: cria a solicitação e atualiza o status ali mesmo
+async function solicitarDocumentacao() {
+  if (!currentItem) return;
+  const btn = document.getElementById('btnDocumentacao');
+  btn.disabled = true;
+  const ok = await abrirSolicitacaoDocumentacao(currentItem);
+  await atualizarStatusDocumentacao(currentItem);
 }
 
 async function logExtraTick(item, etapaKey, novoStatus) {
@@ -1217,6 +1264,8 @@ async function openReportModal(rowIndex) {
   document.getElementById('modalReportOverlay').style.display = 'flex';
   document.getElementById('newObsInput').value = '';
 
+  atualizarStatusDocumentacao(item);
+
   document.getElementById('modalReportObs').innerHTML = '<div class="timeline-empty">Carregando observações...</div>';
   loadObservacoesList(item)
     .then(renderObservacoes)
@@ -1552,8 +1601,6 @@ async function saveStagesChanges() {
         await logExtraTick(item, e.key, novo);
         if (!extraTicks[key]) extraTicks[key] = {};
         extraTicks[key][e.key] = novo;
-        // ao MARCAR, abre a solicitação vinculada ao produto (não dispara ao desmarcar)
-        if (novo && e.abreSolicitacao) await abrirSolicitacaoDocumentacao(item);
       }
     }
 
