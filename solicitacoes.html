@@ -75,6 +75,7 @@
   .tl-item { display:flex; gap:10px; padding:9px 2px; border-bottom:1px dashed var(--border); font-size:13px; }
   .tl-ic { width:22px; text-align:center; flex-shrink:0; }
   .tl-body { flex:1; }
+  .tl-texto { white-space:pre-wrap; word-break:break-word; }  /* respeita as quebras de linha digitadas */
   .tl-meta { font-size:10px; color:var(--text-muted); font-family:'DM Mono',monospace; margin-top:2px; }
   .empty { color:var(--text-muted); font-size:13px; text-align:center; padding:20px; }
   .notif-item { border-bottom:1px solid var(--border); padding:10px 2px; font-size:13px; }
@@ -97,6 +98,7 @@
     #printSolArea .ps-label { font-size:10px; text-transform:uppercase; letter-spacing:.5px; color:#555; border-top:1px solid #999; padding-top:8px; margin:14px 0 6px; font-weight:600; }
     #printSolArea .ps-desc { font-size:13px; white-space:pre-wrap; }
     #printSolArea .ps-ev { border-bottom:1px dashed #bbb; padding:6px 0; font-size:12px; page-break-inside:avoid; }
+    #printSolArea .ps-ev .t { white-space:pre-wrap; word-break:break-word; }
     #printSolArea .ps-ev .m { font-size:10px; color:#555; margin-top:2px; }
     #printSolArea .ps-sign { margin-top:40px; display:flex; justify-content:space-between; gap:40px; }
     #printSolArea .ps-sign div { flex:1; border-top:1px solid #000; padding-top:5px; font-size:11px; text-align:center; color:#333; }
@@ -371,8 +373,9 @@ async function abrirDetalhe(id) {
   if (!data.length) { tl.innerHTML = '<div class="empty">Nenhum registro ainda.</div>'; return; }
   tl.innerHTML = data.map(e => `<div class="tl-item">
       <div class="tl-ic">${IC_EVENTO[e.tipo] || '•'}</div>
-      <div class="tl-body">${e.texto}
-        <div class="tl-meta">${nomeDe(e.autor_id)} · ${new Date(e.created_at).toLocaleString('pt-BR')}</div>
+      <div class="tl-body">
+        <div class="tl-texto">${esc(e.texto)}</div>
+        <div class="tl-meta">${esc(nomeDe(e.autor_id))} · ${new Date(e.created_at).toLocaleString('pt-BR')}</div>
       </div>
     </div>`).join('');
 }
@@ -391,7 +394,7 @@ function printSolicitacao() {
     ? `<div><span class="k">Pedido / Produto</span><br>${esc([s.pedido_ref, s.produto_ref].filter(Boolean).join(' · '))}</div>` : '';
   const eventosAsc = [...detEventos].sort((a,b) => new Date(a.created_at) - new Date(b.created_at));
   const eventosHtml = eventosAsc.length
-    ? eventosAsc.map(e => `<div class="ps-ev">${esc(e.texto)}
+    ? eventosAsc.map(e => `<div class="ps-ev"><div class="t">${esc(e.texto)}</div>
         <div class="m">${esc(nomeDe(e.autor_id))} · ${new Date(e.created_at).toLocaleString('pt-BR')}</div>
       </div>`).join('')
     : '<div class="ps-ev">Sem registros.</div>';

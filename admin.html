@@ -38,8 +38,8 @@
   .logo-text { font-family: 'DM Sans', sans-serif; font-size: 14px; font-weight: 300; color: var(--cream); letter-spacing: 3px; text-transform: uppercase; }
   .logo-sub { font-size: 8px; color: var(--accent); letter-spacing: 2px; text-transform: uppercase; margin-top: 1px; }
   .admin-badge { background: var(--accent); color: var(--dark); font-size: 9px; font-weight: 700; letter-spacing: 2px; text-transform: uppercase; padding: 3px 10px; border-radius: 20px; }
-  .back-link { color: var(--accent); font-size: 12px; text-decoration: none; display: flex; align-items: center; gap: 6px; opacity: 0.8; }
-  .back-link:hover { opacity: 1; }
+  .back-link { font-family: 'DM Sans', sans-serif; font-size: 11px; font-weight: 600; color: var(--cream); background: rgba(255,255,255,.1); border: 1px solid rgba(255,255,255,.15); border-radius: 20px; padding: 5px 12px; text-decoration: none; white-space: nowrap; transition: all .15s; }
+  .back-link:hover { background: var(--accent); color: var(--dark); border-color: var(--accent); }
   .header-right { display: flex; align-items: center; gap: 16px; }
   .header-date { font-family: 'DM Mono', monospace; font-size: 11px; color: var(--text-muted); }
   .refresh-btn { background: none; border: 1px solid rgba(255,255,255,0.15); color: var(--cream); padding: 4px 12px; border-radius: 4px; font-size: 11px; cursor: pointer; font-family: 'DM Sans', sans-serif; }
@@ -242,6 +242,7 @@
 
 <header>
   <div class="logo-area">
+    <a class="back-link" href="index.html" title="Voltar para a tela inicial">← Início</a>
     <div>
       <div class="logo-text">STUDYO 4 ESTOFADOS</div>
       <div class="logo-sub">Conforto Design</div>
@@ -251,7 +252,6 @@
   <div class="header-right">
     <div class="header-date" id="headerDate"></div>
     <button class="refresh-btn" onclick="loadAll()">↺ Atualizar</button>
-    <a class="back-link" href="index.html">← Início</a>
   </div>
 </header>
 
@@ -306,8 +306,8 @@
   <button class="tab-btn active" onclick="switchTab('etapas',this)">
     📋 Etapas &amp; Ações
   </button>
-  <button class="tab-btn" onclick="switchTab('arquivos',this)">
-    📁 Arquivos CAD
+  <button class="tab-btn" onclick="switchTab('solic',this)">
+    📨 Solicitações
   </button>
 </div>
 
@@ -338,45 +338,45 @@
   </div><!-- /main-grid etapas -->
 </div><!-- /tab-etapas -->
 
-<!-- ABA: ARQUIVOS CAD -->
-<div id="tab-arquivos" class="tab-content">
+<!-- ABA: SOLICITACOES -->
+<div id="tab-solic" class="tab-content">
   <div class="cad-grid">
 
-    <!-- Esquerda: computadores -->
+    <!-- Esquerda: por pessoa -->
     <div class="cad-left">
-      <div class="panel-title">Por Computador</div>
-      <div id="pcList"><div style="text-align:center;padding:30px"><div class="loader"></div></div></div>
+      <div class="panel-title">Por Pessoa</div>
+      <div id="solPessoas"><div style="text-align:center;padding:30px"><div class="loader"></div></div></div>
     </div>
 
-    <!-- Direita: feed de arquivos -->
+    <!-- Direita: lista de solicitacoes -->
     <div class="cad-right">
       <div class="feed-header">
-        <div class="panel-title" style="margin-bottom:0">Alterações de Arquivos</div>
-        <div class="feed-count" id="cadFeedCount"></div>
+        <div class="panel-title" style="margin-bottom:0">Solicitações</div>
+        <div class="feed-count" id="solFeedCount"></div>
       </div>
 
-      <!-- Filtros locais da aba -->
       <div style="display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap;align-items:center">
-        <select class="filter-sel" id="cadFilterPc" onchange="renderCadFeed()">
-          <option value="">Todos os computadores</option>
+        <select class="filter-sel" id="solFilterStatus" onchange="renderSolFeed()">
+          <option value="">Todos os status</option>
+          <option value="aberta">Aberta</option>
+          <option value="em_andamento">Em andamento</option>
+          <option value="concluida">Concluída</option>
+          <option value="cancelada">Cancelada</option>
         </select>
-        <select class="filter-sel" id="cadFilterEvt" onchange="renderCadFeed()">
-          <option value="">Todos os eventos</option>
-          <option value="modificado">Modificado</option>
-          <option value="criado">Criado</option>
-          <option value="excluido">Excluído</option>
-          <option value="renomeado">Renomeado</option>
+        <select class="filter-sel" id="solFilterResp" onchange="renderSolFeed()">
+          <option value="">Todos os responsáveis</option>
         </select>
-        <select class="filter-sel" id="cadFilterExt" onchange="renderCadFeed()">
-          <option value="">Todas as extensões</option>
+        <select class="filter-sel" id="solFilterAtraso" onchange="renderSolFeed()">
+          <option value="">Todas</option>
+          <option value="paradas">Somente paradas</option>
         </select>
       </div>
 
-      <div id="cadFeedList"><div style="text-align:center;padding:30px"><div class="loader"></div></div></div>
+      <div id="solFeedList"><div style="text-align:center;padding:30px"><div class="loader"></div></div></div>
     </div>
 
   </div>
-</div><!-- /tab-arquivos -->
+</div><!-- /tab-solic -->
 
 </div><!-- /scroll-body -->
 
@@ -704,134 +704,131 @@ function switchTab(tab, btn) {
   document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
   btn.classList.add('active');
   document.getElementById('tab-' + tab).classList.add('active');
-  if (tab === 'arquivos' && !cadCarregado) { loadCadLogs(); }
+  if (tab === 'solic' && !solCarregado) { loadSolicitacoes(); }
 }
 
-/* ── ARQUIVOS CAD ──────────────────────────────────────────── */
-let cadLogs     = [];
-let cadCarregado = false;
-let activePcCard = null;
+/* ── SOLICITAÇÕES ──────────────────────────────────────────── */
+let solLista = [], solUsuarios = [], solCarregado = false, solDiasAlerta = 3;
+let solPessoaAtiva = null;
 
-async function loadCadLogs() {
-  const since = startOfRange(activeRange);
-  let query = sb.from('arquivo_logs')
-    .select('arquivo, extensao, pasta, evento, computador, usuario_windows, created_at')
-    .order('created_at', { ascending: false })
-    .limit(500);
-  if (since) query = query.gte('created_at', since.toISOString());
-  const { data, error } = await query;
-  if (error) { console.error('Erro ao buscar arquivo_logs:', error); return; }
-  cadLogs = data || [];
-  cadCarregado = true;
-  populateCadFilters();
-  renderCadPcs();
-  renderCadFeed();
+const SOL_LBL = { aberta:'Aberta', em_andamento:'Em andamento', concluida:'Concluída', cancelada:'Cancelada' };
+const solNome = id => (solUsuarios.find(u => u.id === id) || {}).nome || '—';
+function solDiasParado(s) { return Math.floor((Date.now() - new Date(s.updated_at).getTime()) / 86400000); }
+function solEstaParada(s) {
+  return (s.status === 'aberta' || s.status === 'em_andamento') && solDiasParado(s) >= solDiasAlerta;
 }
 
-function populateCadFilters() {
-  // Computadores
-  const pcs = [...new Set(cadLogs.map(r => r.computador).filter(Boolean))].sort();
-  const selPc = document.getElementById('cadFilterPc');
-  selPc.innerHTML = '<option value="">Todos os computadores</option>';
-  pcs.forEach(p => selPc.innerHTML += `<option value="${p}">${p}</option>`);
-
-  // Extensões
-  const exts = [...new Set(cadLogs.map(r => r.extensao).filter(Boolean))].sort();
-  const selExt = document.getElementById('cadFilterExt');
-  selExt.innerHTML = '<option value="">Todas as extensões</option>';
-  exts.forEach(e => selExt.innerHTML += `<option value="${e}">${e.toUpperCase()}</option>`);
+async function loadSolicitacoes() {
+  const [sols, users, cfg] = await Promise.all([
+    sb.from('solicitacoes').select('*').order('created_at', { ascending:false }),
+    sb.from('usuarios').select('id,nome').order('nome'),
+    sb.from('configuracoes').select('valor').eq('chave','dias_alerta_solicitacao').maybeSingle()
+  ]);
+  if (sols.error) { console.error('Erro ao buscar solicitacoes:', sols.error); return; }
+  solLista    = sols.data || [];
+  solUsuarios = users.data || [];
+  if (cfg.data && cfg.data.valor) solDiasAlerta = parseInt(cfg.data.valor) || 3;
+  solCarregado = true;
+  popularSolFiltros();
+  renderSolPessoas();
+  renderSolFeed();
 }
 
-function renderCadPcs() {
-  const map = {};
-  cadLogs.forEach(r => {
-    const key = r.computador || '__desconhecido__';
-    if (!map[key]) map[key] = { nome: r.computador, total: 0, usuarios: new Set(), ultima: null };
-    map[key].total++;
-    if (r.usuario_windows) map[key].usuarios.add(r.usuario_windows);
-    if (!map[key].ultima || r.created_at > map[key].ultima) map[key].ultima = r.created_at;
-  });
+function popularSolFiltros() {
+  const sel = document.getElementById('solFilterResp');
+  const cur = sel.value;
+  sel.innerHTML = '<option value="">Todos os responsáveis</option>' +
+    solUsuarios.map(u => `<option value="${u.id}">${u.nome}</option>`).join('');
+  sel.value = cur;
+  const opt = document.querySelector('#solFilterAtraso option[value="paradas"]');
+  if (opt) opt.textContent = `Somente paradas (+${solDiasAlerta} dias)`;
+}
 
-  const sorted = Object.values(map).sort((a, b) => b.total - a.total);
-  if (!sorted.length) {
-    document.getElementById('pcList').innerHTML =
-      '<div class="empty-state"><div class="empty-icon">🖥️</div><div class="empty-text">Nenhum registro no período.</div></div>';
+/* Painel esquerdo: carga por pessoa */
+function renderSolPessoas() {
+  const el = document.getElementById('solPessoas');
+  const stats = solUsuarios.map(u => {
+    const minhas  = solLista.filter(s => s.responsavel_id === u.id);
+    const abertas = minhas.filter(s => s.status === 'aberta' || s.status === 'em_andamento').length;
+    const paradas = minhas.filter(solEstaParada).length;
+    const concl   = minhas.filter(s => s.status === 'concluida').length;
+    return { id:u.id, nome:u.nome, total:minhas.length, abertas, paradas, concl };
+  }).filter(x => x.total > 0).sort((a,b) => b.abertas - a.abertas || b.total - a.total);
+
+  if (!stats.length) {
+    el.innerHTML = '<div class="empty-state"><div class="empty-icon">📨</div><div class="empty-text">Nenhuma solicitação registrada.</div></div>';
     return;
   }
-
-  document.getElementById('pcList').innerHTML = sorted.map(pc => {
-    const nome = pc.nome || 'Desconhecido';
-    const usuarios = [...pc.usuarios].join(', ') || '—';
-    return `<div class="pc-card" onclick="filterCadByPc('${nome.replace(/'/g,"\'")}', this)">
-      <div class="pc-card-top">
-        <div class="pc-avatar">🖥</div>
+  const maxAb = Math.max(...stats.map(s => s.abertas), 1);
+  el.innerHTML = stats.map(x => {
+    const iniciais = x.nome.split(' ').map(w => w[0]).join('').substring(0,2).toUpperCase();
+    const pct = Math.round((x.abertas / maxAb) * 100);
+    return `<div class="user-card" onclick="filtrarPorPessoa('${x.id}', this)">
+      <div class="user-card-top">
+        <div class="user-avatar">${iniciais}</div>
         <div>
-          <div class="pc-name">${nome}</div>
-          <div class="pc-sub">${usuarios}</div>
+          <div class="user-name">${x.nome}</div>
+          <div class="user-last">${x.abertas} em aberto · ${x.concl} concluída(s)</div>
         </div>
       </div>
-      <div class="pc-meta">
-        <span class="user-tag tag-blue">${pc.total} alteração(ões)</span>
-        <span class="user-tag tag-gray">Última: ${pc.ultima ? fmtDatetime(pc.ultima) : '—'}</span>
+      <div class="user-meta">
+        <span class="user-tag tag-blue">${x.total} total</span>
+        <span class="user-tag tag-green">${x.concl} concluída(s)</span>
+        ${x.paradas ? `<span class="user-tag tag-accent">⚠ ${x.paradas} parada(s)</span>` : ''}
       </div>
+      <div class="user-bar"><div class="user-bar-fill" style="width:${pct}%"></div></div>
     </div>`;
   }).join('');
 }
 
-function filterCadByPc(nome, card) {
-  const sel = document.getElementById('cadFilterPc');
-  if (sel.value === nome) {
-    sel.value = '';
+function filtrarPorPessoa(id, card) {
+  const sel = document.getElementById('solFilterResp');
+  if (solPessoaAtiva === id) {
+    solPessoaAtiva = null; sel.value = '';
     card.classList.remove('active');
-    activePcCard = null;
   } else {
-    sel.value = nome;
-    if (activePcCard) activePcCard.classList.remove('active');
+    document.querySelectorAll('#solPessoas .user-card').forEach(c => c.classList.remove('active'));
+    solPessoaAtiva = id; sel.value = id;
     card.classList.add('active');
-    activePcCard = card;
   }
-  renderCadFeed();
+  renderSolFeed();
 }
 
-function renderCadFeed() {
-  const filterPc  = document.getElementById('cadFilterPc').value;
-  const filterEvt = document.getElementById('cadFilterEvt').value;
-  const filterExt = document.getElementById('cadFilterExt').value;
+/* Painel direito: lista com filtros */
+function renderSolFeed() {
+  const st     = document.getElementById('solFilterStatus').value;
+  const resp   = document.getElementById('solFilterResp').value;
+  const atraso = document.getElementById('solFilterAtraso').value;
 
-  const filtered = cadLogs.filter(r => {
-    const okPc  = !filterPc  || r.computador === filterPc;
-    const okEvt = !filterEvt || r.evento === filterEvt;
-    const okExt = !filterExt || r.extensao === filterExt;
-    return okPc && okEvt && okExt;
+  const lista = solLista.filter(s => {
+    if (st && s.status !== st) return false;
+    if (resp && s.responsavel_id !== resp) return false;
+    if (atraso === 'paradas' && !solEstaParada(s)) return false;
+    return true;
   });
 
-  document.getElementById('cadFeedCount').textContent = `${filtered.length} registro(s)`;
-
-  if (!filtered.length) {
-    document.getElementById('cadFeedList').innerHTML =
-      '<div class="empty-state"><div class="empty-icon">📁</div><div class="empty-text">Nenhuma alteração encontrada.</div></div>';
+  document.getElementById('solFeedCount').textContent = `${lista.length} solicitação(ões)`;
+  const el = document.getElementById('solFeedList');
+  if (!lista.length) {
+    el.innerHTML = '<div class="empty-state"><div class="empty-icon">📭</div><div class="empty-text">Nada com esses filtros.</div></div>';
     return;
   }
 
-  const evtIcon = { modificado: '✏️', criado: '✨', excluido: '🗑️', renomeado: '🔁' };
-
-  document.getElementById('cadFeedList').innerHTML = filtered.map(r => {
-    const ext   = (r.extensao || '').replace('.', '').toLowerCase();
-    const evt   = r.evento || 'modificado';
-    const pasta = r.pasta && r.pasta !== 'raiz' ? `<span style="font-family:'DM Mono',monospace;font-size:10px;color:var(--text-muted)">${r.pasta}\</span>` : '';
-    const pc    = r.computador || '?';
-    const user  = r.usuario_windows ? ` / ${r.usuario_windows}` : '';
+  el.innerHTML = lista.map(s => {
+    const vinc = (s.pedido_ref || s.produto_ref)
+      ? ` <span style="font-family:'DM Mono',monospace;font-size:10px;color:var(--text-muted)">🔗 ${[s.pedido_ref, s.produto_ref].filter(Boolean).join(' · ')}</span>` : '';
+    const parada = solEstaParada(s)
+      ? ` <span class="user-tag tag-accent">⚠ parada ${solDiasParado(s)}d</span>` : '';
     return `<div class="feed-item">
-      <div class="feed-dot" style="background:${evt==='modificado'?'var(--blue)':evt==='criado'?'var(--green)':evt==='excluido'?'var(--red)':'var(--orange)'}"></div>
+      <div class="feed-dot ${s.status === 'concluida' ? 'fd-etapa' : 'fd-obs'}"></div>
       <div class="feed-body">
         <div class="feed-action">
-          ${evtIcon[evt]||'📄'} ${pasta}<strong>${r.arquivo}</strong>
+          <span class="stage-name">${s.titulo}</span>${vinc}${parada}
         </div>
         <div class="feed-meta">
-          <span class="ext-badge ext-${ext}">${ext.toUpperCase() || '?'}</span>
-          <span class="evt-badge evt-${evt}">${evt}</span>
-          <span class="feed-user">🖥 ${pc}${user}</span>
-          <span class="feed-time">${fmtDatetime(r.created_at)}</span>
+          <span>${solNome(s.criador_id)} → <strong>${solNome(s.responsavel_id)}</strong></span>
+          <span class="feed-time">${fmtDatetime(s.created_at)}</span>
+          <span class="feed-tipo ${s.status === 'concluida' ? 'tipo-etapa' : 'tipo-obs'}">${SOL_LBL[s.status]}</span>
         </div>
       </div>
     </div>`;
