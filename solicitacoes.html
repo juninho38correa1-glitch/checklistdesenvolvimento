@@ -82,6 +82,14 @@
   .tl-item:hover .tl-del { color:var(--text-muted); }
   .tl-del:hover { color:var(--red) !important; }
   .empty { color:var(--text-muted); font-size:13px; text-align:center; padding:20px; }
+  .anexos-grid { display:flex; flex-wrap:wrap; gap:8px; }
+  .anexo { position:relative; width:78px; }
+  .anexo a { display:block; text-decoration:none; color:var(--dark); }
+  .anexo .thumb { width:78px; height:78px; border:1px solid var(--border); border-radius:8px; object-fit:cover; background:#faf7f1; display:flex; align-items:center; justify-content:center; font-size:26px; }
+  img.thumb { display:block; }
+  .anexo .nome { font-size:9px; color:var(--text-muted); margin-top:3px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .anexo .del { position:absolute; top:-6px; right:-6px; width:18px; height:18px; border-radius:50%; background:var(--red); color:#fff; border:none; font-size:12px; line-height:1; cursor:pointer; display:none; }
+  .anexo:hover .del { display:block; }
   .notif-item { border-bottom:1px solid var(--border); padding:10px 2px; font-size:13px; }
   .notif-item.unread { background:#faf6ee; }
   .notif-item .m { color:var(--text-muted); font-size:11px; margin-top:2px; }
@@ -103,6 +111,8 @@
     #printSolArea .ps-desc { font-size:13px; white-space:pre-wrap; }
     #printSolArea .ps-ev { border-bottom:1px dashed #bbb; padding:6px 0; font-size:12px; page-break-inside:avoid; }
     #printSolArea .ps-ev .t { white-space:pre-wrap; word-break:break-word; }
+    #printSolArea .ps-imgs { display:flex; flex-wrap:wrap; gap:8px; margin-bottom:8px; }
+    #printSolArea .ps-imgs img { max-width:48%; max-height:80mm; border:1px solid #ccc; object-fit:contain; }
     #printSolArea .ps-ev .m { font-size:10px; color:#555; margin-top:2px; }
     #printSolArea .ps-sign { margin-top:40px; display:flex; justify-content:space-between; gap:40px; }
     #printSolArea .ps-sign div { flex:1; border-top:1px solid #000; padding-top:5px; font-size:11px; text-align:center; color:#333; }
@@ -185,6 +195,14 @@
     <button class="btn btn-ghost btn-sm" style="margin-top:10px" onclick="printSolicitacao()">🖨️ Imprimir</button>
     <div id="detDescricao" style="margin-top:12px;font-size:13px;white-space:pre-wrap"></div>
 
+    <span class="section-label">Anexos (fotos / desenhos)</span>
+    <div id="detAnexos"><div class="empty">Carregando...</div></div>
+    <div style="margin-top:8px">
+      <input type="file" id="anexoInput" accept="image/*,application/pdf" multiple style="display:none" onchange="enviarAnexos()">
+      <button class="btn btn-ghost btn-sm" id="btnAnexar" onclick="document.getElementById('anexoInput').click()">📎 Anexar arquivo</button>
+      <span id="anexoStatus" style="font-size:11px;color:var(--text-muted);margin-left:8px"></span>
+    </div>
+
     <span class="section-label">Linha do tempo</span>
     <div id="detTimeline"><div class="empty">Carregando...</div></div>
 
@@ -233,7 +251,7 @@ const sb = window.supabase ? window.supabase.createClient(SUPABASE_URL, SUPABASE
 const SESSAO_KEY = 'studyo4_sessao';
 const PUSH_FN = 'quick-endpoint';   // slug da Edge Function que envia o push
 
-let sessao = null, usuarios = [], solicitacoes = [], filtro = 'minhas', diasAlerta = 3, detAtual = null, detEventos = [];
+let sessao = null, usuarios = [], solicitacoes = [], filtro = 'minhas', diasAlerta = 3, detAtual = null, detEventos = [], detAnexos = [];
 
 const LBL_STATUS = { aberta:'Aberta', em_andamento:'Em andamento', concluida:'Concluída', cancelada:'Cancelada' };
 const IC_EVENTO  = { processo:'🔨', comentario:'💬', encaminhamento:'➡️', status:'🔁' };
@@ -265,11 +283,14 @@ async function carregarSolicitacoes() {
   const { data, error } = await sb.from('solicitacoes').select('*').order('created_at', { ascending:false });
   if (error) { document.getElementById('lista').innerHTML = '<div class="empty">Erro ao carregar. Rodou o SQL da Fase 1?</div>'; return; }
   solicitacoes = data || [];
-  // contagem de eventos por solicitação
+  // contagem de eventos e de anexos por solicitação
   const { data: evs } = await sb.from('solicitacao_eventos').select('solicitacao_id');
   const cont = {};
   (evs || []).forEach(e => cont[e.solicitacao_id] = (cont[e.solicitacao_id] || 0) + 1);
-  solicitacoes.forEach(s => s._eventos = cont[s.id] || 0);
+  const anx = await sb.from('solicitacao_anexos').select('solicitacao_id');
+  const contA = {};
+  (anx.data || []).forEach(a => contA[a.solicitacao_id] = (contA[a.solicitacao_id] || 0) + 1);
+  solicitacoes.forEach(s => { s._eventos = cont[s.id] || 0; s._anexos = contA[s.id] || 0; });
   renderLista();
   verificarAtrasadas();
 }
@@ -318,6 +339,7 @@ function renderLista() {
         <span>${nomeDe(s.criador_id)} → <b>${nomeDe(s.responsavel_id)}</b></span>
         ${pedidoTag}
         <span>${s._eventos} registro(s)</span>
+        ${s._anexos ? `<span>📎 ${s._anexos}</span>` : ''}
         <span>${new Date(s.created_at).toLocaleDateString('pt-BR')}</span>
       </div>
     </div>`;
@@ -373,6 +395,7 @@ async function abrirDetalhe(id) {
   document.getElementById('detDescricao').textContent = s.descricao || '';
   renderAcoes(s);
   abrirOverlay('detOverlay');
+  carregarAnexos(id);
 
   const tl = document.getElementById('detTimeline');
   tl.innerHTML = '<div class="empty">Carregando...</div>';
@@ -416,6 +439,82 @@ function esc(s) {
   return String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 }
 
+/* ── ANEXOS (fotos / desenhos) ──────────────────────── */
+async function carregarAnexos(id) {
+  const el = document.getElementById('detAnexos');
+  el.innerHTML = '<div class="empty">Carregando...</div>';
+  const { data, error } = await sb.from('solicitacao_anexos').select('*')
+    .eq('solicitacao_id', id).order('created_at', { ascending:true });
+  if (error) { el.innerHTML = '<div class="empty">Não foi possível carregar (rodou o SQL de anexos?).</div>'; return; }
+  detAnexos = data || [];
+  renderAnexos();
+}
+
+function renderAnexos() {
+  const el = document.getElementById('detAnexos');
+  if (!detAnexos.length) { el.innerHTML = '<div class="empty">Nenhum anexo.</div>'; return; }
+  el.innerHTML = '<div class="anexos-grid">' + detAnexos.map(a => {
+    const ehImg = (a.tipo || '').startsWith('image/');
+    const thumb = ehImg
+      ? `<img class="thumb" src="${a.url}" alt="${esc(a.nome)}">`
+      : `<div class="thumb">${(a.tipo||'').includes('pdf') ? '📄' : '📎'}</div>`;
+    const podeExcluir = a.autor_id === sessao.id || sessao.admin;
+    return `<div class="anexo">
+      <a href="${a.url}" target="_blank" rel="noopener" title="${esc(a.nome)}">
+        ${thumb}
+        <div class="nome">${esc(a.nome || 'arquivo')}</div>
+      </a>
+      ${podeExcluir ? `<button class="del" title="Excluir anexo" onclick="excluirAnexo('${a.id}')">&times;</button>` : ''}
+    </div>`;
+  }).join('') + '</div>';
+}
+
+async function enviarAnexos() {
+  const input = document.getElementById('anexoInput');
+  const files = [...input.files];
+  input.value = '';
+  if (!files.length || !detAtual) return;
+  const btn = document.getElementById('btnAnexar');
+  const status = document.getElementById('anexoStatus');
+  btn.disabled = true;
+  let ok = 0;
+  for (let i = 0; i < files.length; i++) {
+    const file = files[i];
+    status.textContent = `Enviando ${i+1}/${files.length}...`;
+    if (file.size > 15 * 1024 * 1024) { alert(`"${file.name}" tem mais de 15MB — pulado.`); continue; }
+    try {
+      const limpo = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
+      const caminho = `${detAtual.id}/${Date.now()}_${limpo}`;
+      const up = await sb.storage.from('anexos').upload(caminho, file, { contentType: file.type || 'application/octet-stream' });
+      if (up.error) throw up.error;
+      const { data: pub } = sb.storage.from('anexos').getPublicUrl(caminho);
+      const ins = await sb.from('solicitacao_anexos').insert({
+        solicitacao_id: detAtual.id, url: pub.publicUrl, caminho, nome: file.name, tipo: file.type, autor_id: sessao.id
+      });
+      if (ins.error) throw ins.error;
+      ok++;
+    } catch (e) {
+      console.error(e);
+      alert(`Erro ao enviar "${file.name}": ${e.message}`);
+    }
+  }
+  status.textContent = ok ? `${ok} anexo(s) enviado(s).` : '';
+  setTimeout(() => status.textContent = '', 3000);
+  btn.disabled = false;
+  await carregarAnexos(detAtual.id);
+}
+
+async function excluirAnexo(id) {
+  const a = detAnexos.find(x => x.id === id);
+  if (!a) return;
+  if (a.autor_id !== sessao.id && !sessao.admin) { alert('Você só pode excluir os anexos que você enviou.'); return; }
+  if (!confirm('Excluir este anexo?')) return;
+  await sb.storage.from('anexos').remove([a.caminho]);
+  const { error } = await sb.from('solicitacao_anexos').delete().eq('id', id);
+  if (error) { alert('Erro ao excluir: ' + error.message); return; }
+  await carregarAnexos(detAtual.id);
+}
+
 // Gera um documento imprimível de UMA solicitação (com histórico) para levar à diretoria
 function printSolicitacao() {
   if (!detAtual) return;
@@ -423,6 +522,13 @@ function printSolicitacao() {
   const agora = new Date();
   const linhaVinc = (s.pedido_ref || s.produto_ref)
     ? `<div><span class="k">Pedido / Produto</span><br>${esc([s.pedido_ref, s.produto_ref].filter(Boolean).join(' · '))}</div>` : '';
+  // anexos: imagens embutidas + lista dos demais arquivos
+  const imgs = detAnexos.filter(a => (a.tipo || '').startsWith('image/'));
+  const outros = detAnexos.filter(a => !(a.tipo || '').startsWith('image/'));
+  const anexosImpressao =
+    (imgs.length ? `<div class="ps-imgs">${imgs.map(a => `<img src="${a.url}">`).join('')}</div>` : '') +
+    (outros.length ? `<div class="ps-desc">Outros arquivos: ${outros.map(a => esc(a.nome)).join(', ')}</div>` : '');
+
   const eventosAsc = [...detEventos].sort((a,b) => new Date(a.created_at) - new Date(b.created_at));
   const eventosHtml = eventosAsc.length
     ? eventosAsc.map(e => `<div class="ps-ev"><div class="t">${esc(e.texto)}</div>
@@ -447,6 +553,7 @@ function printSolicitacao() {
       ${linhaVinc}
     </div>
     ${s.descricao ? `<div class="ps-label">Descrição</div><div class="ps-desc">${esc(s.descricao)}</div>` : ''}
+    ${detAnexos.length ? `<div class="ps-label">Anexos</div>${anexosImpressao}` : ''}
     <div class="ps-label">Histórico</div>
     ${eventosHtml}
     <div class="ps-sign">
