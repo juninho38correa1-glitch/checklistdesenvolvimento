@@ -53,7 +53,8 @@
   .sol-card.p-baixa   { border-left-color:var(--border); }
   .sol-card.concluida { opacity:.6; }
   .sol-top { display:flex; align-items:center; gap:8px; margin-bottom:5px; flex-wrap:wrap; }
-  .sol-titulo { font-weight:600; font-size:14px; flex:1; min-width:180px; }
+  .sol-titulo { font-weight:700; font-size:15px; flex:1; min-width:180px; }
+  .sol-sub { font-size:12px; color:var(--text-muted); margin:3px 0 5px; }
   .sol-meta { font-size:11px; color:var(--text-muted); display:flex; gap:12px; flex-wrap:wrap; }
   .pill { font-size:9px; font-weight:700; border-radius:20px; padding:2px 8px; text-transform:uppercase; letter-spacing:.4px; }
   .pill.aberta { background:#e8eef5; color:var(--blue); }
@@ -179,6 +180,7 @@
   <div class="modal">
     <span class="close" onclick="fecharOverlay('detOverlay')">&times;</span>
     <h2 id="detTitulo">—</h2>
+    <div id="detSubtitulo" style="font-size:13px;color:var(--text-muted);margin-bottom:6px"></div>
     <div class="sol-meta" id="detMeta"></div>
     <button class="btn btn-ghost btn-sm" style="margin-top:10px" onclick="printSolicitacao()">🖨️ Imprimir</button>
     <div id="detDescricao" style="margin-top:12px;font-size:13px;white-space:pre-wrap"></div>
@@ -299,19 +301,22 @@ function renderLista() {
 
   el.innerHTML = lista.map(s => {
     const atrasada = (s.status === 'aberta' || s.status === 'em_andamento') && diasParados(s) >= diasAlerta;
-    const vinc = (s.produto_ref || s.pedido_ref)
-      ? `<span class="pill link">🔗 ${[s.pedido_ref, s.produto_ref].filter(Boolean).join(' · ')}</span>` : '';
+    // Produto em destaque; se não houver, o título assume o destaque
+    const destaque = s.produto_ref ? esc(s.produto_ref) : esc(s.titulo);
+    const subtitulo = s.produto_ref ? esc(s.titulo) : '';
+    const pedidoTag = s.pedido_ref ? `<span class="pill link">#${esc(s.pedido_ref)}</span>` : '';
     return `<div class="sol-card p-${s.prioridade} ${s.status==='concluida'?'concluida':''}" onclick="abrirDetalhe('${s.id}')">
       <div class="sol-top">
         <span class="pill ${s.status}">${LBL_STATUS[s.status]}</span>
         ${['urgente','alta'].includes(s.prioridade) ? `<span class="pill ${s.prioridade}">${s.prioridade}</span>` : ''}
-        <span class="sol-titulo">${s.titulo}</span>
+        <span class="sol-titulo">${s.produto_ref ? '📦 ' : ''}${destaque}</span>
         ${atrasada ? `<span class="pill atraso">parada ${diasParados(s)}d</span>` : ''}
         ${s.origem_solicitacao_id ? '<span class="pill encadeada">encadeada</span>' : ''}
       </div>
+      ${subtitulo ? `<div class="sol-sub">${subtitulo}</div>` : ''}
       <div class="sol-meta">
         <span>${nomeDe(s.criador_id)} → <b>${nomeDe(s.responsavel_id)}</b></span>
-        ${vinc}
+        ${pedidoTag}
         <span>${s._eventos} registro(s)</span>
         <span>${new Date(s.created_at).toLocaleDateString('pt-BR')}</span>
       </div>
@@ -356,8 +361,10 @@ async function abrirDetalhe(id) {
   detAtual = solicitacoes.find(s => s.id === id);
   if (!detAtual) return;
   const s = detAtual;
-  document.getElementById('detTitulo').textContent = s.titulo;
-  const vinc = (s.produto_ref || s.pedido_ref) ? ` · 🔗 ${[s.pedido_ref, s.produto_ref].filter(Boolean).join(' · ')}` : '';
+  // Produto em destaque no título; a solicitação vira subtítulo
+  document.getElementById('detTitulo').textContent = s.produto_ref ? ('📦 ' + s.produto_ref) : s.titulo;
+  document.getElementById('detSubtitulo').textContent = s.produto_ref ? s.titulo : '';
+  const vinc = s.pedido_ref ? ` · Pedido #${s.pedido_ref}` : '';
   document.getElementById('detMeta').innerHTML =
     `<span class="pill ${s.status}">${LBL_STATUS[s.status]}</span>
      <span>${nomeDe(s.criador_id)} → <b>${nomeDe(s.responsavel_id)}</b></span>
@@ -428,7 +435,8 @@ function printSolicitacao() {
       <div class="ps-company">STUDYO 4 ESTOFADOS</div>
       <div class="ps-doc">Relatório de Solicitação · gerado em ${agora.toLocaleDateString('pt-BR')} às ${agora.toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'})} por ${esc(sessao.nome)}</div>
     </div>
-    <h1>${esc(s.titulo)}</h1>
+    <h1>${esc(s.produto_ref || s.titulo)}</h1>
+    ${s.produto_ref ? `<div style="font-size:13px;color:#444;margin:-4px 0 10px">${esc(s.titulo)}</div>` : ''}
     <div class="ps-grid">
       <div><span class="k">Status</span><br>${LBL_STATUS[s.status]}</div>
       <div><span class="k">Prioridade</span><br>${esc(s.prioridade)}</div>
