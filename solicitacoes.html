@@ -80,6 +80,28 @@
   .notif-item { border-bottom:1px solid var(--border); padding:10px 2px; font-size:13px; }
   .notif-item.unread { background:#faf6ee; }
   .notif-item .m { color:var(--text-muted); font-size:11px; margin-top:2px; }
+
+  /* IMPRESSÃO DE UMA SOLICITAÇÃO */
+  #printSolArea { display:none; }
+  @media print {
+    @page { size: A4 portrait; margin: 15mm; }
+    html, body { height:auto !important; overflow:visible !important; }
+    body.printing-sol > *:not(#printSolArea) { display:none !important; }
+    body.printing-sol #printSolArea { display:block !important; color:#000; }
+    #printSolArea .ps-head { border-bottom:2px solid #000; padding-bottom:8px; margin-bottom:14px; }
+    #printSolArea .ps-company { font-family:'DM Serif Display',serif; font-size:20px; }
+    #printSolArea .ps-doc { font-size:11px; color:#444; margin-top:2px; }
+    #printSolArea h1 { font-family:'DM Serif Display',serif; font-size:20px; margin:14px 0 8px; }
+    #printSolArea .ps-grid { display:grid; grid-template-columns:1fr 1fr; gap:4px 20px; font-size:12px; margin-bottom:12px; }
+    #printSolArea .ps-grid .k { color:#555; font-size:10px; text-transform:uppercase; letter-spacing:.5px; }
+    #printSolArea .ps-label { font-size:10px; text-transform:uppercase; letter-spacing:.5px; color:#555; border-top:1px solid #999; padding-top:8px; margin:14px 0 6px; font-weight:600; }
+    #printSolArea .ps-desc { font-size:13px; white-space:pre-wrap; }
+    #printSolArea .ps-ev { border-bottom:1px dashed #bbb; padding:6px 0; font-size:12px; page-break-inside:avoid; }
+    #printSolArea .ps-ev .m { font-size:10px; color:#555; margin-top:2px; }
+    #printSolArea .ps-sign { margin-top:40px; display:flex; justify-content:space-between; gap:40px; }
+    #printSolArea .ps-sign div { flex:1; border-top:1px solid #000; padding-top:5px; font-size:11px; text-align:center; color:#333; }
+    #printSolArea .ps-foot { margin-top:16px; font-size:9px; color:#888; }
+  }
 </style>
 </head>
 <body>
@@ -153,6 +175,7 @@
     <span class="close" onclick="fecharOverlay('detOverlay')">&times;</span>
     <h2 id="detTitulo">—</h2>
     <div class="sol-meta" id="detMeta"></div>
+    <button class="btn btn-ghost btn-sm" style="margin-top:10px" onclick="printSolicitacao()">🖨️ Imprimir</button>
     <div id="detDescricao" style="margin-top:12px;font-size:13px;white-space:pre-wrap"></div>
 
     <span class="section-label">Linha do tempo</span>
@@ -193,6 +216,9 @@
   </div>
 </div>
 
+<!-- ÁREA DE IMPRESSÃO (uma solicitação) -->
+<div id="printSolArea"></div>
+
 <script>
 const SUPABASE_URL = 'https://qzuhcbizkyvuhbshsdit.supabase.co';
 const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InF6dWhjYml6a3l2dWhic2hzZGl0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODEwNjkzODEsImV4cCI6MjA5NjY0NTM4MX0.aaQyk_wtitAQLjXyLGSWu1DniU3rLqk3Vb6ClhtWuaM';
@@ -200,7 +226,7 @@ const sb = window.supabase ? window.supabase.createClient(SUPABASE_URL, SUPABASE
 const SESSAO_KEY = 'studyo4_sessao';
 const PUSH_FN = 'quick-endpoint';   // slug da Edge Function que envia o push
 
-let sessao = null, usuarios = [], solicitacoes = [], filtro = 'minhas', diasAlerta = 3, detAtual = null;
+let sessao = null, usuarios = [], solicitacoes = [], filtro = 'minhas', diasAlerta = 3, detAtual = null, detEventos = [];
 
 const LBL_STATUS = { aberta:'Aberta', em_andamento:'Em andamento', concluida:'Concluída', cancelada:'Cancelada' };
 const IC_EVENTO  = { processo:'🔨', comentario:'💬', encaminhamento:'➡️', status:'🔁' };
@@ -341,6 +367,7 @@ async function abrirDetalhe(id) {
   const { data, error } = await sb.from('solicitacao_eventos').select('*')
     .eq('solicitacao_id', id).order('created_at', { ascending:false });
   if (error) { tl.innerHTML = '<div class="empty">Erro ao carregar.</div>'; return; }
+  detEventos = data || [];
   if (!data.length) { tl.innerHTML = '<div class="empty">Nenhum registro ainda.</div>'; return; }
   tl.innerHTML = data.map(e => `<div class="tl-item">
       <div class="tl-ic">${IC_EVENTO[e.tipo] || '•'}</div>
@@ -348,6 +375,54 @@ async function abrirDetalhe(id) {
         <div class="tl-meta">${nomeDe(e.autor_id)} · ${new Date(e.created_at).toLocaleString('pt-BR')}</div>
       </div>
     </div>`).join('');
+}
+
+// escapa texto para HTML (evita quebrar o layout com < > &)
+function esc(s) {
+  return String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+// Gera um documento imprimível de UMA solicitação (com histórico) para levar à diretoria
+function printSolicitacao() {
+  if (!detAtual) return;
+  const s = detAtual;
+  const agora = new Date();
+  const linhaVinc = (s.pedido_ref || s.produto_ref)
+    ? `<div><span class="k">Pedido / Produto</span><br>${esc([s.pedido_ref, s.produto_ref].filter(Boolean).join(' · '))}</div>` : '';
+  const eventosAsc = [...detEventos].sort((a,b) => new Date(a.created_at) - new Date(b.created_at));
+  const eventosHtml = eventosAsc.length
+    ? eventosAsc.map(e => `<div class="ps-ev">${esc(e.texto)}
+        <div class="m">${esc(nomeDe(e.autor_id))} · ${new Date(e.created_at).toLocaleString('pt-BR')}</div>
+      </div>`).join('')
+    : '<div class="ps-ev">Sem registros.</div>';
+
+  document.getElementById('printSolArea').innerHTML = `
+    <div class="ps-head">
+      <div class="ps-company">STUDYO 4 ESTOFADOS</div>
+      <div class="ps-doc">Solicitação Interna · gerado em ${agora.toLocaleDateString('pt-BR')} às ${agora.toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'})} por ${esc(sessao.nome)}</div>
+    </div>
+    <h1>${esc(s.titulo)}</h1>
+    <div class="ps-grid">
+      <div><span class="k">Status</span><br>${LBL_STATUS[s.status]}</div>
+      <div><span class="k">Prioridade</span><br>${esc(s.prioridade)}</div>
+      <div><span class="k">Solicitante</span><br>${esc(nomeDe(s.criador_id))}</div>
+      <div><span class="k">Responsável</span><br>${esc(nomeDe(s.responsavel_id))}</div>
+      <div><span class="k">Aberta em</span><br>${new Date(s.created_at).toLocaleString('pt-BR')}</div>
+      ${s.concluida_em ? `<div><span class="k">Concluída em</span><br>${new Date(s.concluida_em).toLocaleString('pt-BR')}</div>` : ''}
+      ${linhaVinc}
+    </div>
+    ${s.descricao ? `<div class="ps-label">Descrição</div><div class="ps-desc">${esc(s.descricao)}</div>` : ''}
+    <div class="ps-label">Histórico</div>
+    ${eventosHtml}
+    <div class="ps-sign">
+      <div>Responsável</div>
+      <div>Autorização da Diretoria</div>
+    </div>
+    <div class="ps-foot">Documento gerado pelo sistema Desenvolvimento Studyo4.</div>
+  `;
+  document.body.classList.add('printing-sol');
+  window.print();
+  document.body.classList.remove('printing-sol');
 }
 
 function renderAcoes(s) {
