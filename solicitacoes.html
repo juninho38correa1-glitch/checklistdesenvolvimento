@@ -77,6 +77,9 @@
   .tl-body { flex:1; }
   .tl-texto { white-space:pre-wrap; word-break:break-word; }  /* respeita as quebras de linha digitadas */
   .tl-meta { font-size:10px; color:var(--text-muted); font-family:'DM Mono',monospace; margin-top:2px; }
+  .tl-del { border:none; background:none; color:var(--border); font-size:18px; line-height:1; cursor:pointer; padding:0 2px; flex-shrink:0; transition:color .15s; }
+  .tl-item:hover .tl-del { color:var(--text-muted); }
+  .tl-del:hover { color:var(--red) !important; }
   .empty { color:var(--text-muted); font-size:13px; text-align:center; padding:20px; }
   .notif-item { border-bottom:1px solid var(--border); padding:10px 2px; font-size:13px; }
   .notif-item.unread { background:#faf6ee; }
@@ -371,13 +374,34 @@ async function abrirDetalhe(id) {
   if (error) { tl.innerHTML = '<div class="empty">Erro ao carregar.</div>'; return; }
   detEventos = data || [];
   if (!data.length) { tl.innerHTML = '<div class="empty">Nenhum registro ainda.</div>'; return; }
-  tl.innerHTML = data.map(e => `<div class="tl-item">
+  tl.innerHTML = data.map(e => {
+    // pode excluir: o próprio autor, ou admin (qualquer um)
+    const podeExcluir = e.autor_id === sessao.id || sessao.admin;
+    return `<div class="tl-item">
       <div class="tl-ic">${IC_EVENTO[e.tipo] || '•'}</div>
       <div class="tl-body">
         <div class="tl-texto">${esc(e.texto)}</div>
         <div class="tl-meta">${esc(nomeDe(e.autor_id))} · ${new Date(e.created_at).toLocaleString('pt-BR')}</div>
       </div>
-    </div>`).join('');
+      ${podeExcluir ? `<button class="tl-del" title="Excluir este registro" onclick="excluirEvento('${e.id}')">&times;</button>` : ''}
+    </div>`;
+  }).join('');
+}
+
+// Exclui um registro da linha do tempo (só o próprio autor, ou admin)
+async function excluirEvento(id) {
+  const ev = detEventos.find(e => e.id === id);
+  if (!ev) return;
+  if (ev.autor_id !== sessao.id && !sessao.admin) {
+    alert('Você só pode excluir os registros que você mesmo criou.');
+    return;
+  }
+  if (!confirm('Excluir este registro da linha do tempo?\nEssa ação não pode ser desfeita.')) return;
+  const { error } = await sb.from('solicitacao_eventos').delete().eq('id', id);
+  if (error) { alert('Erro ao excluir: ' + error.message); return; }
+  const alvo = detAtual.id;
+  await carregarSolicitacoes();   // atualiza a contagem de registros nos cards
+  abrirDetalhe(alvo);             // recarrega a linha do tempo
 }
 
 // escapa texto para HTML (evita quebrar o layout com < > &)
