@@ -178,6 +178,7 @@
   .gantt-dot { position: absolute; top: 2px; width: 16px; height: 16px; border-radius: 50%; transform: translateX(-50%); display: flex; align-items: center; justify-content: center; font-size: 8px; font-weight: 700; color: white; border: 2px solid white; box-shadow: 0 1px 2px rgba(0,0,0,0.2); }
   .gantt-dot.done { background: var(--green); }
   .gantt-axis { display: flex; justify-content: space-between; font-family: 'DM Mono', monospace; font-size: 9px; color: var(--text-muted); margin-top: 2px; padding-left: 95px; }
+  .gantt-nota { font-size: 9px; color: var(--text-muted); padding-left: 95px; margin-top: 1px; }
 
   /* PDF / IMPRESSÃO */
   .print-header { display: none; }
@@ -1440,19 +1441,28 @@ function buildGanttHtml(item, logs) {
     </div>`;
   }
 
-  // Marcadores de cada etapa concluída
-  const concluidas = STAGES.filter(s => firstTrue[s]).length;
+  // Marcadores de etapas. A CONTAGEM reflete a planilha (fonte da verdade do
+  // "está feito"); os pontos com data vêm dos logs. Etapas ticadas na planilha
+  // sem log aparecem numa nota "sem data", sem inventar posição no tempo.
+  const concluidas = STAGES.filter(s => item.stages[s]).length;
   let dotsHtml = '';
+  const semData = [];
   STAGES.forEach((s, i) => {
+    if (!item.stages[s]) return;              // só as ticadas na planilha
     const done = firstTrue[s];
-    if (!done) return;
-    dotsHtml += `<div class="gantt-dot done" style="left:${pct(done)}%" title="${STAGE_LABELS[i]} — ${done.toLocaleDateString('pt-BR')}">${i + 1}</div>`;
+    if (done) {
+      dotsHtml += `<div class="gantt-dot done" style="left:${pct(done)}%" title="${STAGE_LABELS[i]} — ${done.toLocaleDateString('pt-BR')}">${i + 1}</div>`;
+    } else {
+      semData.push(STAGE_LABELS[i]);          // ticada na planilha, sem log de data
+    }
   });
-  if (dotsHtml) {
+  if (concluidas > 0) {
+    const nota = semData.length
+      ? `<div class="gantt-nota" title="${semData.join(', ')}">⌾ ${semData.length} ticada(s) na planilha sem data registrada</div>` : '';
     html += `<div class="gantt-row">
       <div class="gantt-label">Etapas<div style="font-size:8px;font-weight:400;text-transform:none;letter-spacing:0">${concluidas}/${STAGES.length} concluídas</div></div>
-      <div class="gantt-track">${dotsHtml}</div>
-    </div>`;
+      <div class="gantt-track">${dotsHtml || '<span style="font-size:10px;color:var(--text-muted)">sem data registrada</span>'}</div>
+    </div>${nota}`;
   }
 
   // Marcador de entrega prevista — fica laranja quando está chegando perto
