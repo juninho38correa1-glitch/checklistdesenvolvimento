@@ -815,15 +815,17 @@ function renderSolFeed() {
   }
 
   el.innerHTML = lista.map(s => {
-    const vinc = (s.pedido_ref || s.produto_ref)
-      ? ` <span style="font-family:'DM Mono',monospace;font-size:10px;color:var(--text-muted)">🔗 ${[s.pedido_ref, s.produto_ref].filter(Boolean).join(' · ')}</span>` : '';
+    const destaque = s.produto_ref ? ('📦 ' + s.produto_ref) : s.titulo;
+    const sub = s.produto_ref ? ` <span style="color:var(--text-muted);font-weight:400">— ${s.titulo}</span>` : '';
+    const pedidoTag = s.pedido_ref
+      ? ` <span style="font-family:'DM Mono',monospace;font-size:10px;color:var(--text-muted)">#${s.pedido_ref}</span>` : '';
     const parada = solEstaParada(s)
       ? ` <span class="user-tag tag-accent">⚠ parada ${solDiasParado(s)}d</span>` : '';
-    return `<div class="feed-item">
+    return `<div class="feed-item" style="cursor:pointer" title="Abrir solicitação" onclick="location.href='solicitacoes.html?sol=${s.id}'">
       <div class="feed-dot ${s.status === 'concluida' ? 'fd-etapa' : 'fd-obs'}"></div>
       <div class="feed-body">
         <div class="feed-action">
-          <span class="stage-name">${s.titulo}</span>${vinc}${parada}
+          <span class="stage-name">${destaque}</span>${sub}${pedidoTag}${parada}
         </div>
         <div class="feed-meta">
           <span>${solNome(s.criador_id)} → <strong>${solNome(s.responsavel_id)}</strong></span>

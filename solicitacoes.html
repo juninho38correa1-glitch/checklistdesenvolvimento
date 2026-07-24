@@ -758,6 +758,13 @@ document.addEventListener('keydown', e => {
   await carregarSolicitacoes();
   atualizarBell();
   setInterval(atualizarBell, 30000);
+
+  // abre direto uma solicitação específica quando vier de um link (?sol=<id>)
+  const solId = new URLSearchParams(location.search).get('sol');
+  if (solId && solicitacoes.some(s => s.id === solId)) {
+    setFiltro('todas', document.getElementById('tab-todas'));
+    abrirDetalhe(solId);
+  }
 })();
 </script>
 </body>
