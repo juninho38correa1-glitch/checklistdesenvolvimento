@@ -236,6 +236,33 @@
     .main-grid { grid-template-columns: 1fr; }
     .left-panel { border-right: none; border-bottom: 1px solid var(--border); }
   }
+
+  /* MODAL DETALHE DA SOLICITAÇÃO */
+  .sd-overlay { position: fixed; inset: 0; background: rgba(0,0,0,.5); display: none; align-items: center; justify-content: center; z-index: 200; padding: 20px; backdrop-filter: blur(2px); }
+  .sd-overlay.open { display: flex; }
+  .sd-modal { background: white; border-radius: 14px; width: 620px; max-width: 100%; max-height: 88vh; overflow-y: auto; padding: 24px; position: relative; }
+  .sd-close { position: absolute; top: 14px; right: 16px; font-size: 24px; cursor: pointer; color: var(--text-muted); }
+  .sd-title { font-family: 'DM Serif Display', serif; font-size: 21px; color: var(--dark); padding-right: 26px; line-height: 1.2; }
+  .sd-sub { font-size: 13px; color: var(--text-muted); margin-top: 3px; }
+  .sd-meta { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; font-size: 12px; color: var(--text-muted); margin-top: 10px; }
+  .sd-pill { font-size: 10px; font-weight: 700; border-radius: 20px; padding: 2px 9px; text-transform: uppercase; letter-spacing: .4px; }
+  .sd-pill.aberta { background: #e8eef5; color: #2E86C1; }
+  .sd-pill.em_andamento { background: #fae9d3; color: var(--orange); }
+  .sd-pill.concluida { background: #d5efe0; color: #1a6e40; }
+  .sd-pill.cancelada { background: #eee; color: var(--text-muted); }
+  .sd-label { font-size: 10px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: .5px; border-top: 1px solid var(--border); padding-top: 14px; margin: 16px 0 8px; }
+  .sd-desc { font-size: 13px; white-space: pre-wrap; word-break: break-word; }
+  .sd-tl { display: flex; gap: 10px; padding: 9px 2px; border-bottom: 1px dashed var(--border); font-size: 13px; }
+  .sd-tl .ic { width: 22px; text-align: center; flex-shrink: 0; }
+  .sd-tl .txt { white-space: pre-wrap; word-break: break-word; }
+  .sd-tl .m { font-size: 10px; color: var(--text-muted); font-family: 'DM Mono', monospace; margin-top: 2px; }
+  .sd-anexos { display: flex; flex-wrap: wrap; gap: 8px; }
+  .sd-anexo { width: 76px; }
+  .sd-anexo a { text-decoration: none; color: var(--dark); }
+  .sd-anexo .th { width: 76px; height: 76px; border: 1px solid var(--border); border-radius: 8px; object-fit: cover; display: flex; align-items: center; justify-content: center; font-size: 26px; background: #faf7f1; }
+  .sd-anexo .nm { font-size: 9px; color: var(--text-muted); margin-top: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .sd-empty { color: var(--text-muted); font-size: 13px; text-align: center; padding: 16px; }
+  .sd-foot { display: flex; justify-content: flex-end; margin-top: 18px; border-top: 1px solid var(--border); padding-top: 14px; }
 </style>
 </head>
 <body>
@@ -379,6 +406,21 @@
 </div><!-- /tab-solic -->
 
 </div><!-- /scroll-body -->
+
+<!-- MODAL: DETALHE DA SOLICITAÇÃO (somente leitura) -->
+<div class="sd-overlay" id="sdOverlay" onclick="if(event.target===this) fecharSolDetalhe()">
+  <div class="sd-modal">
+    <span class="sd-close" onclick="fecharSolDetalhe()">&times;</span>
+    <div class="sd-title" id="sdTitulo">—</div>
+    <div class="sd-sub" id="sdSub"></div>
+    <div class="sd-meta" id="sdMeta"></div>
+    <div id="sdDescricaoWrap"></div>
+    <div id="sdAnexosWrap"></div>
+    <div class="sd-label">Linha do tempo</div>
+    <div id="sdTimeline"><div class="sd-empty">Carregando...</div></div>
+    <div class="sd-foot"><button class="refresh-btn" onclick="fecharSolDetalhe()">Fechar</button></div>
+  </div>
+</div>
 
 <script>
 const SUPABASE_URL      = 'https://qzuhcbizkyvuhbshsdit.supabase.co';
@@ -821,7 +863,7 @@ function renderSolFeed() {
       ? ` <span style="font-family:'DM Mono',monospace;font-size:10px;color:var(--text-muted)">#${s.pedido_ref}</span>` : '';
     const parada = solEstaParada(s)
       ? ` <span class="user-tag tag-accent">⚠ parada ${solDiasParado(s)}d</span>` : '';
-    return `<div class="feed-item" style="cursor:pointer" title="Abrir solicitação" onclick="location.href='solicitacoes.html?sol=${s.id}'">
+    return `<div class="feed-item" style="cursor:pointer" title="Abrir solicitação" onclick="abrirSolDetalhe('${s.id}')">
       <div class="feed-dot ${s.status === 'concluida' ? 'fd-etapa' : 'fd-obs'}"></div>
       <div class="feed-body">
         <div class="feed-action">
@@ -836,6 +878,67 @@ function renderSolFeed() {
     </div>`;
   }).join('');
 }
+
+/* ── DETALHE DA SOLICITAÇÃO (modal, somente leitura) ──────── */
+const SD_IC = { processo:'🔨', comentario:'💬', encaminhamento:'➡️', status:'🔁' };
+function sdEsc(s) {
+  return String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+async function abrirSolDetalhe(id) {
+  const s = solLista.find(x => x.id === id);
+  if (!s) return;
+  document.getElementById('sdTitulo').textContent = s.produto_ref ? ('📦 ' + s.produto_ref) : s.titulo;
+  document.getElementById('sdSub').textContent = s.produto_ref ? s.titulo : '';
+  const pedido = s.pedido_ref ? ` · Pedido #${sdEsc(s.pedido_ref)}` : '';
+  document.getElementById('sdMeta').innerHTML =
+    `<span class="sd-pill ${s.status}">${SOL_LBL[s.status]}</span>
+     <span>${sdEsc(solNome(s.criador_id))} → <strong>${sdEsc(solNome(s.responsavel_id))}</strong></span>
+     <span>prioridade: ${sdEsc(s.prioridade)}</span>
+     <span>${new Date(s.created_at).toLocaleString('pt-BR')}${pedido}</span>
+     ${solEstaParada(s) ? `<span class="user-tag tag-accent">⚠ parada ${solDiasParado(s)}d</span>` : ''}`;
+  document.getElementById('sdDescricaoWrap').innerHTML = s.descricao
+    ? `<div class="sd-label">Descrição</div><div class="sd-desc">${sdEsc(s.descricao)}</div>` : '';
+
+  document.getElementById('sdOverlay').classList.add('open');
+  document.getElementById('sdTimeline').innerHTML = '<div class="sd-empty">Carregando...</div>';
+  document.getElementById('sdAnexosWrap').innerHTML = '';
+
+  // anexos
+  const anx = await sb.from('solicitacao_anexos').select('*').eq('solicitacao_id', id).order('created_at');
+  if (anx.data && anx.data.length) {
+    const grid = anx.data.map(a => {
+      const ehImg = (a.tipo || '').startsWith('image/');
+      const th = ehImg ? `<img class="th" src="${a.url}" alt="">` : `<div class="th">${(a.tipo||'').includes('pdf') ? '📄' : '📎'}</div>`;
+      return `<div class="sd-anexo"><a href="${a.url}" target="_blank" rel="noopener" title="${sdEsc(a.nome)}">${th}<div class="nm">${sdEsc(a.nome || 'arquivo')}</div></a></div>`;
+    }).join('');
+    document.getElementById('sdAnexosWrap').innerHTML = `<div class="sd-label">Anexos</div><div class="sd-anexos">${grid}</div>`;
+  }
+
+  // linha do tempo
+  const { data, error } = await sb.from('solicitacao_eventos').select('*')
+    .eq('solicitacao_id', id).order('created_at', { ascending:false });
+  const tl = document.getElementById('sdTimeline');
+  if (error) { tl.innerHTML = '<div class="sd-empty">Erro ao carregar.</div>'; return; }
+  if (!data.length) { tl.innerHTML = '<div class="sd-empty">Nenhum registro ainda.</div>'; return; }
+  tl.innerHTML = data.map(e => `<div class="sd-tl">
+      <div class="ic">${SD_IC[e.tipo] || '•'}</div>
+      <div style="flex:1">
+        <div class="txt">${sdEsc(e.texto)}</div>
+        <div class="m">${sdEsc(solNome(e.autor_id))} · ${new Date(e.created_at).toLocaleString('pt-BR')}</div>
+      </div>
+    </div>`).join('');
+}
+
+function fecharSolDetalhe() {
+  document.getElementById('sdOverlay').classList.remove('open');
+}
+
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape' && document.getElementById('sdOverlay').classList.contains('open')) {
+    fecharSolDetalhe();
+  }
+});
 
 </script>
 </body>
