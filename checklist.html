@@ -139,7 +139,7 @@
   /* Relatório longo: cabeçalho e rodapé fixos, corpo rola por dentro */
   .modal-card-scroll { display: flex; flex-direction: column; max-height: 90vh; padding: 0; }
   .modal-card-scroll .modal-header-sticky { margin: 0; padding: 22px 25px 14px; }
-  .modal-card-scroll .modal-body { flex: 1 1 auto; overflow-y: auto; padding: 16px 25px; }
+  .modal-card-scroll .modal-body { flex: 1 1 auto; overflow-y: auto; overflow-x: hidden; padding: 16px 25px; }
   .modal-card-scroll .modal-footer-sticky { margin: 0; padding: 14px 25px; }
   .modal-title { word-break: break-word; }
   
@@ -411,7 +411,7 @@
 
 <!-- MODAL DE RELATÓRIO DO PRODUTO -->
 <div class="modal-overlay" id="modalReportOverlay">
-  <div class="modal-card modal-card-scroll" style="width:560px">
+  <div class="modal-card modal-card-scroll" style="width:660px">
     <span class="modal-close" onclick="closeModal('modalReportOverlay')">&times;</span>
     <div class="print-header">
       <div class="print-company">STUDYO 4 ESTOFADOS — Relatório do Produto</div>
@@ -1386,7 +1386,12 @@ function buildGanttHtml(item, logs) {
   // Renderiza uma barra; se ficar muito estreita, joga o texto pra fora dela
   const ganttBar = (left, width, color, text, title) => {
     const narrow = width < 14;
-    const labelStyle = `position:absolute;left:${Math.min(100, left + width + 1)}%;top:1px;font-size:10px;font-weight:600;color:var(--text);white-space:nowrap`;
+    // etiqueta à direita da barra; se a barra estiver na metade direita,
+    // joga a etiqueta pra ESQUERDA da barra pra não vazar do quadro
+    const naDireita = (left + width) > 55;
+    const labelStyle = naDireita
+      ? `position:absolute;right:${Math.max(0, 100 - left + 1)}%;top:1px;font-size:10px;font-weight:600;color:var(--text);white-space:nowrap;text-align:right`
+      : `position:absolute;left:${Math.min(100, left + width + 1)}%;top:1px;font-size:10px;font-weight:600;color:var(--text);white-space:nowrap`;
     const barInner = narrow ? '' : text;
     const outerLabel = narrow ? `<div style="${labelStyle}">${text}</div>` : '';
     return `<div class="gantt-bar" style="left:${left}%;width:${width}%;background:${color}" title="${title}">${barInner}</div>${outerLabel}`;
@@ -1484,9 +1489,12 @@ function buildGanttHtml(item, logs) {
       if (diasParaEntrega < 0) { markerColor = 'var(--red)'; aviso = ' (atrasado)'; }
       else if (diasParaEntrega <= 7) { markerColor = 'var(--orange)'; aviso = ' (chegando)'; }
     }
+    // etiqueta centralizada; perto das bordas, alinha p/ dentro pra não vazar
+    const pe = pct(entrega);
+    const alinha = pe > 82 ? 'translateX(-100%)' : (pe < 18 ? 'translateX(0)' : 'translateX(-50%)');
     html += `<div class="gantt-row">
       <div class="gantt-label">Entrega Prev.</div>
-      <div class="gantt-track"><div class="gantt-marker" style="left:${pct(entrega)}%;background:${markerColor}"></div><div class="gantt-marker-label" style="left:${pct(entrega)}%;color:${markerColor}">${fmtDate(item.dataEntrega)}${aviso}</div></div>
+      <div class="gantt-track"><div class="gantt-marker" style="left:${pe}%;background:${markerColor}"></div><div class="gantt-marker-label" style="left:${pe}%;color:${markerColor};transform:${alinha}">${fmtDate(item.dataEntrega)}${aviso}</div></div>
     </div>`;
   }
 
