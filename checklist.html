@@ -135,7 +135,13 @@
   .modal-header { margin-bottom: 20px; border-bottom: 1px solid var(--border); padding-bottom: 15px; }
   .modal-title { font-family: 'DM Serif Display', serif; font-size: 20px; color: var(--dark); margin-bottom: 5px; line-height: 1.2; }
   .modal-subtitle { font-size: 12px; color: var(--text-muted); }
-  .modal-close { position: absolute; top: 15px; right: 15px; font-size: 24px; cursor: pointer; color: var(--text-muted); }
+  .modal-close { position: absolute; top: 15px; right: 15px; font-size: 24px; cursor: pointer; color: var(--text-muted); z-index: 6; }
+  /* Relatório longo: cabeçalho e rodapé fixos, corpo rola por dentro */
+  .modal-card-scroll { display: flex; flex-direction: column; max-height: 90vh; padding: 0; }
+  .modal-card-scroll .modal-header-sticky { margin: 0; padding: 22px 25px 14px; }
+  .modal-card-scroll .modal-body { flex: 1 1 auto; overflow-y: auto; padding: 16px 25px; }
+  .modal-card-scroll .modal-footer-sticky { margin: 0; padding: 14px 25px; }
+  .modal-title { word-break: break-word; }
   
   .edit-section { margin-bottom: 20px; }
   .section-label { font-size: 11px; font-weight: 700; text-transform: uppercase; color: var(--text-muted); letter-spacing: 1px; margin-bottom: 10px; display: block; }
@@ -185,7 +191,8 @@
   @media print {
     body.printing-report > *:not(#modalReportOverlay) { display: none !important; }
     body.printing-report #modalReportOverlay { position: absolute; top: 0; left: 0; width: 100%; height: auto; background: none; display: block !important; backdrop-filter: none; }
-    body.printing-report #modalReportOverlay .modal-card { box-shadow: none; width: 100%; max-width: 100%; border-radius: 0; max-height: none; overflow: visible; }
+    body.printing-report #modalReportOverlay .modal-card { box-shadow: none; width: 100%; max-width: 100%; border-radius: 0; max-height: none; overflow: visible; display: block; }
+    body.printing-report #modalReportOverlay .modal-body { max-height: none; overflow: visible; }
     body.printing-report .timeline { max-height: none; overflow: visible; }
     body.printing-report .modal-close,
     body.printing-report .modal-footer,
@@ -404,16 +411,17 @@
 
 <!-- MODAL DE RELATÓRIO DO PRODUTO -->
 <div class="modal-overlay" id="modalReportOverlay">
-  <div class="modal-card" style="width:560px">
+  <div class="modal-card modal-card-scroll" style="width:560px">
     <span class="modal-close" onclick="closeModal('modalReportOverlay')">&times;</span>
     <div class="print-header">
       <div class="print-company">STUDYO 4 ESTOFADOS — Relatório do Produto</div>
       <div class="print-meta" id="modalPrintMeta"></div>
     </div>
-    <div class="modal-header">
+    <div class="modal-header modal-header-sticky">
       <div class="modal-title" id="modalReportTitle">Nome do Produto</div>
       <div class="modal-subtitle" id="modalReportSubtitle">Pedido: 12345</div>
     </div>
+    <div class="modal-body">
     <div class="report-summary" id="modalReportSummary"></div>
     <div class="edit-section" id="secDocumentacao">
       <label class="section-label">3D e Documentação</label>
@@ -436,7 +444,8 @@
       <label class="section-label">Histórico de Etapas</label>
       <div class="timeline" id="modalReportTimeline"><div class="timeline-empty">Carregando histórico...</div></div>
     </div>
-    <div class="modal-footer">
+    </div><!-- /modal-body -->
+    <div class="modal-footer modal-footer-sticky">
       <button class="btn btn-cancel" onclick="closeModal('modalReportOverlay')">Fechar</button>
       <button class="btn btn-save" onclick="printReport()">🖨️ Exportar PDF</button>
     </div>
