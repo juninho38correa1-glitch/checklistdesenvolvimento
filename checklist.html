@@ -512,6 +512,52 @@ function logKey(row) {
   return `${row.n_pedido || ''}::${row.produto}`;
 }
 
+/* ── AUTO-RECONCILIAÇÃO DE ÓRFÃOS ──────────────────────────
+   O nome do produto é usado como identidade, mas é editável na planilha.
+   Quando alguém corrige/completa o nome depois de já ter log, o log antigo
+   fica "órfão". Aqui, ao carregar, re-vinculamos pelo NÚMERO DA LINHA + PEDIDO
+   (com checagem de similaridade de nome), atualizando o nome gravado. */
+function nomesSimilares(a, b) {
+  if (!a || !b) return false;
+  if (a === b || b.startsWith(a) || a.startsWith(b)) return true;
+  let n = 0; const m = Math.min(a.length, b.length);
+  while (n < m && a[n] === b[n]) n++;
+  return n >= 8;   // pelo menos 8 caracteres iniciais iguais
+}
+
+async function reconciliarOrfaos() {
+  if (!supabaseClient || !allData.length) return;
+  try {
+    const atuais   = new Set(allData.map(d => d.produto));
+    const porLinha = {};
+    allData.forEach(d => { porLinha[d.rowIndex] = d; });
+
+    const { data, error } = await supabaseClient.from('etapa_logs').select('produto, row_index, n_pedido');
+    if (error || !data) return;
+
+    const correcoes = {};   // nome_antigo -> nome_atual
+    for (const row of data) {
+      const p = row.produto;
+      if (!p || atuais.has(p) || correcoes[p]) continue;         // já bate ou já mapeado
+      const atual = porLinha[row.row_index];                     // produto naquela linha hoje
+      if (!atual) continue;
+      if ((atual.nPedido || '') !== (row.n_pedido || '')) continue;  // pedido tem que bater
+      if (!nomesSimilares(p, atual.produto)) continue;           // e ser claramente o mesmo produto
+      correcoes[p] = atual.produto;
+    }
+
+    const antigos = Object.keys(correcoes);
+    if (!antigos.length) return;
+    for (const antigo of antigos) {
+      await supabaseClient.from('etapa_logs').update({ produto: correcoes[antigo] }).eq('produto', antigo);
+      await supabaseClient.from('pedido_observacoes').update({ produto: correcoes[antigo] }).eq('produto', antigo);
+    }
+    console.log('Órfãos reconciliados:', correcoes);
+  } catch (e) {
+    console.error('Falha na reconciliação de órfãos:', e);
+  }
+}
+
 function parseDate(str) {
   if (!str || !str.trim()) return null;
   const s = str.trim();
@@ -1034,6 +1080,7 @@ async function loadCSV(isSilent = false) {
     if (!res.ok) throw new Error(`Falha ao buscar planilha (HTTP ${res.status})`);
     const text = await res.text();
     allData = parseCSV(text);
+    await reconciliarOrfaos();   // re-vincula logs/obs cujo produto foi renomeado na planilha
     productionTimes = await loadProductionTimes();
     observationCounts = await loadObservationCounts();
     extraTicks = await loadExtraTicks();
