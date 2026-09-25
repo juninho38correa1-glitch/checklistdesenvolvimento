@@ -590,20 +590,25 @@ async function loadProductionTimes() {
   try {
     const { data, error } = await supabaseClient
       .from('etapa_logs')
+      // traz também as desmarcações: sem elas, um clique errado contaria para
+      // sempre como se a etapa tivesse sido concluída naquele dia
       .select('row_index, n_pedido, produto, etapa, status, created_at')
       .in('etapa', [PRODUCAO_INICIO_ETAPA, PRODUCAO_FIM_ETAPA])
-      .eq('status', true)
       .order('created_at', { ascending: true });
     if (error) { console.error('Erro ao buscar logs de produção:', error); return map; }
+    const porProduto = {};
     data.forEach(row => {
       const key = logKey(row);
-      if (!map[key]) map[key] = { start: null, end: null };
-      if (row.etapa === PRODUCAO_INICIO_ETAPA && !map[key].start) {
-        map[key].start = row.created_at;
-      }
-      if (row.etapa === PRODUCAO_FIM_ETAPA && map[key].start && !map[key].end && row.created_at >= map[key].start) {
-        map[key].end = row.created_at;
-      }
+      (porProduto[key] = porProduto[key] || []).push(row);
+    });
+    Object.keys(porProduto).forEach(key => {
+      const inicio = dataEtapaAtual(porProduto[key], PRODUCAO_INICIO_ETAPA);
+      const fim    = dataEtapaAtual(porProduto[key], PRODUCAO_FIM_ETAPA);
+      map[key] = {
+        start: inicio ? inicio.toISOString() : null,
+        // fim antes do início seria marcação fora de ordem: ignora
+        end: (inicio && fim && fim >= inicio) ? fim.toISOString() : null
+      };
     });
   } catch (e) {
     console.error('Falha ao conectar ao Supabase (tempo de produção):', e);
@@ -1341,7 +1346,7 @@ async function openReportModal(rowIndex) {
     ganttEl.innerHTML = buildGanttHtml(item, data || []);
 
     // Lead Time de Criação: Recebimento -> tick da Modelagem 3D
-    const modelagemDate = firstTrueDate(data || [], 'modelagem3d');
+    const modelagemDate = dataEtapaAtual(data || [], 'modelagem3d');
     const recebForCriacao = parseDate(item.dataRecebimento);
     const leadCriacaoEl = document.getElementById('reportLeadCriacao');
     if (leadCriacaoEl) {
@@ -1357,8 +1362,8 @@ async function openReportModal(rowIndex) {
     }
 
     // Lead Modelagem Téc.: tick da Espumação -> tick da Modelagem Téc.
-    const espumaDate = firstTrueDate(data || [], 'espumacao');
-    const modTecDate = firstTrueDate(data || [], 'modelagemTec');
+    const espumaDate = dataEtapaAtual(data || [], 'espumacao');
+    const modTecDate = dataEtapaAtual(data || [], 'modelagemTec');
     const leadModTecEl = document.getElementById('reportLeadModTec');
     if (leadModTecEl) {
       if (espumaDate && modTecDate) {
@@ -1397,19 +1402,27 @@ async function openReportModal(rowIndex) {
 }
 
 // Retorna a data do primeiro tick (status=true) de uma etapa nos logs, ou null.
-function firstTrueDate(logs, etapa) {
-  const asc = [...logs].sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
-  const row = asc.find(r => r.etapa === etapa && r.status);
-  return row ? new Date(row.created_at) : null;
+/* Quando vale a etapa: a marcação que está valendo AGORA.
+   Se alguém marcou por engano e desmarcou, aquela data não conta mais — vale a
+   marcação seguinte, e se a etapa está desmarcada hoje, ela não tem data.
+   Pegar a primeira marcação da história fazia a conta de tempo mentir. */
+function dataEtapaAtual(logs, etapa) {
+  const asc = [...logs].filter(r => r.etapa === etapa)
+                       .sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
+  let inicio = null;
+  asc.forEach(r => { inicio = r.status ? (inicio || new Date(r.created_at)) : null; });
+  return inicio;
 }
 
 // Monta a linha do tempo estilo Gantt: lead time comercial, tempo em produção
 // e marcadores de cada etapa concluída + data prevista de entrega.
 function buildGanttHtml(item, logs) {
   const ascLogs = [...logs].sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
+  // data que vale de cada etapa: a marcação atual, ignorando o que foi desfeito
   const firstTrue = {};
-  ascLogs.forEach(row => {
-    if (row.status && !(row.etapa in firstTrue)) firstTrue[row.etapa] = new Date(row.created_at);
+  new Set(ascLogs.map(r => r.etapa)).forEach(etapa => {
+    const d = dataEtapaAtual(ascLogs, etapa);
+    if (d) firstTrue[etapa] = d;
   });
 
   const solic   = parseDate(item.dataSolicitacao);
