@@ -195,6 +195,8 @@
     <button class="btn btn-ghost btn-sm" style="margin-top:10px" onclick="printSolicitacao()">🖨️ Imprimir</button>
     <div id="detDescricao" style="margin-top:12px;font-size:13px;white-space:pre-wrap"></div>
 
+    <div id="detOC" style="margin-top:12px"></div>
+
     <span class="section-label">Anexos (fotos / desenhos)</span>
     <div id="detAnexos"><div class="empty">Carregando...</div></div>
     <div style="margin-top:8px">
@@ -267,8 +269,9 @@ const nomeDe = id => (usuarios.find(u => u.id === id) || {}).nome || '—';
 
 /* ── CARGA ──────────────────────────────────────────── */
 async function carregarUsuarios() {
-  const { data } = await sb.from('usuarios').select('id,nome').eq('ativo', true).order('nome');
+  const { data } = await sb.from('usuarios').select('id,nome,setor').eq('ativo', true).order('nome');
   usuarios = data || [];
+  compradores = new Set(usuarios.filter(u => ehSetorCompras(u.setor)).map(u => u.id));
   const opts = usuarios.map(u => `<option value="${u.id}">${u.nome}</option>`).join('');
   document.getElementById('nvResponsavel').innerHTML = opts;
   document.getElementById('encPara').innerHTML = opts;
@@ -330,7 +333,7 @@ function renderLista() {
       <div class="sol-top">
         <span class="pill ${s.status}">${LBL_STATUS[s.status]}</span>
         ${['urgente','alta'].includes(s.prioridade) ? `<span class="pill ${s.prioridade}">${s.prioridade}</span>` : ''}
-        <span class="sol-titulo">${s.produto_ref ? '📦 ' : ''}${destaque}</span>
+        <span class="sol-titulo">${destaque}</span>
         ${atrasada ? `<span class="pill atraso">parada ${diasParados(s)}d</span>` : ''}
         ${s.origem_solicitacao_id ? '<span class="pill encadeada">encadeada</span>' : ''}
       </div>
@@ -384,7 +387,7 @@ async function abrirDetalhe(id) {
   if (!detAtual) return;
   const s = detAtual;
   // Produto em destaque no título; a solicitação vira subtítulo
-  document.getElementById('detTitulo').textContent = s.produto_ref ? ('📦 ' + s.produto_ref) : s.titulo;
+  document.getElementById('detTitulo').textContent = s.produto_ref || s.titulo;
   document.getElementById('detSubtitulo').textContent = s.produto_ref ? s.titulo : '';
   const vinc = s.pedido_ref ? ` · Pedido #${s.pedido_ref}` : '';
   document.getElementById('detMeta').innerHTML =
@@ -393,6 +396,7 @@ async function abrirDetalhe(id) {
      <span>prioridade: ${s.prioridade}</span>
      <span>${new Date(s.created_at).toLocaleString('pt-BR')}${vinc}</span>`;
   document.getElementById('detDescricao').textContent = s.descricao || '';
+  renderOC(s);
   renderAcoes(s);
   abrirOverlay('detOverlay');
   carregarAnexos(id);
@@ -550,6 +554,7 @@ function printSolicitacao() {
       <div><span class="k">Responsável</span><br>${esc(nomeDe(s.responsavel_id))}</div>
       <div><span class="k">Aberta em</span><br>${new Date(s.created_at).toLocaleString('pt-BR')}</div>
       ${s.concluida_em ? `<div><span class="k">Concluída em</span><br>${new Date(s.concluida_em).toLocaleString('pt-BR')}</div>` : ''}
+      ${s.oc_ref ? `<div><span class="k">OC de compra</span><br>${esc(s.oc_ref)}</div>` : ''}
       ${linhaVinc}
     </div>
     ${s.descricao ? `<div class="ps-label">Descrição</div><div class="ps-desc">${esc(s.descricao)}</div>` : ''}
@@ -578,6 +583,60 @@ function renderAcoes(s) {
          <button class="btn btn-ghost btn-sm" onclick="abrirEncaminhar()">➡️ Encaminhar</button>
          <button class="btn btn-primary btn-sm" onclick="concluir()">✓ Concluir</button>
        </div>`;
+}
+
+/* ── OC DE COMPRA (comprador registra a Ordem de Compra) ──
+   Antes o campo só aparecia quando o título começava com "Compras", ou seja,
+   só nas solicitações que o checklist abre sozinho. O comprador também recebe
+   solicitações escritas à mão, com qualquer título, e nessas não tinha onde
+   pôr a OC. Agora vale a pergunta certa: isto está na mão de um comprador? */
+let compradores = new Set();
+function ehSetorCompras(setor) { return String(setor || '').trim().toLowerCase() === 'compras'; }
+function ehCompras(s) {
+  return (s.titulo || '').toLowerCase().startsWith('compras') || compradores.has(s.responsavel_id);
+}
+function podeSetarOC(s) { return sessao.admin || sessao.id === s.responsavel_id; }
+
+function renderOC(s) {
+  const el = document.getElementById('detOC');
+  if (!ehCompras(s)) { el.innerHTML = ''; return; }
+  const editar = podeSetarOC(s) && s.status !== 'cancelada';
+  if (s.oc_ref) {
+    el.innerHTML = `<div style="background:#efe7d6;border:1px solid var(--border);border-radius:8px;padding:10px 12px;display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+      <span style="font-size:11px;font-weight:700;color:#8a6d3b;text-transform:uppercase;letter-spacing:.4px">🧾 OC de compra</span>
+      <b style="font-size:15px">${esc(s.oc_ref)}</b>
+      ${editar ? `<button class="btn btn-ghost btn-sm" style="margin-left:auto" onclick="editarOC()">Editar</button>` : ''}
+    </div>`;
+  } else if (editar) {
+    el.innerHTML = `<div style="background:#faf6ee;border:1px dashed var(--border);border-radius:8px;padding:10px 12px">
+      <span class="field-label">🧾 Registrar OC de compra</span>
+      <div style="display:flex;gap:8px;margin-top:4px">
+        <input id="ocInput" placeholder="Nº da Ordem de Compra" style="flex:1" onkeydown="if(event.key==='Enter')salvarOC()">
+        <button class="btn btn-primary btn-sm" onclick="salvarOC()">Registrar</button>
+      </div></div>`;
+  } else {
+    el.innerHTML = `<div class="empty" style="padding:8px;text-align:left">🧾 Aguardando o comprador registrar a OC.</div>`;
+  }
+}
+function editarOC() {
+  const s = detAtual;
+  document.getElementById('detOC').innerHTML = `<div style="display:flex;gap:8px;align-items:center">
+    <input id="ocInput" value="${esc(s.oc_ref || '')}" style="flex:1" onkeydown="if(event.key==='Enter')salvarOC()">
+    <button class="btn btn-primary btn-sm" onclick="salvarOC()">Salvar OC</button>
+    <button class="btn btn-ghost btn-sm" onclick="renderOC(detAtual)">Cancelar</button></div>`;
+  document.getElementById('ocInput').focus();
+}
+async function salvarOC() {
+  const s = detAtual;
+  const oc = document.getElementById('ocInput').value.trim();
+  if (!oc) { alert('Informe o número da OC.'); return; }
+  const primeira = !s.oc_ref;
+  await sb.from('solicitacoes').update({ oc_ref: oc, updated_at: new Date().toISOString() }).eq('id', s.id);
+  await sb.from('solicitacao_eventos').insert({ solicitacao_id: s.id, autor_id: sessao.id, tipo: 'comentario',
+    texto: `🧾 OC de compra ${primeira ? 'registrada' : 'atualizada'}: ${oc}` });
+  await notificar(s.criador_id, 'OC de compra registrada', `${s.titulo}: OC ${oc}`, s.id);
+  await carregarSolicitacoes();
+  abrirDetalhe(s.id);
 }
 
 async function registrarEvento(tipo) {
@@ -751,6 +810,26 @@ document.addEventListener('keydown', e => {
   }
 });
 
+/* ── TEMPO REAL (Supabase Realtime) ─────────────────── */
+function assinarTempoReal() {
+  if (!sb) return;
+  let t = null;
+  const refrescar = () => {
+    clearTimeout(t);
+    t = setTimeout(async () => {
+      await carregarSolicitacoes();                 // atualiza a lista + contagens
+      const detOpen = document.getElementById('detOverlay').style.display === 'flex';
+      const digitando = ['INPUT', 'TEXTAREA'].includes((document.activeElement || {}).tagName);
+      if (detOpen && detAtual && !digitando) abrirDetalhe(detAtual.id);  // não interrompe quem digita
+    }, 250);
+  };
+  sb.channel('solic-rt')
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'solicitacoes' }, refrescar)
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'solicitacao_eventos' }, refrescar)
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'notificacoes' }, () => atualizarBell())
+    .subscribe();
+}
+
 /* ── INIT ───────────────────────────────────────────── */
 (async function init() {
   if (!carregarSessao()) return;
@@ -758,6 +837,7 @@ document.addEventListener('keydown', e => {
   await carregarSolicitacoes();
   atualizarBell();
   setInterval(atualizarBell, 30000);
+  assinarTempoReal();
 
   // abre direto uma solicitação específica quando vier de um link (?sol=<id>)
   const solId = new URLSearchParams(location.search).get('sol');

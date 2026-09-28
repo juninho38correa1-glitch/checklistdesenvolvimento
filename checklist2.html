@@ -845,7 +845,10 @@ async function loadExtraTicks() {
    config (responsavel_documentacao / responsavel_compras). */
 const SERVICOS = {
   documentacao: { chave:'responsavel_documentacao', titulo:'3D e Documentação', desc:'Medições, ficha técnica, ficha comercial e bloco 3D', ic:'📐' },
-  compras:      { chave:'responsavel_compras',      titulo:'Compras',           desc:'Itens repassados para compras', ic:'🛒' }
+  compras:      { chave:'responsavel_compras',      titulo:'Compras',           desc:'Itens repassados para compras', ic:'🛒' },
+  // Aberta sozinha quando a Data de Envio ao PCP é preenchida: é o aviso
+  // de que o produto saiu do comercial e o PCP já pode incluir em lote.
+  pcp:          { chave:'responsavel_pcp',          titulo:'Liberado para inclusão em lote', desc:'Produto liberado pelo comercial para o PCP incluir em lote', ic:'🏭' }
 };
 let respServico = {};   // tipo -> { id, nome }
 
@@ -865,15 +868,16 @@ async function carregarRespServicos() {
 }
 
 // Retorna o ID da solicitação criada (ou null se não criou).
-async function abrirSolicitacaoServico(tipo, item, obs) {
+async function abrirSolicitacaoServico(tipo, item, obs, silencioso) {
+  const aviso = m => { if (silencioso) console.warn(m); else alert(m); };
   const def = SERVICOS[tipo], resp = respServico[tipo];
-  if (!resp) { alert(`Nenhum responsável configurado para ${def.titulo}.\nDefina "${def.chave}" no admin → Configurações.`); return null; }
+  if (!resp) { aviso(`Nenhum responsável configurado para ${def.titulo}.\nDefina "${def.chave}" no admin → Configurações.`); return null; }
   try {
     let q = supabaseClient.from('solicitacoes').select('id')
       .eq('produto_ref', item.produto).in('status', ['aberta','em_andamento']).ilike('titulo', def.titulo + '%');
     q = item.nPedido ? q.eq('pedido_ref', item.nPedido) : q.is('pedido_ref', null);
     const { data: existentes } = await q;
-    if (existentes && existentes.length) { alert(`Já existe uma solicitação de ${def.titulo} em aberto para este produto.`); return null; }
+    if (existentes && existentes.length) { aviso(`Já existe uma solicitação de ${def.titulo} em aberto para este produto.`); return null; }
     const { data: sol, error } = await supabaseClient.from('solicitacoes').insert({
       titulo: `${def.titulo} — ${item.produto}`, descricao: (obs && obs.trim()) ? `${def.desc} — ${obs.trim()}` : def.desc,
       criador_id: sessao.id, responsavel_id: resp.id, prioridade: 'normal',
@@ -887,7 +891,29 @@ async function abrirSolicitacaoServico(tipo, item, obs) {
       if (notif) supabaseClient.functions.invoke('quick-endpoint', { body: { record: notif } }).catch(e => console.error('push:', e));
     }
     return sol.id;
-  } catch (e) { alert('Erro ao abrir solicitação: ' + e.message); return null; }
+  } catch (e) { aviso('Erro ao abrir solicitação: ' + e.message); return null; }
+}
+
+/* Preencher a Data de Envio ao PCP fecha o lead time do comercial e abre o
+   do PCP. Nesse instante o PCP precisa saber, então a solicitação sai
+   sozinha, com os dados do produto no corpo para ele não ter de procurar.
+   Só dispara na transição vazio -> preenchido: reeditar a data depois não
+   abre solicitação nova. */
+async function avisarPcpLiberado(prod) {
+  if (!prod || !prod.data_envio_pcp) return;
+  if (!respServico.pcp) await carregarRespServicos();
+  const dados = [
+    `Pedido: ${prod.n_pedido || '—'}`,
+    `Produto: ${prod.produto}`,
+    `Tipo: ${prod.tipo || '—'}`,
+    `Cód. cadastro: ${prod.cod_cadastro || '—'}`,
+    `Data de solicitação: ${fmtDate(prod.data_solicitacao)}`,
+    `Data de envio ao PCP: ${fmtDate(prod.data_envio_pcp)}`,
+    `Data de entrega: ${fmtDate(prod.data_entrega)}`,
+    `Liberado por: ${sessao.nome}`
+  ].join(' · ');
+  const item = { produto: prod.produto, nPedido: prod.n_pedido || null };
+  await abrirSolicitacaoServico('pcp', item, dados, true);
 }
 
 async function atualizarStatusServico(tipo, item) {
@@ -1605,15 +1631,16 @@ async function openReportModal(rowIndex) {
     prodLabel = pt.end ? `${dias}d (concluído)` : `${dias}d (em andamento)`;
   }
 
+  // O comercial entrega o produto ao PCP: o relógio dele fecha na Data de
+  // Envio ao PCP, e é dali que o relógio do PCP começa a correr.
   let leadLabel = '—';
   const solicD = parseDate(item.dataSolicitacao);
-  const recebD = parseDate(item.dataRecebimento);
-  if (solicD && recebD) {
-    const dias = Math.round((recebD - solicD) / 86400000);
-    leadLabel = `${dias}d`;
-  } else if (solicD && !recebD) {
+  const envioD = parseDate(item.dataEnvioPcp);
+  if (solicD && envioD) {
+    leadLabel = `${Math.round((envioD - solicD) / 86400000)}d`;
+  } else if (solicD) {
     const dias = Math.floor((new Date().setHours(0,0,0,0) - solicD.setHours(0,0,0,0)) / 86400000);
-    leadLabel = `${dias}d (aguardando recebimento)`;
+    leadLabel = `${dias}d (aguardando envio ao PCP)`;
   }
 
   document.getElementById('modalReportSummary').innerHTML = `
@@ -1622,8 +1649,8 @@ async function openReportModal(rowIndex) {
     <div class="report-item"><span class="label">Data Solicitação</span><span class="value">${fmtDate(item.dataSolicitacao)}</span></div>
     <div class="report-item"><span class="label">Data Recebimento</span><span class="value">${fmtDate(item.dataRecebimento)}</span></div>
     <div class="report-item"><span class="label">Data Entrega</span><span class="value">${fmtDate(item.dataEntrega)}</span></div>
-    <div class="report-item"><span class="label">Lead Time Comercial</span><span class="value">${leadLabel}</span></div>
-    <div class="report-item"><span class="label">PCP → Ficha recebida</span><span class="value" id="reportLeadFicha">—</span></div>
+    <div class="report-item"><span class="label">Lead Comercial (solic. → PCP)</span><span class="value">${leadLabel}</span></div>
+    <div class="report-item"><span class="label">Lead PCP (PCP → ficha)</span><span class="value" id="reportLeadFicha">—</span></div>
     <div class="report-item"><span class="label">Lead Time de Criação</span><span class="value" id="reportLeadCriacao">—</span></div>
     <div class="report-item"><span class="label">Tempo em Produção</span><span class="value">${prodLabel}</span></div>
     <div class="report-item"><span class="label">Lead Modelagem Téc.</span><span class="value" id="reportLeadModTec">—</span></div>
@@ -1800,13 +1827,16 @@ function buildGanttHtml(item, logs) {
 
   let html = '<div class="gantt">';
 
-  // Comercial: Solicitação -> Recebimento
-  if (solic && receb) {
+  // Comercial: Solicitação -> Envio ao PCP. Enquanto a data não vem, a barra
+  // corre até hoje, porque o relógio do comercial ainda está andando.
+  if (solic) {
+    const fim = envioPcp || today;
     const left = pct(solic);
-    const width = Math.max(1, pct(receb) - left);
+    const width = Math.max(1, pct(fim) - left);
+    const texto = `${calDays(solic, fim)}d${envioPcp ? '' : ' (aguardando envio ao PCP)'}`;
     html += `<div class="gantt-row">
-      <div class="gantt-label">Comercial</div>
-      <div class="gantt-track">${ganttBar(left, width, 'var(--accent)', `${daysBetween(solic, receb)}d`, `Solicitação ${fmtDate(item.dataSolicitacao)} → Recebimento ${fmtDate(item.dataRecebimento)}`)}</div>
+      <div class="gantt-label">Comercial<div style="font-size:8px;font-weight:400;text-transform:none;letter-spacing:0">Solic. → Envio PCP</div></div>
+      <div class="gantt-track">${ganttBar(left, width, envioPcp ? 'var(--accent)' : 'var(--orange)', texto, `Solicitação ${fmtDate(item.dataSolicitacao)}${envioPcp ? ' → Envio ao PCP ' + fmtDate(item.dataEnvioPcp) : ' → ainda não enviado ao PCP'}`)}</div>
     </div>`;
   }
 
@@ -2326,12 +2356,16 @@ async function salvarProduto() {
       const { error } = await supabaseClient.from('produtos').update(dados).eq('id', editandoProdutoId);
       if (error) throw error;
       await logEdicao(editandoProdutoId, produto, dif);
+      // só quando a data ACABOU de ser preenchida (antes vazia)
+      if (!mapaAntigo.data_envio_pcp && dados.data_envio_pcp)
+        avisarPcpLiberado(dados).catch(e => console.error('aviso PCP:', e));
     } else {
       dados.etapas = {}; dados.criado_por = sessao.id;
       const { data: novo, error } = await supabaseClient.from('produtos').insert(dados).select().single();
       if (error) throw error;
       alvoId = novo.id;
       notificarNovoEspecial(novo).catch(e => console.error('Falha ao notificar Dev/PCP:', e));
+      if (novo.data_envio_pcp) avisarPcpLiberado(novo).catch(e => console.error('aviso PCP:', e));
     }
     // Envia os anexos escolhidos no cadastro (imagem é comprimida em subirAnexo)
     if (alvoId && anexosPendentes.length) {
