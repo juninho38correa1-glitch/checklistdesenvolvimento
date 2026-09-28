@@ -635,18 +635,33 @@ async function salvarNome(id) {
   await Promise.all([carregarAdmUsers(), carregarAdmHistorico()]);
 }
 
+/* O Supabase devolve no máximo 1000 linhas por requisição e o resto some sem
+   avisar. `etapa_logs` já passou de 2.500, e esta tela existe justamente para
+   achar nome solto no histórico: lendo só um pedaço, ela contava errado e
+   escondia exatamente os nomes que deveria mostrar. */
+const PAGINA_SUPABASE = 1000;
+async function buscarTudo(montarConsulta) {
+  const todas = [];
+  for (let inicio = 0; ; inicio += PAGINA_SUPABASE) {
+    const { data, error } = await montarConsulta().range(inicio, inicio + PAGINA_SUPABASE - 1);
+    if (error) { console.error('Erro ao buscar:', error); return todas; }
+    todas.push(...(data || []));
+    if (!data || data.length < PAGINA_SUPABASE) return todas;
+  }
+}
+
 /* Nomes soltos no histórico (de antes do login unificado) */
 async function carregarAdmHistorico() {
   const tb = document.getElementById('admHistorico');
   try {
     const [logs, obs, users] = await Promise.all([
-      sb.from('etapa_logs').select('usuario'),
-      sb.from('pedido_observacoes').select('autor'),
+      buscarTudo(() => sb.from('etapa_logs').select('usuario').order('id')),
+      buscarTudo(() => sb.from('pedido_observacoes').select('autor').order('id')),
       sb.from('usuarios').select('id,nome').order('nome')
     ]);
     const cont = {};
-    (logs.data || []).forEach(r => { if (r.usuario) cont[r.usuario] = (cont[r.usuario] || 0) + 1; });
-    (obs.data  || []).forEach(r => { if (r.autor)   cont[r.autor]   = (cont[r.autor]   || 0) + 1; });
+    logs.forEach(r => { if (r.usuario) cont[r.usuario] = (cont[r.usuario] || 0) + 1; });
+    obs.forEach(r  => { if (r.autor)   cont[r.autor]   = (cont[r.autor]   || 0) + 1; });
     const cadastrados = new Set((users.data || []).map(u => u.nome));
     const linhas = Object.entries(cont).sort((a,b) => b[1] - a[1]);
     if (!linhas.length) { tb.innerHTML = '<tr><td colspan="3" class="empty">Nenhum registro.</td></tr>'; return; }
