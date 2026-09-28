@@ -312,6 +312,8 @@
       <option value="orange">🟠 Em Alerta (+10d)</option>
       <option value="white">⚪ Em Andamento</option>
       <option value="zero">🔘 Sem Iniciar (0%)</option>
+      <option value="semficha">⏳ Aguardando ficha</option>
+      <option value="comficha">📄 Ficha recebida, sem iniciar</option>
       <option value="green">🟢 Finalizados (100%)</option>
     </select>
     <div class="date-filter">
@@ -362,6 +364,7 @@
           <th>Etapas</th>
           <th>Progresso</th>
           <th>Status</th>
+          <th title="Ficha do especial recebida do PCP">Ficha</th>
           <th id="thEditar" style="display:none"></th>
         </tr>
       </thead>
@@ -586,7 +589,8 @@ let currentItem     = null;
 let refreshTimer    = null;
 let productionTimes = {};
 let observationCounts = {};
-let extraTicks      = {};  // itemKey -> { repassadoCompras: bool }
+let extraTicks      = {};  // itemKey -> { fichaRecebida: bool }
+let fichaDatas      = {};  // itemKey -> quando a ficha foi marcada como recebida
 let activityDates   = {};  // itemKey -> Set de 'YYYY-MM-DD' (etapas concluídas)
 let lastFiltered    = [];  // últimos produtos exibidos (para impressão)
 let podeEditarChecklist = true;   // permissão de EDIÇÃO no checklist (ticar/editar)
@@ -727,6 +731,47 @@ function productionTimeHtml(item) {
   return `<span class="dias-badge ${cls}">${icon} ${dias}d em produção</span>`;
 }
 
+/* ── FICHA DO ESPECIAL ─────────────────────────────────────
+   Um clique direto na lista: o Dev não precisa abrir o produto só para dizer
+   que a ficha chegou. O selo também responde "estou esperando há quantos
+   dias", que é o que o filtro "sem iniciar" não contava. */
+function fichaRecebidaEm(item) {
+  return (extraTicks[itemKey(item)] || {}).fichaRecebida ? (fichaDatas[itemKey(item)] || true) : null;
+}
+
+function fichaHtml(item) {
+  const recebida = (extraTicks[itemKey(item)] || {}).fichaRecebida;
+  const clicavel = podeEditarChecklist
+    ? `onclick="event.stopPropagation();alternarFicha(${item.rowIndex})" style="cursor:pointer"` : '';
+  if (recebida) {
+    const quando = fichaDatas[itemKey(item)];
+    const envio = parseDate(item.dataEnvioPcp);
+    const dias = (envio && quando) ? Math.round((new Date(quando).setHours(0,0,0,0) - envio.setHours(0,0,0,0)) / 86400000) : null;
+    const titulo = (quando ? 'Recebida em ' + new Date(quando).toLocaleDateString('pt-BR') : 'Recebida')
+                 + (dias !== null ? ` · ${dias}d desde o envio ao PCP` : '');
+    return `<span class="dias-badge d-green" title="${titulo}" ${clicavel}>✓ ficha</span>`;
+  }
+  const envio = parseDate(item.dataEnvioPcp);
+  if (!envio) return `<span class="dias-badge d-gray" title="Sem data de envio ao PCP" ${clicavel}>— ficha</span>`;
+  const esperando = Math.floor((new Date().setHours(0,0,0,0) - envio.setHours(0,0,0,0)) / 86400000);
+  const cls = esperando > 15 ? 'd-red' : esperando > 7 ? 'd-orange' : 'd-gray';
+  return `<span class="dias-badge ${cls}" title="Enviado ao PCP em ${fmtDate(item.dataEnvioPcp)} — aguardando a ficha" ${clicavel}>⏳ ${esperando}d</span>`;
+}
+
+async function alternarFicha(rowIndex) {
+  if (!podeEditarChecklist) return;
+  const item = allData.find(d => d.rowIndex === rowIndex);
+  if (!item) return;
+  const key = itemKey(item);
+  const novo = !(extraTicks[key] || {}).fichaRecebida;
+  if (!novo && !confirm('Desmarcar a ficha recebida deste produto?')) return;
+  await logExtraTick(item, 'fichaRecebida', novo);
+  if (!extraTicks[key]) extraTicks[key] = {};
+  extraTicks[key].fichaRecebida = novo;
+  fichaDatas[key] = novo ? new Date().toISOString() : null;
+  renderTable();
+}
+
 /* ── TICAGENS EXTRAS (Supabase, etapa virtual) ─────────── */
 async function loadExtraTicks() {
   const map = {};
@@ -743,6 +788,8 @@ async function loadExtraTicks() {
       const k = logKey(row);
       if (!map[k]) map[k] = {};
       map[k][row.etapa] = row.status;
+      // guarda a data da marcação que está valendo (desmarcar zera)
+      if (row.etapa === 'fichaRecebida') fichaDatas[k] = row.status ? row.created_at : null;
     });
   } catch (e) {
     console.error('Falha ao conectar ao Supabase (ticagens extras):', e);
@@ -1362,7 +1409,10 @@ function renderTable() {
     const ok1 = !search || item.produto.toLowerCase().includes(search) || (item.responsavel||'').toLowerCase().includes(search) || (item.nPedido||'').includes(search);
     const ok2 = !resp || item.responsavel === resp;
     let ok3 = !stFilt || s === stFilt;
+    const temFicha = !!(extraTicks[itemKey(item)] || {}).fichaRecebida;
     if (stFilt === 'zero') ok3 = item.progresso === 0;
+    else if (stFilt === 'semficha') ok3 = !temFicha && item.progresso === 0;
+    else if (stFilt === 'comficha') ok3 = temFicha && item.progresso === 0;
     else if (stFilt === 'white') ok3 = item.progresso > 0 && item.progresso < 100;
 
     const inRange = (t) => {
@@ -1439,6 +1489,7 @@ function renderTable() {
       <td>${stepsHtml}</td>
       <td>${progHtml}</td>
       <td><span class="badge ${badgeClass}">${currentBadge}</span></td>
+      <td>${fichaHtml(item)}</td>
       ${podeCadastrar ? `<td style="text-align:center"><button class="btn btn-cancel" style="padding:4px 8px;font-size:12px" title="Editar cadastro" onclick="event.stopPropagation();editarProduto(${item.rowIndex})">✏️</button></td>` : ''}
     `;
     tbody.appendChild(tr);
@@ -1842,7 +1893,7 @@ function describeFilters() {
   const to   = document.getElementById('filterDateTo').value;
   if (search) partes.push(`Busca: "${search}"`);
   if (resp)   partes.push(`Responsável: ${resp}`);
-  const stLabels = { red:'Atrasados', orange:'Em Alerta', white:'Em Andamento', zero:'Sem Iniciar', green:'Finalizados' };
+  const stLabels = { red:'Atrasados', orange:'Em Alerta', white:'Em Andamento', zero:'Sem Iniciar', green:'Finalizados', semficha:'Aguardando ficha', comficha:'Ficha recebida, sem iniciar' };
   if (stFilt) partes.push(`Status: ${stLabels[stFilt] || stFilt}`);
   if (from || to) {
     const fieldLabels = { dataRecebimento:'Recebimento', dataSolicitacao:'Solicitação', dataEntrega:'Entrega' };
