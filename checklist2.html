@@ -566,6 +566,11 @@ const SESSAO_KEY = 'studyo4_sessao';   // mesma chave usada pelo portal
 // (gravadas como "etapa virtual" na tabela etapa_logs). Cada uma aparece na tela
 // de ticagem logo após a etapa definida em "after".
 // (Compras agora é um botão "Solicitar Compras" no relatório — não é mais etapa.)
+// Autor das ticagens preenchidas de uma vez nos produtos que já tinham
+// andado: a ficha obviamente chegou, mas a data é estimada — então essas
+// não entram na conta do lead time PCP -> ficha.
+const RETRO_USUARIO = 'retroativo';
+
 const EXTRA_TICKS = [
   // Marcada pelo Dev quando a ficha do especial chega do PCP. Não é etapa de
   // produção: é o que fecha o lead time entre "enviado ao PCP" e "ficha na mão".
@@ -591,6 +596,7 @@ let productionTimes = {};
 let observationCounts = {};
 let extraTicks      = {};  // itemKey -> { fichaRecebida: bool }
 let fichaDatas      = {};  // itemKey -> quando a ficha foi marcada como recebida
+let fichaRetro      = {};  // itemKey -> a data é estimada (marcação retroativa)?
 let activityDates   = {};  // itemKey -> Set de 'YYYY-MM-DD' (etapas concluídas)
 let lastFiltered    = [];  // últimos produtos exibidos (para impressão)
 let podeEditarChecklist = true;   // permissão de EDIÇÃO no checklist (ticar/editar)
@@ -745,6 +751,12 @@ function fichaHtml(item) {
     ? `onclick="event.stopPropagation();alternarFicha(${item.rowIndex})" style="cursor:pointer"` : '';
   if (recebida) {
     const quando = fichaDatas[itemKey(item)];
+    if (fichaRetro[itemKey(item)]) {
+      const titulo = 'Marcada de uma vez porque o produto já tinha etapas ticadas'
+                   + (quando ? ` (data estimada: ${new Date(quando).toLocaleDateString('pt-BR')})` : '')
+                   + ' — não entra na conta do lead time';
+      return `<span class="dias-badge d-green" style="opacity:.62" title="${titulo}" ${clicavel}>✓ ficha</span>`;
+    }
     const envio = parseDate(item.dataEnvioPcp);
     const dias = (envio && quando) ? Math.round((new Date(quando).setHours(0,0,0,0) - envio.setHours(0,0,0,0)) / 86400000) : null;
     const titulo = (quando ? 'Recebida em ' + new Date(quando).toLocaleDateString('pt-BR') : 'Recebida')
@@ -769,6 +781,7 @@ async function alternarFicha(rowIndex) {
   if (!extraTicks[key]) extraTicks[key] = {};
   extraTicks[key].fichaRecebida = novo;
   fichaDatas[key] = novo ? new Date().toISOString() : null;
+  fichaRetro[key] = false;   // clique de gente: data medida, essa vale pro lead
   renderTable();
 }
 
@@ -779,7 +792,7 @@ async function loadExtraTicks() {
   try {
     const { data, error } = await supabaseClient
       .from('etapa_logs')
-      .select('produto_id, n_pedido, produto, etapa, status, created_at')
+      .select('produto_id, n_pedido, produto, etapa, status, created_at, usuario')
       .in('etapa', keys)
       .order('created_at', { ascending: true });
     if (error) { console.error('Erro ao buscar ticagens extras:', error); return map; }
@@ -789,7 +802,10 @@ async function loadExtraTicks() {
       if (!map[k]) map[k] = {};
       map[k][row.etapa] = row.status;
       // guarda a data da marcação que está valendo (desmarcar zera)
-      if (row.etapa === 'fichaRecebida') fichaDatas[k] = row.status ? row.created_at : null;
+      if (row.etapa === 'fichaRecebida') {
+        fichaDatas[k] = row.status ? row.created_at : null;
+        fichaRetro[k] = row.status && row.usuario === RETRO_USUARIO;
+      }
     });
   } catch (e) {
     console.error('Falha ao conectar ao Supabase (ticagens extras):', e);
@@ -1620,10 +1636,13 @@ async function openReportModal(rowIndex) {
 
     // PCP -> Ficha: do envio ao PCP até o Dev marcar que a ficha chegou.
     const fichaDate = dataEtapaAtual(data || [], 'fichaRecebida');
+    const fichaEhRetro = (data || []).some(r => r.etapa === 'fichaRecebida' && r.status && r.usuario === RETRO_USUARIO);
     const envioPcp  = parseDate(item.dataEnvioPcp);
     const leadFichaEl = document.getElementById('reportLeadFicha');
     if (leadFichaEl) {
-      if (envioPcp && fichaDate) {
+      if (fichaDate && fichaEhRetro) {
+        leadFichaEl.textContent = 'recebida (marcação retroativa, sem data real)';
+      } else if (envioPcp && fichaDate) {
         const dias = Math.round((new Date(fichaDate).setHours(0,0,0,0) - envioPcp.setHours(0,0,0,0)) / 86400000);
         leadFichaEl.textContent = `${dias}d`;
       } else if (envioPcp) {
@@ -1716,12 +1735,15 @@ function buildGanttHtml(item, logs) {
     if (d) firstTrue[etapa] = d;
   });
 
-  const solic   = parseDate(item.dataSolicitacao);
-  const receb   = parseDate(item.dataRecebimento);
-  const entrega = parseDate(item.dataEntrega);
-  const today   = new Date();
+  const solic    = parseDate(item.dataSolicitacao);
+  const receb    = parseDate(item.dataRecebimento);
+  const entrega  = parseDate(item.dataEntrega);
+  const envioPcp = parseDate(item.dataEnvioPcp);
+  const fichaDt  = firstTrue['fichaRecebida'] || null;
+  const fichaRetroGantt = logs.some(r => r.etapa === 'fichaRecebida' && r.status && r.usuario === RETRO_USUARIO);
+  const today    = new Date();
 
-  const allDates = [solic, receb, entrega, today, ...Object.values(firstTrue)].filter(Boolean);
+  const allDates = [solic, receb, entrega, envioPcp, today, ...Object.values(firstTrue)].filter(Boolean);
   if (allDates.length < 2) {
     return '<div class="timeline-empty">Datas insuficientes para montar a linha do tempo.</div>';
   }
@@ -1757,6 +1779,24 @@ function buildGanttHtml(item, logs) {
     html += `<div class="gantt-row">
       <div class="gantt-label">Comercial</div>
       <div class="gantt-track">${ganttBar(left, width, 'var(--accent)', `${daysBetween(solic, receb)}d`, `Solicitação ${fmtDate(item.dataSolicitacao)} → Recebimento ${fmtDate(item.dataRecebimento)}`)}</div>
+    </div>`;
+  }
+
+  // Ficha: envio ao PCP -> tick "Ficha de especial recebida" (o que o PCP
+  // demora pra devolver a ficha; enquanto não volta, a barra corre até hoje)
+  if (envioPcp) {
+    const end = fichaDt || today;
+    const dias = calDays(envioPcp, end);
+    const left = pct(envioPcp);
+    const width = Math.max(1, pct(end) - left);
+    const retro = fichaDt && fichaRetroGantt;
+    const color = retro ? 'var(--text-muted)'
+                : fichaDt ? '#1D8348'
+                : (dias > 15 ? 'var(--red)' : (dias > 7 ? 'var(--orange)' : 'var(--text-muted)'));
+    const text = retro ? 'retroativo' : `${dias}d${fichaDt ? '' : ' (aguardando ficha)'}`;
+    html += `<div class="gantt-row">
+      <div class="gantt-label">Ficha<div style="font-size:8px;font-weight:400;text-transform:none;letter-spacing:0">Envio PCP → Ficha</div></div>
+      <div class="gantt-track">${ganttBar(left, width, color, text, `Envio ao PCP ${fmtDate(item.dataEnvioPcp)}${fichaDt ? (retro ? ' → ficha marcada retroativamente (data estimada ' + fichaDt.toLocaleDateString('pt-BR') + ')' : ' → Ficha recebida em ' + fichaDt.toLocaleDateString('pt-BR')) : ' → ficha ainda não recebida'}`)}</div>
     </div>`;
   }
 
