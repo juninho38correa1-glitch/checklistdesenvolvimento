@@ -864,7 +864,8 @@ const SERVICOS = {
   compras:      { chave:'responsavel_compras',      titulo:'Compras',           desc:'Itens repassados para compras', ic:'🛒' },
   // Aberta sozinha quando a Data de Envio ao PCP é preenchida: é o aviso
   // de que o produto saiu do comercial e o PCP já pode incluir em lote.
-  pcp:          { chave:'responsavel_pcp',          titulo:'Liberado para inclusão em lote', desc:'Produto liberado pelo comercial para o PCP incluir em lote', ic:'🏭' }
+  // descLivre: a descrição vai pronta, em bloco, sem prefixo de serviço
+  pcp:          { chave:'responsavel_pcp',          titulo:'Liberado para inclusão em lote', desc:'Produto liberado pelo comercial para o PCP incluir em lote', ic:'🏭', descLivre: true }
 };
 let respServico = {};   // tipo -> { id, nome }
 
@@ -895,7 +896,8 @@ async function abrirSolicitacaoServico(tipo, item, obs, silencioso) {
     const { data: existentes } = await q;
     if (existentes && existentes.length) { aviso(`Já existe uma solicitação de ${def.titulo} em aberto para este produto.`); return null; }
     const { data: sol, error } = await supabaseClient.from('solicitacoes').insert({
-      titulo: `${def.titulo} — ${item.produto}`, descricao: (obs && obs.trim()) ? `${def.desc} — ${obs.trim()}` : def.desc,
+      titulo: `${def.titulo} — ${item.produto}`,
+      descricao: (obs && obs.trim()) ? (def.descLivre ? obs.trim() : `${def.desc} — ${obs.trim()}`) : def.desc,
       criador_id: sessao.id, responsavel_id: resp.id, prioridade: 'normal',
       pedido_ref: item.nPedido || null, produto_ref: item.produto
     }).select().single();
@@ -918,16 +920,17 @@ async function abrirSolicitacaoServico(tipo, item, obs, silencioso) {
 async function avisarPcpLiberado(prod) {
   if (!prod || !prod.data_envio_pcp) return;
   if (!respServico.pcp) await carregarRespServicos();
+  // uma por linha: em bloco corrido o PCP tem de caçar o dado no meio do texto
   const dados = [
-    `Pedido: ${prod.n_pedido || '—'}`,
-    `Produto: ${prod.produto}`,
-    `Tipo: ${prod.tipo || '—'}`,
-    `Cód. cadastro: ${prod.cod_cadastro || '—'}`,
-    `Data de solicitação: ${fmtDate(prod.data_solicitacao)}`,
-    `Data de envio ao PCP: ${fmtDate(prod.data_envio_pcp)}`,
-    `Data de entrega: ${fmtDate(prod.data_entrega)}`,
-    `Liberado por: ${sessao.nome}`
-  ].join(' · ');
+    ['Cód. cadastro',        prod.cod_cadastro],
+    ['Nº pedido',            prod.n_pedido],
+    ['Produto',               prod.produto],
+    ['Tipo',                  prod.tipo],
+    ['Data de solicitação',   fmtDate(prod.data_solicitacao)],
+    ['Data de envio ao PCP',  fmtDate(prod.data_envio_pcp)],
+    ['Data de entrega',       fmtDate(prod.data_entrega)],
+    ['Liberado por',          sessao.nome]
+  ].map(([rotulo, valor]) => `${rotulo}: ${valor || '—'}`).join('\n');
   const item = { produto: prod.produto, nPedido: prod.n_pedido || null };
   await abrirSolicitacaoServico('pcp', item, dados, true);
 }
