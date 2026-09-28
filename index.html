@@ -257,12 +257,10 @@ function sair() {
 // Áreas do sistema. Cada usuário tem, em sessao.permissoes[key], um nível:
 // 'nenhum' | 'leitura' | 'edicao'. Admin vê/edita tudo.
 const AREAS = [
-  { key:'checklist',    ic:'✅', titulo:'Controle de Protótipos v2', desc:'Acompanhamento das etapas de desenvolvimento.',      href:'checklist2.html' },
+  { key:'checklist',    ic:'✅', titulo:'Controle de Protótipos',    desc:'Acompanhamento das etapas de desenvolvimento.',      href:'checklist2.html' },
   { key:'alteracoes',   ic:'🔧', titulo:'Controle de Alterações',   desc:'Ficha do produto: validação e alterações ao longo do tempo.', href:'alteracoes.html' },
   { key:'solicitacoes', ic:'📨', titulo:'Solicitações',             desc:'Tarefas encadeáveis entre pessoas, com notificações.', href:'solicitacoes.html' },
-  { key:'atividade',    ic:'📊', titulo:'Painel de Atividade',      desc:'Estatísticas e feed de ações da equipe.',            href:'admin.html' },
-  // O v1 continua na lista até a virada: ninguém fica sem a ferramenta que usa hoje.
-  { key:'checklist',    ic:'📋', titulo:'Controle de Protótipos v1', desc:'Versão anterior, que lê a lista de produtos da planilha.', href:'checklist.html', legado:true }
+  { key:'atividade',    ic:'📊', titulo:'Painel de Atividade',      desc:'Estatísticas e feed de ações da equipe.',            href:'admin.html' }
 ];
 const NIVEIS = { nenhum:'Sem acesso', leitura:'Somente leitura', edicao:'Edição' };
 
