@@ -572,9 +572,64 @@ const SESSAO_KEY = 'studyo4_sessao';   // mesma chave usada pelo portal
 const RETRO_USUARIO = 'retroativo';
 
 // As duas esperas do início do processo (comercial mandar ao PCP, PCP
-// devolver a ficha) usam a mesma régua, para ninguém ter de lembrar duas.
-const ALERTA_LARANJA_DIAS  = 5;
-const ALERTA_VERMELHO_DIAS = 7;
+// devolver a ficha) usam a mesma régua, e a régua vem da tabela de
+// configurações — mudar de 5/7 para outra coisa é no Painel Admin, sem tocar
+// no código. Os valores abaixo são só o que vale enquanto a config não chega.
+let ALERTA_LARANJA_DIAS  = 5;
+let ALERTA_VERMELHO_DIAS = 7;
+
+// Contagem de dias para alerta vale SÓ para produto cadastrado a partir daqui.
+// Os antigos entraram no sistema sem essa disciplina de datas: cobrá-los agora
+// seria cobrar um atraso que ninguém tinha como evitar.
+let ALERTAS_A_PARTIR_DE = null;
+function aptoParaAlerta(item) {
+  if (!ALERTAS_A_PARTIR_DE) return false;
+  if (!item.criadoEm) return false;
+  return new Date(item.criadoEm) >= ALERTAS_A_PARTIR_DE;
+}
+
+// Início e fim de cada lead time, também vindos da configuração. Cada ponta é
+// ou um campo de data do produto, ou 'etapa:<chave>' (a data da ticagem atual).
+let LEADTIMES = {
+  comercial:  { de: 'data_solicitacao',  ate: 'data_envio_pcp' },
+  ficha:      { de: 'data_envio_pcp',    ate: 'etapa:fichaRecebida' },
+  criacao:    { de: 'data_recebimento',  ate: 'etapa:modelagem3d' },
+  preparacao: { de: 'etapa:modelagem3d', ate: 'etapa:programacao' },
+  producao:   { de: 'etapa:extracaoGab', ate: 'etapa:espumacao' },
+  modtec:     { de: 'etapa:espumacao',   ate: 'etapa:modelagemTec' }
+};
+// Cópia congelada do padrão: serve para saber se alguém mexeu numa ponta.
+const LEADTIMES_PADRAO = JSON.parse(JSON.stringify(LEADTIMES));
+const CAMPO_DATA = { data_solicitacao: 'dataSolicitacao', data_envio_pcp: 'dataEnvioPcp',
+                     data_recebimento: 'dataRecebimento', data_entrega: 'dataEntrega' };
+const ROTULO_PONTA = { data_solicitacao: 'Data de solicitação', data_envio_pcp: 'Data de envio ao PCP',
+                       data_recebimento: 'Data de recebimento', data_entrega: 'Data de entrega',
+                       'etapa:fichaRecebida': 'Ficha recebida' };
+
+async function carregarConfigAlertas() {
+  try {
+    const { data } = await supabaseClient.from('configuracoes').select('chave,valor')
+      .in('chave', ['alerta_dias_laranja', 'alerta_dias_vermelho', 'alertas_a_partir_de', 'leadtimes']);
+    const c = {}; (data || []).forEach(x => c[x.chave] = x.valor);
+    const laranja  = parseInt(c.alerta_dias_laranja, 10);
+    const vermelho = parseInt(c.alerta_dias_vermelho, 10);
+    if (!isNaN(laranja))  ALERTA_LARANJA_DIAS  = laranja;
+    if (!isNaN(vermelho)) ALERTA_VERMELHO_DIAS = vermelho;
+    // O corte vem gravado em UTC com Z. Sem fuso explícito, o navegador leria
+      // como hora local e a comparação com created_at (que vem em UTC) errava por
+      // 3 horas — produto novo entrava como antigo. Se alguém editar à mão e
+      // pôr só a data, vale desde o começo daquele dia, no fuso de quem olha.
+    if (c.alertas_a_partir_de) {
+      const txt = String(c.alertas_a_partir_de).trim();
+      const d = /^\d{4}-\d{2}-\d{2}$/.test(txt) ? new Date(txt + 'T00:00:00') : new Date(txt);
+      if (!isNaN(d)) ALERTAS_A_PARTIR_DE = d;
+    }
+    if (c.leadtimes) {
+      const lt = JSON.parse(c.leadtimes);
+      Object.keys(LEADTIMES).forEach(k => { if (lt[k] && lt[k].de && lt[k].ate) LEADTIMES[k] = lt[k]; });
+    }
+  } catch (e) { console.error('Falha ao carregar config de alertas:', e); }
+}
 function diasDesde(iso) {
   const d = parseDate(iso);
   return d ? Math.floor((new Date().setHours(0,0,0,0) - d.setHours(0,0,0,0)) / 86400000) : null;
@@ -727,15 +782,26 @@ async function buscarTudo(montarConsulta) {
   }
 }
 
+// Quais etapas delimitam "em produção", segundo a configuração. Se alguém
+// configurar uma ponta que não é etapa (uma data do produto), a coluna Tempo
+// Produção cai no padrão antigo, porque ela só sabe medir entre ticagens.
+function etapasDaProducao() {
+  const p = LEADTIMES.producao || {};
+  const de  = (p.de  || '').indexOf('etapa:') === 0 ? p.de.slice(6)  : PRODUCAO_INICIO_ETAPA;
+  const ate = (p.ate || '').indexOf('etapa:') === 0 ? p.ate.slice(6) : PRODUCAO_FIM_ETAPA;
+  return [de, ate];
+}
+
 async function loadProductionTimes() {
   const map = {};
+  const [ETAPA_INI, ETAPA_FIM] = etapasDaProducao();
   try {
     const data = await buscarTudo(() => supabaseClient
       .from('etapa_logs')
       // traz também as desmarcações: sem elas, um clique errado contaria para
       // sempre como se a etapa tivesse sido concluída naquele dia
       .select('produto_id, row_index, n_pedido, produto, etapa, status, created_at')
-      .in('etapa', [PRODUCAO_INICIO_ETAPA, PRODUCAO_FIM_ETAPA])
+      .in('etapa', [ETAPA_INI, ETAPA_FIM])
       .order('created_at', { ascending: true }));
     const porProduto = {};
     data.forEach(row => {
@@ -743,8 +809,8 @@ async function loadProductionTimes() {
       (porProduto[key] = porProduto[key] || []).push(row);
     });
     Object.keys(porProduto).forEach(key => {
-      const inicio = dataEtapaAtual(porProduto[key], PRODUCAO_INICIO_ETAPA);
-      const fim    = dataEtapaAtual(porProduto[key], PRODUCAO_FIM_ETAPA);
+      const inicio = dataEtapaAtual(porProduto[key], ETAPA_INI);
+      const fim    = dataEtapaAtual(porProduto[key], ETAPA_FIM);
       map[key] = {
         start: inicio ? inicio.toISOString() : null,
         // fim antes do início seria marcação fora de ordem: ignora
@@ -801,13 +867,16 @@ function fichaHtml(item) {
   const envio = parseDate(item.dataEnvioPcp);
   // Sem data de envio ao PCP a espera é outra: quem deve agir é o comercial,
   // e o relógio corre desde a solicitação. Mostrar cinza parado escondia isso.
+  const apto = aptoParaAlerta(item);
+  const foraDaRegra = apto ? '' : ' · cadastrado antes da regra de alertas, sem contagem';
+  const classe = dias => apto ? 'd-' + corDaEspera(dias) : 'd-gray';
   if (!envio) {
     const dias = diasDesde(item.dataSolicitacao);
     if (dias === null) return `<span class="dias-badge d-gray" title="Sem data de solicitação nem de envio ao PCP${soDev}" ${clicavel}>— ficha</span>`;
-    return `<span class="dias-badge d-${corDaEspera(dias)}" title="Solicitado em ${fmtDate(item.dataSolicitacao)} — há ${dias}d sem Data de Envio ao PCP (comercial)${soDev}" ${clicavel}>📅 ${dias}d</span>`;
+    return `<span class="dias-badge ${classe(dias)}" title="Solicitado em ${fmtDate(item.dataSolicitacao)} — há ${dias}d sem Data de Envio ao PCP (comercial)${foraDaRegra}${soDev}" ${clicavel}>📅 ${dias}d</span>`;
   }
   const esperando = diasDesde(item.dataEnvioPcp);
-  return `<span class="dias-badge d-${corDaEspera(esperando)}" title="Enviado ao PCP em ${fmtDate(item.dataEnvioPcp)} — há ${esperando}d aguardando a ficha${soDev}" ${clicavel}>⏳ ${esperando}d</span>`;
+  return `<span class="dias-badge ${classe(esperando)}" title="Enviado ao PCP em ${fmtDate(item.dataEnvioPcp)} — há ${esperando}d aguardando a ficha${foraDaRegra}${soDev}" ${clicavel}>⏳ ${esperando}d</span>`;
 }
 
 // Receber a ficha do PCP é o que marca o recebimento do produto pelo Dev,
@@ -950,6 +1019,7 @@ async function cobrarPendencias() {
   if (!podeEditarChecklist || !sessao) return;
   if (!Object.keys(respServico).length) await carregarRespServicos();
   for (const item of allData) {
+    if (!aptoParaAlerta(item)) continue;   // produto antigo não entra na contagem
     if (item.progresso === 0 && item.dataSolicitacao && !item.dataEnvioPcp) {
       const dias = diasDesde(item.dataSolicitacao);
       if (dias !== null && dias >= ALERTA_LARANJA_DIAS) {
@@ -1460,6 +1530,7 @@ async function loadCSV(isSilent = false) {
     allData = (data || []).filter(p => (p.status || 'ativo') === 'ativo').map((p, i) => ({
       rowIndex: i + 1,          // índice sequencial (só para os handlers da tela)
       id: p.id,                 // ID FIXO do produto (usado nas gravações)
+      criadoEm: p.created_at || '',   // decide se entra na contagem de alertas
       codCadastro: p.cod_cadastro || '',
       dataSolicitacao: p.data_solicitacao || '',
       dataEnvioPcp: p.data_envio_pcp || '',
@@ -1472,6 +1543,7 @@ async function loadCSV(isSilent = false) {
       stages: p.etapas || {},
       progresso: Math.round(STAGES.filter(s => (p.etapas || {})[s]).length / STAGES.length * 100)
     }));
+    if (!ALERTAS_A_PARTIR_DE) await carregarConfigAlertas();   // antes das contas
     productionTimes = await loadProductionTimes();
     observationCounts = await loadObservationCounts();
     extraTicks = await loadExtraTicks();
@@ -1705,17 +1777,6 @@ async function openReportModal(rowIndex) {
     prodLabel = pt.end ? `${dias}d (concluído)` : `${dias}d (em andamento)`;
   }
 
-  // O comercial entrega o produto ao PCP: o relógio dele fecha na Data de
-  // Envio ao PCP, e é dali que o relógio do PCP começa a correr.
-  let leadLabel = '—';
-  const solicD = parseDate(item.dataSolicitacao);
-  const envioD = parseDate(item.dataEnvioPcp);
-  if (solicD && envioD) {
-    leadLabel = `${Math.round((envioD - solicD) / 86400000)}d`;
-  } else if (solicD) {
-    const dias = Math.floor((new Date().setHours(0,0,0,0) - solicD.setHours(0,0,0,0)) / 86400000);
-    leadLabel = `${dias}d (aguardando envio ao PCP)`;
-  }
 
   document.getElementById('modalReportSummary').innerHTML = `
     <div class="report-item"><span class="label">Status</span><span class="value">${statusLabelMap[status]}</span></div>
@@ -1723,11 +1784,12 @@ async function openReportModal(rowIndex) {
     <div class="report-item"><span class="label">Data Solicitação</span><span class="value">${fmtDate(item.dataSolicitacao)}</span></div>
     <div class="report-item"><span class="label">Data Recebimento</span><span class="value">${fmtDate(item.dataRecebimento)}</span></div>
     <div class="report-item"><span class="label">Data Entrega</span><span class="value">${fmtDate(item.dataEntrega)}</span></div>
-    <div class="report-item"><span class="label">Lead Comercial (solic. → PCP)</span><span class="value">${leadLabel}</span></div>
-    <div class="report-item"><span class="label">Lead PCP (PCP → ficha)</span><span class="value" id="reportLeadFicha">—</span></div>
-    <div class="report-item"><span class="label">Lead Time de Criação</span><span class="value" id="reportLeadCriacao">—</span></div>
+    <div class="report-item"><span class="label">Lead Comercial</span><span class="value" id="reportLead_comercial">—</span></div>
+    <div class="report-item"><span class="label">Lead PCP</span><span class="value" id="reportLead_ficha">—</span></div>
+    <div class="report-item"><span class="label">Lead de Criação</span><span class="value" id="reportLead_criacao">—</span></div>
+    <div class="report-item"><span class="label">Lead Preparação</span><span class="value" id="reportLead_preparacao">—</span></div>
     <div class="report-item"><span class="label">Tempo em Produção</span><span class="value">${prodLabel}</span></div>
-    <div class="report-item"><span class="label">Lead Modelagem Téc.</span><span class="value" id="reportLeadModTec">—</span></div>
+    <div class="report-item"><span class="label">Lead Mod. Téc.</span><span class="value" id="reportLead_modtec">—</span></div>
   `;
 
   document.getElementById('modalReportOverlay').style.display = 'flex';
@@ -1764,57 +1826,32 @@ async function openReportModal(rowIndex) {
     ganttEl.innerHTML = buildGanttHtml(item, data || []);
 
     // PCP -> Ficha: do envio ao PCP até o Dev marcar que a ficha chegou.
-    const fichaDate = dataEtapaAtual(data || [], 'fichaRecebida');
-    const fichaEhRetro = (data || []).some(r => r.etapa === 'fichaRecebida' && r.status && r.usuario === RETRO_USUARIO);
-    const envioPcp  = parseDate(item.dataEnvioPcp);
-    const leadFichaEl = document.getElementById('reportLeadFicha');
-    if (leadFichaEl) {
-      if (fichaDate && fichaEhRetro) {
-        leadFichaEl.textContent = 'recebida (marcação retroativa, sem data real)';
-      } else if (envioPcp && fichaDate) {
-        const dias = Math.round((new Date(fichaDate).setHours(0,0,0,0) - envioPcp.setHours(0,0,0,0)) / 86400000);
-        leadFichaEl.textContent = `${dias}d`;
-      } else if (envioPcp) {
-        const dias = Math.floor((new Date().setHours(0,0,0,0) - envioPcp.setHours(0,0,0,0)) / 86400000);
-        leadFichaEl.textContent = `${dias}d (aguardando a ficha)`;
-      } else if (fichaDate) {
-        leadFichaEl.textContent = 'ficha recebida (sem data de envio ao PCP)';
+    /* Os mesmos lead times da linha do tempo, escritos no resumo. Vem tudo
+       da configuração pelo mesmo caminho, senão mudar uma ponta no Painel
+       Admin faria o resumo e a linha do tempo discordarem na mesma tela. */
+    const logsAsc = [...(data || [])].sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
+    const ticagens = {};
+    new Set(logsAsc.map(r => r.etapa)).forEach(etapa => {
+      const d = dataEtapaAtual(logsAsc, etapa);
+      if (d) ticagens[etapa] = d;
+    });
+    const fichaRetroResumo = (data || []).some(r => r.etapa === 'fichaRecebida' && r.status && r.usuario === RETRO_USUARIO);
+    const emDias = (a, b) => Math.round((new Date(b).setHours(0,0,0,0) - new Date(a).setHours(0,0,0,0)) / 86400000);
+    Object.keys(LEADTIMES).forEach(chave => {
+      const el = document.getElementById('reportLead_' + chave);
+      if (!el) return;
+      const de  = pontaDoLead(item, ticagens, LEADTIMES[chave].de);
+      const ate = pontaDoLead(item, ticagens, LEADTIMES[chave].ate);
+      if (chave === 'ficha' && ate && fichaRetroResumo) {
+        el.textContent = 'recebida (marcação retroativa, sem data real)';
+      } else if (de && ate) {
+        el.textContent = `${emDias(de, ate)}d`;
+      } else if (de) {
+        el.textContent = `${emDias(de, new Date())}d (aguardando ${rotuloPonta(LEADTIMES[chave].ate)})`;
       } else {
-        leadFichaEl.textContent = '—';
+        el.textContent = '—';
       }
-    }
-
-    // Lead Time de Criação: Recebimento -> tick da Modelagem 3D
-    const modelagemDate = dataEtapaAtual(data || [], 'modelagem3d');
-    const recebForCriacao = parseDate(item.dataRecebimento);
-    const leadCriacaoEl = document.getElementById('reportLeadCriacao');
-    if (leadCriacaoEl) {
-      if (recebForCriacao && modelagemDate) {
-        const dias = Math.round((modelagemDate.setHours(0,0,0,0) - recebForCriacao.setHours(0,0,0,0)) / 86400000);
-        leadCriacaoEl.textContent = `${dias}d`;
-      } else if (recebForCriacao && !modelagemDate) {
-        const dias = Math.floor((new Date().setHours(0,0,0,0) - recebForCriacao.setHours(0,0,0,0)) / 86400000);
-        leadCriacaoEl.textContent = `${dias}d (aguardando Modelagem 3D)`;
-      } else {
-        leadCriacaoEl.textContent = '—';
-      }
-    }
-
-    // Lead Modelagem Téc.: tick da Espumação -> tick da Modelagem Téc.
-    const espumaDate = dataEtapaAtual(data || [], 'espumacao');
-    const modTecDate = dataEtapaAtual(data || [], 'modelagemTec');
-    const leadModTecEl = document.getElementById('reportLeadModTec');
-    if (leadModTecEl) {
-      if (espumaDate && modTecDate) {
-        const dias = Math.round((new Date(modTecDate).setHours(0,0,0,0) - new Date(espumaDate).setHours(0,0,0,0)) / 86400000);
-        leadModTecEl.textContent = `${dias}d`;
-      } else if (espumaDate && !modTecDate) {
-        const dias = Math.floor((new Date().setHours(0,0,0,0) - new Date(espumaDate).setHours(0,0,0,0)) / 86400000);
-        leadModTecEl.textContent = `${dias}d (aguardando Mod. Téc.)`;
-      } else {
-        leadModTecEl.textContent = '—';
-      }
-    }
+    });
 
     if (!data || !data.length) {
       timelineEl.innerHTML = '<div class="timeline-empty">Nenhuma alteração de etapa registrada ainda.</div>';
@@ -1853,8 +1890,29 @@ function dataEtapaAtual(logs, etapa) {
   return inicio;
 }
 
-// Monta a linha do tempo estilo Gantt: lead time comercial, tempo em produção
-// e marcadores de cada etapa concluída + data prevista de entrega.
+/* Resolve uma ponta de lead time: ou um campo de data do produto, ou
+   'etapa:<chave>', que vale a data da ticagem ATUAL daquela etapa. */
+function pontaDoLead(item, firstTrue, ref) {
+  if (!ref) return null;
+  if (ref.indexOf('etapa:') === 0) return firstTrue[ref.slice(6)] || null;
+  const campo = CAMPO_DATA[ref];
+  return campo ? parseDate(item[campo]) : null;
+}
+
+function rotuloPonta(ref) {
+  if (ROTULO_PONTA[ref]) return ROTULO_PONTA[ref];
+  if (ref && ref.indexOf('etapa:') === 0) {
+    const i = STAGES.indexOf(ref.slice(6));
+    return i >= 0 ? STAGE_LABELS[i] : ref.slice(6);
+  }
+  return ref || '—';
+}
+
+// Monta a linha do tempo estilo Gantt. O nome de cada faixa é fixo (é o nome
+// da fase para quem trabalha aqui), mas as PONTAS de cada uma vêm da
+// configuração: quem decide onde cada lead time começa e termina é o Painel
+// Admin, não este arquivo. O que a barra está medindo de verdade aparece
+// sempre no texto ao passar o mouse.
 function buildGanttHtml(item, logs) {
   const ascLogs = [...logs].sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
   // data que vale de cada etapa: a marcação atual, ignorando o que foi desfeito
@@ -1864,15 +1922,21 @@ function buildGanttHtml(item, logs) {
     if (d) firstTrue[etapa] = d;
   });
 
-  const solic    = parseDate(item.dataSolicitacao);
-  const receb    = parseDate(item.dataRecebimento);
-  const entrega  = parseDate(item.dataEntrega);
-  const envioPcp = parseDate(item.dataEnvioPcp);
-  const fichaDt  = firstTrue['fichaRecebida'] || null;
-  const fichaRetroGantt = logs.some(r => r.etapa === 'fichaRecebida' && r.status && r.usuario === RETRO_USUARIO);
-  const today    = new Date();
+  const L = LEADTIMES;
+  const pt = ref => pontaDoLead(item, firstTrue, ref);
+  const faixas = {};
+  Object.keys(L).forEach(k => {
+    faixas[k] = { de: pt(L[k].de), ate: pt(L[k].ate), refDe: L[k].de, refAte: L[k].ate };
+  });
 
-  const allDates = [solic, receb, entrega, envioPcp, today, ...Object.values(firstTrue)].filter(Boolean);
+  const entrega = parseDate(item.dataEntrega);
+  const today   = new Date();
+  const fichaRetroGantt = logs.some(r => r.etapa === 'fichaRecebida' && r.status && r.usuario === RETRO_USUARIO);
+  const apto = aptoParaAlerta(item);
+
+  const pontas = [];
+  Object.values(faixas).forEach(f => { pontas.push(f.de, f.ate); });
+  const allDates = [entrega, today, ...pontas, ...Object.values(firstTrue)].filter(Boolean);
   if (allDates.length < 2) {
     return '<div class="timeline-empty">Datas insuficientes para montar a linha do tempo.</div>';
   }
@@ -1881,7 +1945,6 @@ function buildGanttHtml(item, logs) {
   const maxD = new Date(Math.max(...allDates.map(d => d.getTime())));
   const span = Math.max(1, maxD - minD);
   const pct = d => Math.min(100, Math.max(0, ((d - minD) / span) * 100));
-  const daysBetween = (a, b) => Math.round((b - a) / 86400000);
   // Diferença em dias-calendário (zera horas/fuso), pra bater com o resumo
   const calDays = (a, b) => Math.round((new Date(b).setHours(0,0,0,0) - new Date(a).setHours(0,0,0,0)) / 86400000);
 
@@ -1899,120 +1962,69 @@ function buildGanttHtml(item, logs) {
     return `<div class="gantt-bar" style="left:${left}%;width:${width}%;background:${color}" title="${title}">${barInner}</div>${outerLabel}`;
   };
 
-  let html = '<div class="gantt">';
+  const COR = { red: 'var(--red)', orange: 'var(--orange)', gray: 'var(--text-muted)' };
 
-  // Comercial: Solicitação -> Envio ao PCP. Enquanto a data não vem, a barra
-  // corre até hoje, porque o relógio do comercial ainda está andando.
-  if (solic) {
-    const fim = envioPcp || today;
-    const left = pct(solic);
+  /* Desenha uma faixa. Enquanto a ponta final não chega, a barra corre até
+     hoje — o relógio daquela fase ainda está andando, e mostrar a barra
+     fechada mentiria. `escalar` liga a régua de alerta (5/7 dias) nas fases
+     em que a demora é cobrança de alguém; só vale para produto apto. */
+  const faixa = (chave, nome, sub, corFeito, opts) => {
+    const f = faixas[chave];
+    if (!f || !f.de) return '';
+    const o = opts || {};
+    // Se a ponta foi trocada no Painel Admin, o apelido escrito à mão passaria
+    // a mentir: nesse caso o subtítulo vira a descrição do que está medindo.
+    const pad = LEADTIMES_PADRAO[chave];
+    if (!pad || pad.de !== f.refDe || pad.ate !== f.refAte)
+      sub = `${rotuloPonta(f.refDe)} → ${rotuloPonta(f.refAte)}`;
+    const fim = f.ate || today;
+    const dias = calDays(f.de, fim);
+    const left = pct(f.de);
     const width = Math.max(1, pct(fim) - left);
-    const texto = `${calDays(solic, fim)}d${envioPcp ? '' : ' (aguardando envio ao PCP)'}`;
-    html += `<div class="gantt-row">
-      <div class="gantt-label">Comercial<div style="font-size:8px;font-weight:400;text-transform:none;letter-spacing:0">Solic. → Envio PCP</div></div>
-      <div class="gantt-track">${ganttBar(left, width, envioPcp ? 'var(--accent)' : 'var(--orange)', texto, `Solicitação ${fmtDate(item.dataSolicitacao)}${envioPcp ? ' → Envio ao PCP ' + fmtDate(item.dataEnvioPcp) : ' → ainda não enviado ao PCP'}`)}</div>
+    let cor = f.ate ? corFeito : COR.gray;
+    if (!f.ate && o.escalar) cor = COR[apto ? corDaEspera(dias) : 'gray'];
+    else if (!f.ate) cor = 'var(--orange)';
+    let texto = `${dias}d`;
+    if (!f.ate) texto += ` (${o.esperando || 'em andamento'})`;
+    if (o.retro) { cor = COR.gray; texto = 'retroativo'; }
+    const quando = d => d.toLocaleDateString('pt-BR');
+    let title = `${rotuloPonta(f.refDe)} ${quando(f.de)} → `
+              + (f.ate ? `${rotuloPonta(f.refAte)} ${quando(f.ate)}` : `${rotuloPonta(f.refAte)} ainda não`);
+    if (o.retro) title += ' (marcação retroativa, data estimada)';
+    if (!f.ate && o.escalar && !apto) title += ' · cadastrado antes da regra de alertas, sem contagem';
+    return `<div class="gantt-row">
+      <div class="gantt-label">${nome}<div style="font-size:8px;font-weight:400;text-transform:none;letter-spacing:0">${sub}</div></div>
+      <div class="gantt-track">${ganttBar(left, width, cor, texto, title)}</div>
     </div>`;
-  }
+  };
 
-  // Ficha: envio ao PCP -> tick "Ficha de especial recebida" (o que o PCP
-  // demora pra devolver a ficha; enquanto não volta, a barra corre até hoje)
-  if (envioPcp) {
-    const end = fichaDt || today;
-    const dias = calDays(envioPcp, end);
-    const left = pct(envioPcp);
-    const width = Math.max(1, pct(end) - left);
-    const retro = fichaDt && fichaRetroGantt;
-    const cor = { red: 'var(--red)', orange: 'var(--orange)', gray: 'var(--text-muted)' };
-    const color = retro ? 'var(--text-muted)'
-                : fichaDt ? '#1D8348'
-                : cor[corDaEspera(dias)];
-    const text = retro ? 'retroativo' : `${dias}d${fichaDt ? '' : ' (aguardando ficha)'}`;
-    html += `<div class="gantt-row">
-      <div class="gantt-label">Ficha<div style="font-size:8px;font-weight:400;text-transform:none;letter-spacing:0">PCP → Recebimento Ficha</div></div>
-      <div class="gantt-track">${ganttBar(left, width, color, text, `Envio ao PCP ${fmtDate(item.dataEnvioPcp)}${fichaDt ? (retro ? ' → ficha marcada retroativamente (data estimada ' + fichaDt.toLocaleDateString('pt-BR') + ')' : ' → Ficha recebida em ' + fichaDt.toLocaleDateString('pt-BR')) : ' → ficha ainda não recebida'}`)}</div>
-    </div>`;
-  }
+  let html = '<div class="gantt">';
+  html += faixa('comercial',  'Comercial',  'Solic. → Envio PCP',      'var(--accent)', { escalar: true, esperando: 'aguardando envio ao PCP' });
+  html += faixa('ficha',      'Ficha',      'PCP → Recebimento Ficha', '#1D8348',       { escalar: true, esperando: 'aguardando ficha',
+                                                                                          retro: !!(faixas.ficha.ate && fichaRetroGantt) });
+  html += faixa('criacao',    'Criação',    'Receb. → Modelagem 3D',   '#8E7CC3',       { esperando: 'aguardando 3D' });
+  html += faixa('preparacao', 'Preparação', 'Itens para produção',     '#B7791F',       { esperando: 'aguardando Programação' });
+  html += faixa('producao',   'Produção',   'Extração → Espumação',    'var(--green)',  { esperando: 'em andamento' });
+  html += faixa('modtec',     'Mod. Téc.',  'Espumação → Mod. Téc.',   '#2E86C1',       { esperando: 'aguardando Mod. Téc.' });
 
-  // Criação: Recebimento -> tick da Modelagem 3D (tempo da equipe de dev
-  // pra fazer o 3D depois de receber o produto do comercial)
-  const modelagem = firstTrue['modelagem3d'];
-  if (receb) {
-    const end = modelagem || today;
-    const left = pct(receb);
-    const width = Math.max(1, pct(end) - left);
-    const color = modelagem ? '#8E7CC3' : 'var(--orange)';
-    const text = `${calDays(receb, end)}d${modelagem ? '' : ' (aguardando 3D)'}`;
-    html += `<div class="gantt-row">
-      <div class="gantt-label">Criação<div style="font-size:8px;font-weight:400;text-transform:none;letter-spacing:0">Receb. → Modelagem 3D</div></div>
-      <div class="gantt-track">${ganttBar(left, width, color, text, `Recebimento ${fmtDate(item.dataRecebimento)}${modelagem ? ' → Modelagem 3D ' + modelagem.toLocaleDateString('pt-BR') : ' → Modelagem 3D ainda não marcada'}`)}</div>
-    </div>`;
-  }
-
-  // Preparação: da Modelagem 3D até a Programação. É o intervalo em que o
-  // gabarito é extraído e as listas são feitas — fica entre a criação e a
-  // produção, e antes não aparecia em lugar nenhum da linha do tempo.
-  const programacao = firstTrue['programacao'];
-  if (modelagem) {
-    const end = programacao || today;
-    const left = pct(modelagem);
-    const width = Math.max(1, pct(end) - left);
-    const color = programacao ? '#B7791F' : 'var(--orange)';
-    const text = `${calDays(modelagem, end)}d${programacao ? '' : ' (aguardando Programação)'}`;
-    html += `<div class="gantt-row">
-      <div class="gantt-label">Preparação<div style="font-size:8px;font-weight:400;text-transform:none;letter-spacing:0">Itens para produção</div></div>
-      <div class="gantt-track">${ganttBar(left, width, color, text, `Preparação de itens para produção — Modelagem 3D ${modelagem.toLocaleDateString('pt-BR')}${programacao ? ' → Programação ' + programacao.toLocaleDateString('pt-BR') : ' → Programação ainda não marcada'}`)}</div>
-    </div>`;
-  }
-
-  // Produção: tempo entre marcar "Extração Gabarito" e marcar "Espumação"
-  // (intervalo em que o produto fica no setor de produção/retorno)
-  const inicio = firstTrue[PRODUCAO_INICIO_ETAPA];
-  const fim = firstTrue[PRODUCAO_FIM_ETAPA];
-  if (inicio) {
-    const end = fim || today;
-    const left = pct(inicio);
-    const width = Math.max(1, pct(end) - left);
-    const color = fim ? 'var(--green)' : 'var(--orange)';
-    const text = `${daysBetween(inicio, end)}d${fim ? '' : ' (em andamento)'}`;
-    html += `<div class="gantt-row">
-      <div class="gantt-label">Produção<div style="font-size:8px;font-weight:400;text-transform:none;letter-spacing:0">Extração → Espumação</div></div>
-      <div class="gantt-track">${ganttBar(left, width, color, text, `Tempo entre marcar Extração Gabarito (${inicio.toLocaleDateString('pt-BR')}) e marcar Espumação${fim ? ' (' + fim.toLocaleDateString('pt-BR') + ')' : ' (ainda não marcada)'}`)}</div>
-    </div>`;
-  }
-
-  // Modelagem Téc.: tick da Espumação -> tick da Modelagem Téc.
-  const espuma = firstTrue['espumacao'];
-  const modTec = firstTrue['modelagemTec'];
-  if (espuma) {
-    const end = modTec || today;
-    const left = pct(espuma);
-    const width = Math.max(1, pct(end) - left);
-    const color = modTec ? '#2E86C1' : 'var(--orange)';
-    const text = `${calDays(espuma, end)}d${modTec ? '' : ' (aguardando Mod. Téc.)'}`;
-    html += `<div class="gantt-row">
-      <div class="gantt-label">Mod. Téc.<div style="font-size:8px;font-weight:400;text-transform:none;letter-spacing:0">Espumação → Mod. Téc.</div></div>
-      <div class="gantt-track">${ganttBar(left, width, color, text, `Espumação ${espuma.toLocaleDateString('pt-BR')}${modTec ? ' → Modelagem Téc. ' + modTec.toLocaleDateString('pt-BR') : ' → Modelagem Téc. ainda não marcada'}`)}</div>
-    </div>`;
-  }
-
-  // Marcadores de etapas. A CONTAGEM reflete a planilha (fonte da verdade do
-  // "está feito"); os pontos com data vêm dos logs. Etapas ticadas na planilha
+  // Marcadores de etapas. A CONTAGEM reflete o cadastro do produto (fonte da
+  // verdade do "está feito"); os pontos com data vêm dos logs. Etapas ticadas
   // sem log aparecem numa nota "sem data", sem inventar posição no tempo.
   const concluidas = STAGES.filter(s => item.stages[s]).length;
   let dotsHtml = '';
   const semData = [];
   STAGES.forEach((s, i) => {
-    if (!item.stages[s]) return;              // só as ticadas na planilha
+    if (!item.stages[s]) return;              // só as ticadas
     const done = firstTrue[s];
     if (done) {
       dotsHtml += `<div class="gantt-dot done" style="left:${pct(done)}%" title="${STAGE_LABELS[i]} — ${done.toLocaleDateString('pt-BR')}">${i + 1}</div>`;
     } else {
-      semData.push(STAGE_LABELS[i]);          // ticada na planilha, sem log de data
+      semData.push(STAGE_LABELS[i]);          // ticada sem log de data
     }
   });
   if (concluidas > 0) {
     const nota = semData.length
-      ? `<div class="gantt-nota" title="${semData.join(', ')}">⌾ ${semData.length} ticada(s) na planilha sem data registrada</div>` : '';
+      ? `<div class="gantt-nota" title="${semData.join(', ')}">⌾ ${semData.length} ticada(s) sem data registrada</div>` : '';
     html += `<div class="gantt-row">
       <div class="gantt-label">Etapas<div style="font-size:8px;font-weight:400;text-transform:none;letter-spacing:0">${concluidas}/${STAGES.length} concluídas</div></div>
       <div class="gantt-track">${dotsHtml || '<span style="font-size:10px;color:var(--text-muted)">sem data registrada</span>'}</div>
@@ -2025,7 +2037,7 @@ function buildGanttHtml(item, logs) {
     let markerColor = 'var(--text-muted)';
     let aviso = '';
     if (item.progresso < 100) {
-      const diasParaEntrega = daysBetween(today, entrega);
+      const diasParaEntrega = calDays(today, entrega);
       if (diasParaEntrega < 0) { markerColor = 'var(--red)'; aviso = ' (atrasado)'; }
       else if (diasParaEntrega <= 7) { markerColor = 'var(--orange)'; aviso = ' (chegando)'; }
     }

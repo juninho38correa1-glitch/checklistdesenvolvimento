@@ -204,6 +204,16 @@
       <thead><tr><th>Chave</th><th>Valor</th><th>Descrição</th><th></th></tr></thead>
       <tbody id="admConfigs"></tbody>
     </table>
+
+    <span class="section-label">Lead times da Linha do Tempo</span>
+    <div style="font-size:12px;color:var(--text-muted);margin-bottom:8px">
+      Onde cada tempo começa e onde termina. Vale para a Linha do Tempo do Processo e para o resumo do produto.
+    </div>
+    <table>
+      <thead><tr><th>Lead time</th><th>Começa em</th><th>Termina em</th></tr></thead>
+      <tbody id="admLeadtimes"><tr><td colspan="3" class="empty">Carregando...</td></tr></tbody>
+    </table>
+    <button class="btn btn-ghost mini" style="margin-top:8px" onclick="salvarLeadtimes()">Salvar lead times</button>
   </div>
 </div>
 
@@ -491,7 +501,7 @@ async function abrirAdmin() {
   await carregarSetores();
   document.getElementById('nuSetor').innerHTML = '<option value="">Setor —</option>' +
     setoresLista.map(s => `<option value="${s.nome}">${s.nome}</option>`).join('');
-  await Promise.all([carregarAdmUsers(), carregarAdmConfigs(), carregarAdmHistorico()]);
+  await Promise.all([carregarAdmUsers(), carregarAdmConfigs(), carregarAdmHistorico(), carregarAdmLeadtimes()]);
 }
 
 let admUsuarios = [], setoresLista = [];
@@ -700,12 +710,70 @@ async function carregarAdmConfigs() {
   const tb = document.getElementById('admConfigs');
   const { data, error } = await sb.from('configuracoes').select('*').order('chave');
   if (error) { tb.innerHTML = `<tr><td colspan="4" class="empty">Erro ao carregar.</td></tr>`; return; }
-  tb.innerHTML = data.map(c => `<tr>
+  tb.innerHTML = data.filter(c => c.chave !== 'leadtimes').map(c => `<tr>
     <td style="font-family:'DM Mono',monospace;font-size:11px">${c.chave}</td>
     <td><input class="mini" style="width:90px" id="cfg-${c.chave}" value="${(c.valor||'').replace(/"/g,'&quot;')}"></td>
     <td style="color:var(--text-muted);font-size:12px">${c.descricao || ''}</td>
     <td><button class="btn btn-ghost mini" onclick="salvarConfig('${c.chave}')">Salvar</button></td>
   </tr>`).join('');
+}
+
+/* Editor dos lead times. O JSON fica numa linha só da tabela de
+   configurações, mas ninguém deveria digitar JSON na mão: aqui vira duas
+   listas por lead time, com as opções que existem de verdade. */
+const LEADS_NOMES = { comercial:'Comercial', ficha:'Ficha (PCP)', criacao:'Criação',
+                      preparacao:'Preparação', producao:'Produção', modtec:'Modelagem Téc.' };
+const LEADS_PADRAO = {
+  comercial:  { de:'data_solicitacao',  ate:'data_envio_pcp' },
+  ficha:      { de:'data_envio_pcp',    ate:'etapa:fichaRecebida' },
+  criacao:    { de:'data_recebimento',  ate:'etapa:modelagem3d' },
+  preparacao: { de:'etapa:modelagem3d', ate:'etapa:programacao' },
+  producao:   { de:'etapa:extracaoGab', ate:'etapa:espumacao' },
+  modtec:     { de:'etapa:espumacao',   ate:'etapa:modelagemTec' }
+};
+const PONTAS = [
+  ['data_solicitacao','Data de solicitação'], ['data_envio_pcp','Data de envio ao PCP'],
+  ['data_recebimento','Data de recebimento'], ['data_entrega','Data de entrega'],
+  ['etapa:fichaRecebida','Ficha recebida'],
+  ['etapa:modelagem3d','Etapa: Modelagem 3D'], ['etapa:extracaoGab','Etapa: Extração Gabarito'],
+  ['etapa:programacao','Etapa: Programação'], ['etapa:montagem','Etapa: Montagem'],
+  ['etapa:preparacao','Etapa: Preparação'], ['etapa:espumacao','Etapa: Espumação'],
+  ['etapa:modelagemTec','Etapa: Modelagem Téc.'], ['etapa:costura','Etapa: Costura'],
+  ['etapa:tapecaria','Etapa: Tapeçaria'], ['etapa:montFinal','Etapa: Montagem Final']
+];
+
+async function carregarAdmLeadtimes() {
+  const tb = document.getElementById('admLeadtimes');
+  if (!tb) return;
+  let atual = {};
+  try {
+    const { data } = await sb.from('configuracoes').select('valor').eq('chave','leadtimes').maybeSingle();
+    if (data && data.valor) atual = JSON.parse(data.valor);
+  } catch (e) { console.error('leadtimes:', e); }
+  const opcoes = (sel) => PONTAS.map(([v,r]) =>
+    `<option value="${v}" ${v === sel ? 'selected' : ''}>${r}</option>`).join('');
+  tb.innerHTML = Object.keys(LEADS_NOMES).map(k => {
+    const c = atual[k] || LEADS_PADRAO[k];
+    return `<tr>
+      <td>${LEADS_NOMES[k]}</td>
+      <td><select class="mini" id="lt-${k}-de">${opcoes(c.de)}</select></td>
+      <td><select class="mini" id="lt-${k}-ate">${opcoes(c.ate)}</select></td>
+    </tr>`;
+  }).join('');
+}
+
+async function salvarLeadtimes() {
+  const novo = {};
+  for (const k of Object.keys(LEADS_NOMES)) {
+    const de  = document.getElementById('lt-' + k + '-de').value;
+    const ate = document.getElementById('lt-' + k + '-ate').value;
+    if (de === ate) { alert(`${LEADS_NOMES[k]}: início e fim não podem ser a mesma coisa.`); return; }
+    novo[k] = { de, ate };
+  }
+  const { error } = await sb.from('configuracoes')
+    .update({ valor: JSON.stringify(novo), updated_at: new Date().toISOString() }).eq('chave','leadtimes');
+  if (error) alert('Erro: ' + error.message);
+  else alert('Lead times salvos. Quem estiver com o checklist aberto vê na próxima atualização.');
 }
 
 async function salvarConfig(chave) {
