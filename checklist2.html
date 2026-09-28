@@ -185,6 +185,12 @@
   .gantt-dot.done { background: var(--green); }
   .gantt-axis { display: flex; justify-content: space-between; font-family: 'DM Mono', monospace; font-size: 9px; color: var(--text-muted); margin-top: 2px; padding-left: 95px; }
   .gantt-nota { font-size: 9px; color: var(--text-muted); padding-left: 95px; margin-top: 1px; }
+  /* Separador entre os ciclos de vida do produto (original e retransmissoes) */
+  .gantt-ciclo { display:flex; gap:8px; align-items:baseline; flex-wrap:wrap; margin:10px 0 4px;
+                 padding:3px 8px; border-radius:5px; background:#efe7d6; font-size:10px;
+                 font-weight:700; letter-spacing:.5px; text-transform:uppercase; color:#6B5A4E; }
+  .gantt-ciclo.atual { background:#8B3A0F; color:#fff; }
+  .gantt-ciclo-det { font-weight:400; text-transform:none; letter-spacing:0; font-size:10px; opacity:.85; }
 
   /* PDF / IMPRESSÃO */
   .print-header { display: none; }
@@ -416,6 +422,42 @@
 </div>
 
 <!-- MODAL DE RELATÓRIO DO PRODUTO -->
+<!-- ATIVAR RETRANSMISSÃO -->
+<div class="modal-overlay" id="modalRetransOverlay">
+  <div class="modal-card" style="max-width:520px">
+    <span class="modal-close" onclick="closeModal('modalRetransOverlay')">&times;</span>
+    <div class="modal-header">
+      <div class="modal-title">Ativar retransmissão</div>
+      <div class="modal-subtitle" id="retransSubtitulo"></div>
+    </div>
+    <div class="modal-body">
+      <div class="edit-section">
+        <label class="section-label">Onde o pedido estava quando as etiquetas foram coletadas?</label>
+        <select class="edit-input" id="retransEtapa"></select>
+      </div>
+      <div class="edit-section">
+        <label class="section-label">Quem coletou as etiquetas?</label>
+        <select class="edit-input" id="retransColetou"></select>
+      </div>
+      <div class="edit-section">
+        <label class="section-label">Observação (opcional)</label>
+        <input type="text" class="edit-input" id="retransObs" placeholder="o que mudou no pedido">
+      </div>
+      <div class="edit-section" style="background:#faf6ee;border:1px dashed var(--border);border-radius:8px;padding:10px 12px">
+        <label style="display:flex;gap:8px;align-items:flex-start;cursor:pointer;font-size:13px">
+          <input type="checkbox" id="retransDesmarcar" checked style="margin-top:3px">
+          <span>Desmarcar as etapas <b>da coleta em diante</b>, para a equipe refazer.<br>
+          <span style="font-size:11px;color:var(--text-muted)">O que foi feito antes continua registrado: o ciclo atual é congelado neste momento e segue visível na linha do tempo.</span></span>
+        </label>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-cancel" onclick="closeModal('modalRetransOverlay')">Cancelar</button>
+      <button class="btn btn-save" id="btnConfirmarRetrans" onclick="confirmarRetransmissao()">Ativar retransmissão</button>
+    </div>
+  </div>
+</div>
+
 <div class="modal-overlay" id="modalReportOverlay">
   <div class="modal-card modal-card-scroll" style="width:660px">
     <span class="modal-close" onclick="closeModal('modalReportOverlay')">&times;</span>
@@ -444,6 +486,10 @@
         <button class="btn btn-save" id="btnAnexar" onclick="document.getElementById('anexoInput').click()">📎 Anexar arquivo</button>
         <span id="anexoStatus" style="font-size:12px;color:var(--text-muted);margin-left:8px"></span>
       </div>
+    </div>
+    <div class="edit-section">
+      <label class="section-label">Retransmissão</label>
+      <div id="blocoRetrans"><div class="timeline-empty">Carregando...</div></div>
     </div>
     <div class="edit-section">
       <label class="section-label">Linha do Tempo do Processo</label>
@@ -843,6 +889,18 @@ function productionTimeHtml(item) {
    dias", que é o que o filtro "sem iniciar" não contava. */
 function fichaRecebidaEm(item) {
   return (extraTicks[itemKey(item)] || {}).fichaRecebida ? (fichaDatas[itemKey(item)] || true) : null;
+}
+
+/* Marca discreta na lista: produto que já voltou por retransmissão é outra
+   história, e quem olha a tabela precisa ver isso sem abrir o produto. */
+function retransHtml(item) {
+  const rs = retransDe(item);
+  if (!rs.length) return '';
+  const ultima = rs[rs.length - 1];
+  const idx = STAGES.indexOf(ultima.etapa_na_coleta);
+  const titulo = `${rs.length} retransmissão(ões) · última em ${new Date(ultima.ativada_em).toLocaleDateString('pt-BR')}`
+               + `, pedido estava em ${idx >= 0 ? STAGE_LABELS[idx] : '—'}`;
+  return ` <span class="dias-badge" style="background:#8B3A0F;color:#fff;margin-left:4px" title="${titulo}">🔁 R${rs.length}</span>`;
 }
 
 function fichaHtml(item) {
@@ -1377,6 +1435,248 @@ function sair() {
   location.href = 'index.html';
 }
 
+/* Texto de gente vai pra dentro de HTML: escapa, senão um nome com < ou &
+   quebra a tela (ou pior). */
+function esc(t) {
+  return String(t == null ? '' : t)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
+let usuariosAtivos = [];
+async function carregarUsuariosAtivos() {
+  try {
+    const { data, error } = await supabaseClient.from('usuarios')
+      .select('id,nome,setor').eq('ativo', true).order('nome');
+    if (!error) usuariosAtivos = data || [];
+  } catch (e) { console.error('Falha ao carregar usuários:', e); }
+}
+
+/* ── RETRANSMISSÃO ──────────────────────────────────────
+   O pedido é alterado depois de já ter andado: as etiquetas são recolhidas de
+   onde o produto estiver e parte do trabalho é refeita. A regra que manda
+   aqui é a do Junior: nada do ciclo anterior se perde, porque houve mão de
+   obra ali. Então a ativação CONGELA o ciclo atual (o que estava ticado e
+   quando) dentro do próprio registro da retransmissão, e o ciclo novo passa a
+   contar do zero, com as próprias datas — as do produto ficam intactas. */
+let retransPorProduto = {};   // produto_id -> [retransmissões, da mais antiga p/ a mais nova]
+
+async function loadRetransmissoes() {
+  const map = {};
+  try {
+    const data = await buscarTudo(() => supabaseClient
+      .from('retransmissoes')
+      .select('*')
+      .order('numero', { ascending: true }));
+    data.forEach(r => { (map[r.produto_id] = map[r.produto_id] || []).push(r); });
+  } catch (e) {
+    console.error('Falha ao buscar retransmissões:', e);
+  }
+  return map;
+}
+
+function retransDe(item) { return (item && item.id && retransPorProduto[item.id]) || []; }
+
+/* Os ciclos de vida do produto, em ordem. O primeiro é o original; cada
+   retransmissão abre outro. Cada ciclo sabe de onde vêm as datas dele e qual
+   janela de tempo do histórico lhe pertence. */
+function ciclosDe(item) {
+  const rs = retransDe(item);
+  const ciclos = [{
+    nome: 'Original',
+    indice: 0,
+    de: null,                                  // sem limite inferior
+    ate: rs.length ? new Date(rs[0].ativada_em) : null,
+    fonte: {
+      dataSolicitacao: item.dataSolicitacao, dataEnvioPcp: item.dataEnvioPcp,
+      dataRecebimento: item.dataRecebimento, dataEntrega: item.dataEntrega
+    },
+    // O retrato congelado é tirado NO INSTANTE da retransmissão, ou seja,
+    // descreve o ciclo que acabou de fechar — pertence ao ciclo ANTERIOR a
+    // ela, nunca ao que está começando.
+    congelado: rs.length ? rs[0].etapas_congeladas : null
+  }];
+  rs.forEach((r, i) => {
+    ciclos.push({
+      nome: `Retrans ${r.numero}`,
+      indice: r.numero,
+      de: new Date(r.ativada_em),
+      ate: rs[i + 1] ? new Date(rs[i + 1].ativada_em) : null,
+      fonte: {
+        // o ciclo novo começa quando a retransmissão foi ativada
+        dataSolicitacao: (r.ativada_em || '').slice(0, 10),
+        dataEnvioPcp: r.data_envio_pcp || '',
+        dataRecebimento: r.data_recebimento || '',
+        // sem entrega nova, vale a do produto: o cliente continua esperando a mesma
+        dataEntrega: r.data_entrega || item.dataEntrega
+      },
+      registro: r,
+      congelado: rs[i + 1] ? rs[i + 1].etapas_congeladas : null
+    });
+  });
+  return ciclos;
+}
+
+/* Etapas ticadas dentro da janela de um ciclo. Fora da janela não conta: é
+   assim que o ciclo novo recomeça do zero sem apagar o que veio antes. */
+function ticagensDoCiclo(logsAsc, ciclo) {
+  const dentro = logsAsc.filter(r => {
+    const t = new Date(r.created_at);
+    if (ciclo.de && t < ciclo.de) return false;
+    if (ciclo.ate && t >= ciclo.ate) return false;
+    return true;
+  });
+  const mapa = {};
+  new Set(dentro.map(r => r.etapa)).forEach(etapa => {
+    const d = dataEtapaAtual(dentro, etapa);
+    if (d) mapa[etapa] = d;
+  });
+  /* O congelado é rede de segurança, não fonte: ele guarda TODAS as etapas
+     ticadas no instante da retransmissão, acumuladas desde o começo do
+     produto. Usado como complemento, ele empurraria o trabalho do primeiro
+     ciclo para dentro do segundo. Só entra quando o ciclo não tem histórico
+     nenhum — caso dos produtos antigos, migrados sem log de etapa. */
+  if (!Object.keys(mapa).length && ciclo.congelado) {
+    Object.entries(ciclo.congelado).forEach(([etapa, iso]) => {
+      if (iso) mapa[etapa] = new Date(iso);
+    });
+  }
+  return mapa;
+}
+
+/* ── BLOCO NO RELATÓRIO ── */
+function renderBlocoRetrans(item) {
+  const el = document.getElementById('blocoRetrans');
+  if (!el) return;
+  const rs = retransDe(item);
+  const podeAtivar = podeEditarChecklist;
+  const historico = rs.map(r => {
+    const idx = STAGES.indexOf(r.etapa_na_coleta);
+    const ondeEstava = idx >= 0 ? STAGE_LABELS[idx] : (r.etapa_na_coleta || '—');
+    const quando = new Date(r.ativada_em).toLocaleDateString('pt-BR');
+    const feitas = Object.keys(r.etapas_congeladas || {}).length;
+    return `<div style="border:1px solid var(--border);border-radius:8px;padding:10px 12px;margin-bottom:8px;background:#fdfaf4">
+      <div style="display:flex;gap:10px;align-items:baseline;flex-wrap:wrap">
+        <b style="color:#8B3A0F">🔁 Retrans ${r.numero}</b>
+        <span style="font-size:12px">${quando}</span>
+        <span style="font-size:11px;color:var(--text-muted)">ativada por ${esc(r.ativada_por_nome || '—')}</span>
+      </div>
+      <div style="font-size:12px;margin-top:5px;line-height:1.6">
+        Pedido estava em <b>${esc(ondeEstava)}</b> quando as etiquetas foram coletadas por <b>${esc(r.coletou_etiquetas || '—')}</b>.<br>
+        <span style="color:var(--text-muted)">${feitas} etapa(s) do ciclo anterior congeladas${r.observacao ? ' · ' + esc(r.observacao) : ''}</span>
+      </div>
+    </div>`;
+  }).join('');
+
+  el.innerHTML = (rs.length
+      ? historico
+      : `<div class="timeline-empty" style="text-align:left;padding:6px 0">Nenhuma retransmissão registrada.</div>`)
+    + (podeAtivar
+      ? `<button class="btn btn-save" style="background:#8B3A0F;border-color:#8B3A0F" onclick="abrirModalRetransmissao(${item.rowIndex})">🔁 Ativar retransmissão</button>`
+      : '');
+}
+
+function abrirModalRetransmissao(rowIndex) {
+  if (!podeEditarChecklist) return;
+  currentItem = allData.find(d => d.rowIndex === rowIndex);
+  if (!currentItem) return;
+  const it = currentItem;
+  document.getElementById('retransSubtitulo').textContent =
+    `${it.produto} · Pedido ${it.nPedido || '—'} · será a ${retransDe(it).length + 1}ª`;
+
+  // onde o pedido estava: por padrão, a última etapa ticada
+  const ticadas = STAGES.filter(s => it.stages[s]);
+  const sugerida = ticadas.length ? ticadas[ticadas.length - 1] : STAGES[0];
+  document.getElementById('retransEtapa').innerHTML = STAGES.map((s, i) =>
+    `<option value="${s}" ${s === sugerida ? 'selected' : ''}>${i + 1}. ${STAGE_LABELS[i]}${it.stages[s] ? ' ✓' : ''}</option>`).join('');
+
+  // quem coletou: lista de gente, não texto livre — mesmo motivo dos responsáveis
+  const sel = document.getElementById('retransColetou');
+  sel.innerHTML = '<option value="">— selecione —</option>' +
+    usuariosAtivos.map(u => `<option value="${esc(u.nome)}" ${u.nome === getOperador() ? 'selected' : ''}>${esc(u.nome)}</option>`).join('');
+
+  document.getElementById('retransObs').value = '';
+  document.getElementById('retransDesmarcar').checked = true;
+  document.getElementById('modalRetransOverlay').style.display = 'flex';
+}
+
+async function confirmarRetransmissao() {
+  const it = currentItem;
+  if (!it || !podeEditarChecklist) return;
+  const btn = document.getElementById('btnConfirmarRetrans');
+  if (btn.disabled) return;
+
+  const etapaColeta = document.getElementById('retransEtapa').value;
+  const coletou     = document.getElementById('retransColetou').value.trim();
+  const obs         = document.getElementById('retransObs').value.trim();
+  const desmarcar   = document.getElementById('retransDesmarcar').checked;
+  if (!coletou) { alert('Diga quem coletou as etiquetas.'); return; }
+
+  const idx = STAGES.indexOf(etapaColeta);
+  const aDesmarcar = desmarcar ? STAGES.slice(idx).filter(s => it.stages[s]) : [];
+  const resumo = aDesmarcar.length
+    ? `\n\nSerão desmarcadas ${aDesmarcar.length} etapa(s), da ${STAGE_LABELS[idx]} em diante, para a equipe refazer.\nO que já foi feito continua registrado.`
+    : '\n\nNenhuma etapa será desmarcada.';
+  if (!confirm(`Ativar a ${retransDe(it).length + 1}ª retransmissão de ${it.produto}?${resumo}`)) return;
+
+  btn.disabled = true;
+  btn.textContent = 'Ativando...';
+  try {
+    // 1) congela o ciclo atual: o que está ticado e a data de cada etapa
+    const logs = await buscarTudo(() => supabaseClient.from('etapa_logs')
+      .select('etapa, status, created_at')
+      .eq('produto_id', it.id)
+      .order('created_at', { ascending: true }));
+    const congelado = {};
+    STAGES.forEach(s => {
+      if (!it.stages[s]) return;
+      const d = dataEtapaAtual(logs, s);
+      congelado[s] = d ? d.toISOString() : null;
+    });
+
+    // 2) grava a retransmissão
+    const numero = retransDe(it).length + 1;
+    const { data: nova, error } = await supabaseClient.from('retransmissoes').insert({
+      produto_id: it.id, numero,
+      ativada_por: sessao ? sessao.id : null,
+      ativada_por_nome: getOperador() || null,
+      etapa_na_coleta: etapaColeta,
+      coletou_etiquetas: coletou,
+      observacao: obs || null,
+      data_entrega: it.dataEntrega || null,
+      etapas_congeladas: congelado
+    }).select().single();
+    if (error) throw error;
+
+    // 3) observação no pedido: fica à vista de quem abrir o produto
+    await supabaseClient.from('pedido_observacoes').insert({
+      produto_id: it.id, n_pedido: it.nPedido || null, produto: it.produto,
+      texto: `🔁 Retransmissão ${numero} ativada — pedido estava em ${STAGE_LABELS[idx]}, `
+           + `etiquetas coletadas por ${coletou}${obs ? '. ' + obs : ''}`,
+      autor: getOperador() || null
+    });
+
+    // 4) desmarca o que será refeito (o histórico guarda quem e quando)
+    if (aDesmarcar.length) {
+      const novasEtapas = Object.assign({}, it.stages);
+      aDesmarcar.forEach(s => novasEtapas[s] = false);
+      await logStageChanges(it, it.stages, novasEtapas);
+      await callAPI({ rowIndex: it.rowIndex, stages: novasEtapas });
+    }
+
+    (retransPorProduto[it.id] = retransPorProduto[it.id] || []).push(nova);
+    closeModal('modalRetransOverlay');
+    showToast();
+    await loadCSV(true);
+    openReportModal(allData.find(d => d.id === it.id).rowIndex);
+  } catch (e) {
+    alert('Erro ao ativar retransmissão: ' + e.message);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Ativar retransmissão';
+  }
+}
+
 /* ── LOG DE ETAPAS (Supabase) ──────────────────────────── */
 async function logStageChanges(item, oldStages, newStages) {
   const changed = STAGES.filter(s => !!oldStages[s] !== !!newStages[s]);
@@ -1548,6 +1848,8 @@ async function loadCSV(isSilent = false) {
     observationCounts = await loadObservationCounts();
     extraTicks = await loadExtraTicks();
     activityDates = await loadActivityDates();
+    retransPorProduto = await loadRetransmissoes();
+    if (!usuariosAtivos.length) await carregarUsuariosAtivos();
     if (!Object.keys(respServico).length) await carregarRespServicos();
     checkStatusAlerts();
     cobrarPendencias().catch(e => console.error('cobrança automática:', e));
@@ -1703,7 +2005,7 @@ function renderTable() {
       <td>${stepsHtml}</td>
       <td>${progHtml}</td>
       <td><span class="badge ${badgeClass}">${currentBadge}</span></td>
-      <td>${fichaHtml(item)}</td>
+      <td>${fichaHtml(item)}${retransHtml(item)}</td>
       ${podeCadastrar ? `<td style="text-align:center"><button class="btn btn-cancel" style="padding:4px 8px;font-size:12px" title="Editar cadastro" onclick="event.stopPropagation();editarProduto(${item.rowIndex})">✏️</button></td>` : ''}
     `;
     tbody.appendChild(tr);
@@ -1823,6 +2125,7 @@ async function openReportModal(rowIndex) {
     const { data, error } = await query;
     if (error) throw error;
 
+    renderBlocoRetrans(item);
     ganttEl.innerHTML = buildGanttHtml(item, data || []);
 
     // PCP -> Ficha: do envio ao PCP até o Dev marcar que a ficha chegou.
@@ -1830,18 +2133,26 @@ async function openReportModal(rowIndex) {
        da configuração pelo mesmo caminho, senão mudar uma ponta no Painel
        Admin faria o resumo e a linha do tempo discordarem na mesma tela. */
     const logsAsc = [...(data || [])].sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
-    const ticagens = {};
-    new Set(logsAsc.map(r => r.etapa)).forEach(etapa => {
-      const d = dataEtapaAtual(logsAsc, etapa);
-      if (d) ticagens[etapa] = d;
+    // Com retransmissão o produto tem mais de um ciclo: o resumo fala do
+    // CORRENTE, que é o que ainda pode ser cobrado. Os anteriores ficam
+    // desenhados na linha do tempo logo abaixo.
+    const ciclosResumo = ciclosDe(item);
+    const cicloAtual = ciclosResumo[ciclosResumo.length - 1];
+    const ticagens = ticagensDoCiclo(logsAsc, cicloAtual);
+    const fonteResumo = cicloAtual.fonte;
+    document.querySelectorAll('[id^="reportLead_"]').forEach(el => {
+      const rot = el.previousElementSibling;
+      if (!rot || !rot.classList.contains('label')) return;
+      if (!rot.dataset.base) rot.dataset.base = rot.textContent;
+      rot.textContent = rot.dataset.base + (cicloAtual.indice ? ' · retrans ' + cicloAtual.indice : '');
     });
     const fichaRetroResumo = (data || []).some(r => r.etapa === 'fichaRecebida' && r.status && r.usuario === RETRO_USUARIO);
     const emDias = (a, b) => Math.round((new Date(b).setHours(0,0,0,0) - new Date(a).setHours(0,0,0,0)) / 86400000);
     Object.keys(LEADTIMES).forEach(chave => {
       const el = document.getElementById('reportLead_' + chave);
       if (!el) return;
-      const de  = pontaDoLead(item, ticagens, LEADTIMES[chave].de);
-      const ate = pontaDoLead(item, ticagens, LEADTIMES[chave].ate);
+      const de  = pontaDoLead(fonteResumo, ticagens, LEADTIMES[chave].de);
+      const ate = pontaDoLead(fonteResumo, ticagens, LEADTIMES[chave].ate);
       if (chave === 'ficha' && ate && fichaRetroResumo) {
         el.textContent = 'recebida (marcação retroativa, sem data real)';
       } else if (de && ate) {
@@ -1912,35 +2223,43 @@ function rotuloPonta(ref) {
   return ref || '—';
 }
 
-// Monta a linha do tempo estilo Gantt. O nome de cada faixa é fixo (é o nome
-// da fase para quem trabalha aqui), mas as PONTAS de cada uma vêm da
-// configuração: quem decide onde cada lead time começa e termina é o Painel
-// Admin, não este arquivo. O que a barra está medindo de verdade aparece
-// sempre no texto ao passar o mouse.
+/* Monta a linha do tempo estilo Gantt. Os nomes das faixas são fixos (é o nome
+   da fase para quem trabalha aqui), mas as PONTAS de cada uma vêm da
+   configuração: quem decide onde cada lead time começa e termina é o Painel
+   Admin, não este arquivo.
+
+   Quando há retransmissão, o produto tem mais de um ciclo de vida, e cada um
+   ganha o próprio bloco de faixas. Os ciclos dividem a MESMA régua de tempo,
+   então dá para ver de relance que o segundo foi mais curto (ou não) que o
+   primeiro. O ciclo anterior continua desenhado mesmo depois de alguém
+   desmarcar etapas para refazer: houve mão de obra ali. */
 function buildGanttHtml(item, logs) {
   const ascLogs = [...logs].sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
-  // data que vale de cada etapa: a marcação atual, ignorando o que foi desfeito
-  const firstTrue = {};
-  new Set(ascLogs.map(r => r.etapa)).forEach(etapa => {
-    const d = dataEtapaAtual(ascLogs, etapa);
-    if (d) firstTrue[etapa] = d;
-  });
-
-  const L = LEADTIMES;
-  const pt = ref => pontaDoLead(item, firstTrue, ref);
-  const faixas = {};
-  Object.keys(L).forEach(k => {
-    faixas[k] = { de: pt(L[k].de), ate: pt(L[k].ate), refDe: L[k].de, refAte: L[k].ate };
-  });
-
-  const entrega = parseDate(item.dataEntrega);
-  const today   = new Date();
-  const fichaRetroGantt = logs.some(r => r.etapa === 'fichaRecebida' && r.status && r.usuario === RETRO_USUARIO);
+  const ciclos = ciclosDe(item);
   const apto = aptoParaAlerta(item);
+  const entrega = parseDate(item.dataEntrega);
+  const today = new Date();
 
-  const pontas = [];
-  Object.values(faixas).forEach(f => { pontas.push(f.de, f.ate); });
-  const allDates = [entrega, today, ...pontas, ...Object.values(firstTrue)].filter(Boolean);
+  // cada ciclo com as próprias ticagens e as próprias pontas resolvidas
+  ciclos.forEach(c => {
+    c.ticagens = ticagensDoCiclo(ascLogs, c);
+    c.faixas = {};
+    Object.keys(LEADTIMES).forEach(k => {
+      c.faixas[k] = {
+        de:  pontaDoLead(c.fonte, c.ticagens, LEADTIMES[k].de),
+        ate: pontaDoLead(c.fonte, c.ticagens, LEADTIMES[k].ate),
+        refDe: LEADTIMES[k].de, refAte: LEADTIMES[k].ate
+      };
+    });
+  });
+
+  const todas = [entrega, today];
+  ciclos.forEach(c => {
+    Object.values(c.faixas).forEach(f => { todas.push(f.de, f.ate); });
+    Object.values(c.ticagens).forEach(d => todas.push(d));
+    if (c.de) todas.push(c.de);
+  });
+  const allDates = todas.filter(Boolean);
   if (allDates.length < 2) {
     return '<div class="timeline-empty">Datas insuficientes para montar a linha do tempo.</div>';
   }
@@ -1968,83 +2287,99 @@ function buildGanttHtml(item, logs) {
 
   const COR = { red: 'var(--red)', orange: 'var(--orange)', gray: 'var(--text-muted)' };
 
-  /* Desenha uma faixa. Enquanto a ponta final não chega, a barra corre até
-     hoje — o relógio daquela fase ainda está andando, e mostrar a barra
-     fechada mentiria. `escalar` liga a régua de alerta (5/7 dias) nas fases
-     em que a demora é cobrança de alguém; só vale para produto apto. */
-  const faixa = (chave, nome, sub, corFeito, opts) => {
-    const f = faixas[chave];
+  /* Desenha uma faixa de um ciclo. Enquanto a ponta final não chega, a barra
+     corre até hoje — o relógio daquela fase ainda está andando, e mostrar a
+     barra fechada mentiria. `escalar` liga a régua de alerta (5/7 dias) nas
+     fases em que a demora é cobrança de alguém; só vale para produto apto, e
+     só no ciclo corrente: cobrar um ciclo já encerrado não faz sentido. */
+  const faixa = (ciclo, corrente, chave, nome, sub, corFeito, opts) => {
+    const f = ciclo.faixas[chave];
     if (!f || !f.de) return '';
     const o = opts || {};
-    // Se a ponta foi trocada no Painel Admin, o apelido escrito à mão passaria
-    // a mentir: nesse caso o subtítulo vira a descrição do que está medindo.
     const pad = LEADTIMES_PADRAO[chave];
     if (!pad || pad.de !== f.refDe || pad.ate !== f.refAte)
       sub = `${rotuloPonta(f.refDe)} → ${rotuloPonta(f.refAte)}`;
-    const fim = f.ate || today;
+    // Um ciclo encerrado não "corre até hoje": ele para onde o próximo começou.
+    const limite = corrente ? today : (ciclo.ate || today);
+    const fim = f.ate || limite;
     const dias = calDays(f.de, fim);
     const left = pct(f.de);
     const width = Math.max(1, pct(fim) - left);
     let cor = f.ate ? corFeito : COR.gray;
-    if (!f.ate && o.escalar) cor = COR[apto ? corDaEspera(dias) : 'gray'];
-    else if (!f.ate) cor = 'var(--orange)';
+    if (!f.ate && corrente && o.escalar) cor = COR[apto ? corDaEspera(dias) : 'gray'];
+    else if (!f.ate) cor = corrente ? 'var(--orange)' : COR.gray;
     let texto = `${dias}d`;
-    if (!f.ate) texto += ` (${o.esperando || 'em andamento'})`;
+    if (!f.ate) texto += corrente ? ` (${o.esperando || 'em andamento'})` : ' (não concluído)';
     if (o.retro) { cor = COR.gray; texto = 'retroativo'; }
     const quando = d => d.toLocaleDateString('pt-BR');
-    let title = `${rotuloPonta(f.refDe)} ${quando(f.de)} → `
+    let title = `${ciclo.nome} · ${rotuloPonta(f.refDe)} ${quando(f.de)} → `
               + (f.ate ? `${rotuloPonta(f.refAte)} ${quando(f.ate)}` : `${rotuloPonta(f.refAte)} ainda não`);
     if (o.retro) title += ' (marcação retroativa, data estimada)';
-    if (!f.ate && o.escalar && !apto) title += ' · cadastrado antes da regra de alertas, sem contagem';
+    if (!f.ate && corrente && o.escalar && !apto) title += ' · cadastrado antes da regra de alertas, sem contagem';
     return `<div class="gantt-row">
       <div class="gantt-label">${nome}<div style="font-size:8px;font-weight:400;text-transform:none;letter-spacing:0">${sub}</div></div>
       <div class="gantt-track">${ganttBar(left, width, cor, texto, title)}</div>
     </div>`;
   };
 
-  let html = '<div class="gantt">';
-  html += faixa('comercial',  'Comercial',  'Solic. → Envio PCP',      'var(--accent)', { escalar: true, esperando: 'aguardando envio ao PCP' });
-  html += faixa('ficha',      'Ficha',      'PCP → Recebimento Ficha', '#1D8348',       { escalar: true, esperando: 'aguardando ficha',
-                                                                                          retro: !!(faixas.ficha.ate && fichaRetroGantt) });
-  html += faixa('criacao',    'Criação',    'Receb. → Modelagem 3D',   '#8E7CC3',       { esperando: 'aguardando 3D' });
-  html += faixa('preparacao', 'Preparação', 'Itens para produção',     '#B7791F',       { esperando: 'aguardando Programação' });
-  html += faixa('producao',   'Produção',   'Extração → Espumação',    'var(--green)',  { esperando: 'em andamento' });
-  html += faixa('modtec',     'Mod. Téc.',  'Espumação → Mod. Téc.',   '#2E86C1',       { esperando: 'aguardando Mod. Téc.' });
+  // Pontos das etapas do ciclo. Etapas do mesmo dia caem na mesma posição e os
+  // pontos ficavam um sobre o outro: aparecia só o último número. Junta por dia.
+  const pontosDoCiclo = (ciclo) => {
+    const porDia = {};
+    STAGES.forEach((s, i) => {
+      const done = ciclo.ticagens[s];
+      if (!done) return;
+      const dia = done.toLocaleDateString('pt-BR');
+      (porDia[dia] = porDia[dia] || { quando: done, dia, nums: [], nomes: [] });
+      porDia[dia].nums.push(i + 1);
+      porDia[dia].nomes.push(`${i + 1}. ${STAGE_LABELS[i]}`);
+    });
+    let dots = '';
+    Object.values(porDia).sort((a, b) => a.quando - b.quando).forEach(g => {
+      const seguidas = g.nums[g.nums.length - 1] - g.nums[0] + 1 === g.nums.length;
+      const rotulo = g.nums.length === 1 ? g.nums[0]
+                   : (seguidas ? `${g.nums[0]}-${g.nums[g.nums.length - 1]}` : `${g.nums.length}×`);
+      const largo = g.nums.length > 1 ? 'width:auto;min-width:16px;padding:0 4px;border-radius:9px' : '';
+      dots += `<div class="gantt-dot done" style="left:${pct(g.quando)}%;${largo}" title="${g.dia} — ${g.nomes.join(', ')}">${rotulo}</div>`;
+    });
+    return { dots, feitas: Object.keys(ciclo.ticagens).filter(e => STAGES.indexOf(e) >= 0).length };
+  };
 
-  // Marcadores de etapas. A CONTAGEM reflete o cadastro do produto (fonte da
-  // verdade do "está feito"); os pontos com data vêm dos logs. Etapas ticadas
-  // sem log aparecem numa nota "sem data", sem inventar posição no tempo.
-  const concluidas = STAGES.filter(s => item.stages[s]).length;
-  const semData = [];
-  // Etapas ticadas no mesmo dia caem na mesma posição e os pontos ficam um
-  // sobre o outro: aparecia só o último número, como se fosse uma etapa só.
-  // Junta por dia e escreve a faixa ("1-10"), com todas no texto do mouse.
-  const porDia = {};
-  STAGES.forEach((s, i) => {
-    if (!item.stages[s]) return;              // só as ticadas
-    const done = firstTrue[s];
-    if (!done) { semData.push(STAGE_LABELS[i]); return; }
-    const dia = done.toLocaleDateString('pt-BR');
-    (porDia[dia] = porDia[dia] || { quando: done, dia, nums: [], nomes: [] });
-    porDia[dia].nums.push(i + 1);
-    porDia[dia].nomes.push(`${i + 1}. ${STAGE_LABELS[i]}`);
+  let html = '<div class="gantt">';
+  ciclos.forEach((ciclo, i) => {
+    const corrente = (i === ciclos.length - 1);
+    if (ciclos.length > 1) {
+      const r = ciclo.registro;
+      const ondeIdx = r ? STAGES.indexOf(r.etapa_na_coleta) : -1;
+      const detalhe = r
+        ? `coletada em ${STAGE_LABELS[ondeIdx] || '—'} por ${esc(r.coletou_etiquetas || '—')} · ${new Date(r.ativada_em).toLocaleDateString('pt-BR')}`
+        : 'primeiro ciclo do produto';
+      html += `<div class="gantt-ciclo${corrente ? ' atual' : ''}">
+        <span>${ciclo.indice === 0 ? '① Original' : '🔁 ' + ciclo.nome}</span>
+        <span class="gantt-ciclo-det">${detalhe}</span>
+      </div>`;
+    }
+    html += faixa(ciclo, corrente, 'comercial',  'Comercial',  'Solic. → Envio PCP',      'var(--accent)', { escalar: true, esperando: 'aguardando envio ao PCP' });
+    html += faixa(ciclo, corrente, 'ficha',      'Ficha',      'PCP → Recebimento Ficha', '#1D8348',       { escalar: true, esperando: 'aguardando ficha',
+                                                                                                            retro: !!(ciclo.faixas.ficha.ate && logs.some(r => r.etapa === 'fichaRecebida' && r.status && r.usuario === RETRO_USUARIO)) });
+    html += faixa(ciclo, corrente, 'criacao',    'Criação',    'Receb. → Modelagem 3D',   '#8E7CC3',       { esperando: 'aguardando 3D' });
+    html += faixa(ciclo, corrente, 'preparacao', 'Preparação', 'Itens para produção',     '#B7791F',       { esperando: 'aguardando Programação' });
+    html += faixa(ciclo, corrente, 'producao',   'Produção',   'Extração → Espumação',    'var(--green)',  { esperando: 'em andamento' });
+    html += faixa(ciclo, corrente, 'modtec',     'Mod. Téc.',  'Espumação → Mod. Téc.',   '#2E86C1',       { esperando: 'aguardando Mod. Téc.' });
+
+    const p = pontosDoCiclo(ciclo);
+    if (p.feitas > 0) {
+      html += `<div class="gantt-row">
+        <div class="gantt-label">Etapas<div style="font-size:8px;font-weight:400;text-transform:none;letter-spacing:0">${p.feitas}/${STAGES.length} concluídas</div></div>
+        <div class="gantt-track">${p.dots}</div>
+      </div>`;
+    }
   });
-  let dotsHtml = '';
-  Object.values(porDia).sort((a, b) => a.quando - b.quando).forEach(g => {
-    const seguidas = g.nums[g.nums.length - 1] - g.nums[0] + 1 === g.nums.length;
-    const rotulo = g.nums.length === 1 ? g.nums[0]
-                 : (seguidas ? `${g.nums[0]}-${g.nums[g.nums.length - 1]}` : `${g.nums.length}×`);
-    const largo = g.nums.length > 1 ? 'width:auto;min-width:16px;padding:0 4px;border-radius:9px' : '';
-    const titulo = `${g.dia} — ${g.nomes.join(', ')}`;
-    dotsHtml += `<div class="gantt-dot done" style="left:${pct(g.quando)}%;${largo}" title="${titulo}">${rotulo}</div>`;
-  });
-  if (concluidas > 0) {
-    const nota = semData.length
-      ? `<div class="gantt-nota" title="${semData.join(', ')}">⌾ ${semData.length} ticada(s) sem data registrada</div>` : '';
-    html += `<div class="gantt-row">
-      <div class="gantt-label">Etapas<div style="font-size:8px;font-weight:400;text-transform:none;letter-spacing:0">${concluidas}/${STAGES.length} concluídas</div></div>
-      <div class="gantt-track">${dotsHtml || '<span style="font-size:10px;color:var(--text-muted)">sem data registrada</span>'}</div>
-    </div>${nota}`;
+
+  // Etapas ticadas sem log de data: aparecem numa nota, sem inventar posição
+  const semData = STAGES.filter((s, i) => item.stages[s] && !ciclos.some(c => c.ticagens[s])).map((s, i) => STAGE_LABELS[STAGES.indexOf(s)]);
+  if (semData.length) {
+    html += `<div class="gantt-nota" title="${semData.join(', ')}">⌾ ${semData.length} ticada(s) sem data registrada</div>`;
   }
 
   // Marcador de entrega prevista — fica laranja quando está chegando perto
@@ -2052,21 +2387,22 @@ function buildGanttHtml(item, logs) {
   if (entrega) {
     let markerColor = 'var(--text-muted)';
     let aviso = '';
-    // Produto liberado: a data que vale é a da ÚLTIMA etapa ticada, porque é
-    // quando ele de fato saiu das mãos do Dev. Comparada com a entrega
-    // prevista, diz se sobrou margem ou se passou do vencimento.
+    // Produto liberado: a data que vale é a da ÚLTIMA etapa ticada do ciclo
+    // corrente, porque é quando ele de fato saiu das mãos do Dev.
     let veredito = '';
-    const datasFeitas = STAGES.filter(st => item.stages[st]).map(st => firstTrue[st]).filter(Boolean);
+    const ultimo = ciclos[ciclos.length - 1];
+    const datasFeitas = STAGES.filter(st => item.stages[st]).map(st => ultimo.ticagens[st]).filter(Boolean);
     const liberadoEm = (item.progresso === 100 && datasFeitas.length) ? new Date(Math.max(...datasFeitas.map(d => d.getTime()))) : null;
     if (liberadoEm) {
       const margem = calDays(liberadoEm, entrega);
       const quando = liberadoEm.toLocaleDateString('pt-BR');
+      const sufixo = ciclos.length > 1 ? ` (após ${ciclos.length - 1} retransmiss${ciclos.length - 1 === 1 ? 'ão' : 'ões'})` : '';
       if (margem >= 0) {
         markerColor = 'var(--green)';
-        veredito = `<div class="gantt-nota" style="color:var(--green);font-weight:600">✓ Produto liberado em ${quando}, faltando ${margem} dia${margem === 1 ? '' : 's'} para a entrega</div>`;
+        veredito = `<div class="gantt-nota" style="color:var(--green);font-weight:600">✓ Produto liberado em ${quando}, faltando ${margem} dia${margem === 1 ? '' : 's'} para a entrega${sufixo}</div>`;
       } else {
         markerColor = 'var(--red)';
-        veredito = `<div class="gantt-nota" style="color:var(--red);font-weight:600">⚠ Produto liberado em ${quando}, ${-margem} dia${margem === -1 ? '' : 's'} após o vencimento da data de entrega</div>`;
+        veredito = `<div class="gantt-nota" style="color:var(--red);font-weight:600">⚠ Produto liberado em ${quando}, ${-margem} dia${margem === -1 ? '' : 's'} após o vencimento da data de entrega${sufixo}</div>`;
       }
     } else if (item.progresso < 100) {
       const diasParaEntrega = calDays(today, entrega);
