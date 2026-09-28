@@ -1853,11 +1853,15 @@ async function openReportModal(rowIndex) {
       }
     });
 
-    if (!data || !data.length) {
+    // A linha do tempo acima PRECISA das ticagens retroativas (é o que faz a
+    // faixa da ficha existir), mas o histórico é sobre o que as pessoas
+    // fizeram: a migração não é atividade de ninguém e fica de fora dele.
+    const feitoPorGente = (data || []).filter(row => row.usuario !== RETRO_USUARIO);
+    if (!feitoPorGente.length) {
       timelineEl.innerHTML = '<div class="timeline-empty">Nenhuma alteração de etapa registrada ainda.</div>';
       return;
     }
-    timelineEl.innerHTML = data.map(row => {
+    timelineEl.innerHTML = feitoPorGente.map(row => {
       const idx = STAGES.indexOf(row.etapa);
       const label = idx >= 0 ? STAGE_LABELS[idx] : (EXTRA_LABELS[row.etapa] || row.etapa);
       const dt = new Date(row.created_at);
@@ -2011,16 +2015,28 @@ function buildGanttHtml(item, logs) {
   // verdade do "está feito"); os pontos com data vêm dos logs. Etapas ticadas
   // sem log aparecem numa nota "sem data", sem inventar posição no tempo.
   const concluidas = STAGES.filter(s => item.stages[s]).length;
-  let dotsHtml = '';
   const semData = [];
+  // Etapas ticadas no mesmo dia caem na mesma posição e os pontos ficam um
+  // sobre o outro: aparecia só o último número, como se fosse uma etapa só.
+  // Junta por dia e escreve a faixa ("1-10"), com todas no texto do mouse.
+  const porDia = {};
   STAGES.forEach((s, i) => {
     if (!item.stages[s]) return;              // só as ticadas
     const done = firstTrue[s];
-    if (done) {
-      dotsHtml += `<div class="gantt-dot done" style="left:${pct(done)}%" title="${STAGE_LABELS[i]} — ${done.toLocaleDateString('pt-BR')}">${i + 1}</div>`;
-    } else {
-      semData.push(STAGE_LABELS[i]);          // ticada sem log de data
-    }
+    if (!done) { semData.push(STAGE_LABELS[i]); return; }
+    const dia = done.toLocaleDateString('pt-BR');
+    (porDia[dia] = porDia[dia] || { quando: done, dia, nums: [], nomes: [] });
+    porDia[dia].nums.push(i + 1);
+    porDia[dia].nomes.push(`${i + 1}. ${STAGE_LABELS[i]}`);
+  });
+  let dotsHtml = '';
+  Object.values(porDia).sort((a, b) => a.quando - b.quando).forEach(g => {
+    const seguidas = g.nums[g.nums.length - 1] - g.nums[0] + 1 === g.nums.length;
+    const rotulo = g.nums.length === 1 ? g.nums[0]
+                 : (seguidas ? `${g.nums[0]}-${g.nums[g.nums.length - 1]}` : `${g.nums.length}×`);
+    const largo = g.nums.length > 1 ? 'width:auto;min-width:16px;padding:0 4px;border-radius:9px' : '';
+    const titulo = `${g.dia} — ${g.nomes.join(', ')}`;
+    dotsHtml += `<div class="gantt-dot done" style="left:${pct(g.quando)}%;${largo}" title="${titulo}">${rotulo}</div>`;
   });
   if (concluidas > 0) {
     const nota = semData.length
@@ -2036,7 +2052,23 @@ function buildGanttHtml(item, logs) {
   if (entrega) {
     let markerColor = 'var(--text-muted)';
     let aviso = '';
-    if (item.progresso < 100) {
+    // Produto liberado: a data que vale é a da ÚLTIMA etapa ticada, porque é
+    // quando ele de fato saiu das mãos do Dev. Comparada com a entrega
+    // prevista, diz se sobrou margem ou se passou do vencimento.
+    let veredito = '';
+    const datasFeitas = STAGES.filter(st => item.stages[st]).map(st => firstTrue[st]).filter(Boolean);
+    const liberadoEm = (item.progresso === 100 && datasFeitas.length) ? new Date(Math.max(...datasFeitas.map(d => d.getTime()))) : null;
+    if (liberadoEm) {
+      const margem = calDays(liberadoEm, entrega);
+      const quando = liberadoEm.toLocaleDateString('pt-BR');
+      if (margem >= 0) {
+        markerColor = 'var(--green)';
+        veredito = `<div class="gantt-nota" style="color:var(--green);font-weight:600">✓ Produto liberado em ${quando}, faltando ${margem} dia${margem === 1 ? '' : 's'} para a entrega</div>`;
+      } else {
+        markerColor = 'var(--red)';
+        veredito = `<div class="gantt-nota" style="color:var(--red);font-weight:600">⚠ Produto liberado em ${quando}, ${-margem} dia${margem === -1 ? '' : 's'} após o vencimento da data de entrega</div>`;
+      }
+    } else if (item.progresso < 100) {
       const diasParaEntrega = calDays(today, entrega);
       if (diasParaEntrega < 0) { markerColor = 'var(--red)'; aviso = ' (atrasado)'; }
       else if (diasParaEntrega <= 7) { markerColor = 'var(--orange)'; aviso = ' (chegando)'; }
@@ -2047,7 +2079,7 @@ function buildGanttHtml(item, logs) {
     html += `<div class="gantt-row">
       <div class="gantt-label">Entrega Prev.</div>
       <div class="gantt-track"><div class="gantt-marker" style="left:${pe}%;background:${markerColor}"></div><div class="gantt-marker-label" style="left:${pe}%;color:${markerColor};transform:${alinha}">${fmtDate(item.dataEntrega)}${aviso}</div></div>
-    </div>`;
+    </div>${veredito}`;
   }
 
   html += `<div class="gantt-axis"><span>${minD.toLocaleDateString('pt-BR')}</span><span>${maxD.toLocaleDateString('pt-BR')}</span></div>`;

@@ -464,8 +464,12 @@ async function loadAll() {
 
   const since = startOfRange(activeRange);
 
+  // As ticagens de ficha preenchidas de uma vez nos produtos antigos foram
+  // trabalho de migração, não atividade de ninguém: no feed elas afogariam o
+  // que as pessoas fizeram de verdade, e nas estatísticas inflariam a conta.
   let logQuery = sb.from('etapa_logs')
     .select('produto, n_pedido, etapa, status, created_at, usuario')
+    .neq('usuario', 'retroativo')
     .order('created_at', { ascending: false });
   if (since) logQuery = logQuery.gte('created_at', since.toISOString());
 
@@ -857,7 +861,7 @@ function renderSolFeed() {
   }
 
   el.innerHTML = lista.map(s => {
-    const destaque = s.produto_ref ? ('📦 ' + s.produto_ref) : s.titulo;
+    const destaque = s.produto_ref || s.titulo;
     const sub = s.produto_ref ? ` <span style="color:var(--text-muted);font-weight:400">— ${s.titulo}</span>` : '';
     const pedidoTag = s.pedido_ref
       ? ` <span style="font-family:'DM Mono',monospace;font-size:10px;color:var(--text-muted)">#${s.pedido_ref}</span>` : '';
@@ -888,7 +892,7 @@ function sdEsc(s) {
 async function abrirSolDetalhe(id) {
   const s = solLista.find(x => x.id === id);
   if (!s) return;
-  document.getElementById('sdTitulo').textContent = s.produto_ref ? ('📦 ' + s.produto_ref) : s.titulo;
+  document.getElementById('sdTitulo').textContent = s.produto_ref || s.titulo;
   document.getElementById('sdSub').textContent = s.produto_ref ? s.titulo : '';
   const pedido = s.pedido_ref ? ` · Pedido #${sdEsc(s.pedido_ref)}` : '';
   document.getElementById('sdMeta').innerHTML =
