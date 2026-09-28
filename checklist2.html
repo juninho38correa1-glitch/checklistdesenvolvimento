@@ -2198,7 +2198,17 @@ async function saveStagesChanges() {
     const item = currentItem;
     const updatedStages = {};
     STAGES.forEach(s => { updatedStages[s] = document.getElementById('chk-' + s).checked; });
-    const updatedResp = document.getElementById('editResponsavel').value;
+    let updatedResp = document.getElementById('editResponsavel').value;
+    /* Quem tica a Modelagem 3D é quem assume o produto, então o responsável
+       entra sozinho — ninguém precisa digitar o próprio nome. Preenche apenas
+       quando o campo está vazio: se alguém já escreveu um nome ali, foi de
+       propósito, e reticar a etapa não pode apagar essa decisão. Trocar
+       depois é no mesmo campo, como sempre foi. */
+    if (!updatedResp.trim() && !item.stages.modelagem3d && updatedStages.modelagem3d) {
+      updatedResp = getOperador();
+      const campo = document.getElementById('editResponsavel');
+      if (campo) campo.value = updatedResp;
+    }
     await logStageChanges(item, item.stages, updatedStages);
 
     // Ticagens extras (Supabase, fora da planilha): grava só o que mudou
