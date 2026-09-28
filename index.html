@@ -86,8 +86,8 @@
     <div class="brand-sub">Desenvolvimento · Portal</div>
     <label class="field-label">Eu sou</label>
     <select id="loginNome"><option value="">Carregando pessoas...</option></select>
-    <label class="field-label">PIN</label>
-    <input type="password" id="loginPin" inputmode="numeric" placeholder="••••" maxlength="6"
+    <label class="field-label">Senha</label>
+    <input type="password" id="loginPin" placeholder="sua senha" maxlength="64"
            onkeydown="if(event.key==='Enter') fazerLogin()">
     <button class="btn btn-primary" onclick="fazerLogin()">Entrar</button>
     <div class="login-err" id="loginErr"></div>
@@ -102,7 +102,7 @@
     <div class="bell" id="bell" onclick="abrirNotificacoes()" title="Notificações">🔔<span class="badge hidden" id="bellBadge">0</span></div>
     <div class="user-chip" id="userChip">—</div>
     <button class="icon-btn" id="btnPush" onclick="alternarPush()" title="Avisos no computador">🔕 Avisos</button>
-    <button class="icon-btn" onclick="abrirTrocarPin()" title="Trocar meu PIN">🔑 Meu PIN</button>
+    <button class="icon-btn" onclick="abrirTrocarPin()" title="Trocar minha senha">🔑 Minha senha</button>
     <button class="icon-btn hidden" id="btnAdmin" onclick="abrirAdmin()">⚙️ Admin</button>
     <button class="icon-btn" onclick="sair()">Sair</button>
   </header>
@@ -144,15 +144,15 @@
 <div class="overlay" id="pinOverlay">
   <div class="modal" style="width:380px">
     <span class="close" onclick="fecharOverlay('pinOverlay')">&times;</span>
-    <h2>Trocar meu PIN</h2>
-    <label class="field-label">PIN atual</label>
-    <input type="password" id="pinAtual" inputmode="numeric" maxlength="6" placeholder="••••">
-    <label class="field-label">Novo PIN (mín. 4 dígitos)</label>
-    <input type="password" id="pinNovo" inputmode="numeric" maxlength="6" placeholder="••••">
-    <label class="field-label">Repita o novo PIN</label>
-    <input type="password" id="pinNovo2" inputmode="numeric" maxlength="6" placeholder="••••"
+    <h2>Trocar minha senha</h2>
+    <label class="field-label">Senha atual</label>
+    <input type="password" id="pinAtual" maxlength="64" placeholder="sua senha">
+    <label class="field-label">Nova senha (mín. 4 caracteres)</label>
+    <input type="password" id="pinNovo" maxlength="64" placeholder="sua senha">
+    <label class="field-label">Repita a nova senha</label>
+    <input type="password" id="pinNovo2" maxlength="64" placeholder="sua senha"
            onkeydown="if(event.key==='Enter') salvarNovoPin()">
-    <button class="btn btn-primary" onclick="salvarNovoPin()">Salvar novo PIN</button>
+    <button class="btn btn-primary" onclick="salvarNovoPin()">Salvar nova senha</button>
     <div class="login-err" id="pinMsg"></div>
   </div>
 </div>
@@ -170,7 +170,7 @@
     <div class="row-form">
       <input class="mini" id="nuNome" placeholder="Nome">
       <input class="mini" id="nuFuncao" placeholder="Função (opcional)">
-      <input class="mini" id="nuPin" placeholder="PIN" inputmode="numeric" maxlength="6">
+      <input class="mini" id="nuPin" placeholder="Senha" maxlength="64">
       <label class="chk"><input type="checkbox" id="nuAdmin"> admin</label>
       <button class="btn btn-ghost mini" onclick="addUsuario()">+ Add</button>
     </div>
@@ -224,7 +224,7 @@ async function fazerLogin() {
   try {
     const { data, error } = await sb.rpc('login_usuario', { p_nome: nome, p_pin: pin });
     if (error) throw error;
-    if (!data || !data.length) { err.textContent = 'PIN incorreto.'; return; }
+    if (!data || !data.length) { err.textContent = 'Senha incorreta.'; return; }
     sessao = data[0];
     localStorage.setItem(SESSAO_KEY, JSON.stringify(sessao));
     entrarApp();
@@ -416,14 +416,14 @@ async function salvarNovoPin() {
   const msg   = document.getElementById('pinMsg');
   msg.style.color = '';
   if (!atual || !novo)      { msg.textContent = 'Preencha todos os campos.'; return; }
-  if (novo.length < 4)      { msg.textContent = 'O novo PIN precisa ter ao menos 4 dígitos.'; return; }
+  if (novo.length < 4)      { msg.textContent = 'A nova senha precisa ter ao menos 4 caracteres.'; return; }
   if (novo !== novo2)       { msg.textContent = 'A repetição do novo PIN não confere.'; return; }
   try {
     const { data, error } = await sb.rpc('alterar_pin', {
       p_usuario_id: sessao.id, p_pin_atual: atual, p_pin_novo: novo
     });
     if (error) throw error;
-    if (data === false) { msg.textContent = 'PIN atual incorreto.'; return; }
+    if (data === false) { msg.textContent = 'Senha atual incorreta.'; return; }
     msg.style.color = 'var(--green)';
     msg.textContent = 'PIN alterado com sucesso!';
     setTimeout(() => fecharOverlay('pinOverlay'), 1200);
