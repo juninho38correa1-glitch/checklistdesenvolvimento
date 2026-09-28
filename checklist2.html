@@ -563,7 +563,11 @@ const SESSAO_KEY = 'studyo4_sessao';   // mesma chave usada pelo portal
 // (gravadas como "etapa virtual" na tabela etapa_logs). Cada uma aparece na tela
 // de ticagem logo após a etapa definida em "after".
 // (Compras agora é um botão "Solicitar Compras" no relatório — não é mais etapa.)
-const EXTRA_TICKS = [];
+const EXTRA_TICKS = [
+  // Marcada pelo Dev quando a ficha do especial chega do PCP. Não é etapa de
+  // produção: é o que fecha o lead time entre "enviado ao PCP" e "ficha na mão".
+  { key: 'fichaRecebida', label: 'Ficha de especial recebida', antes: true },
+];
 const DOC_ITENS = 'Medições, ficha técnica, ficha comercial e bloco 3D';
 const EXTRA_LABELS = Object.fromEntries(EXTRA_TICKS.map(e => [e.key, e.label]));
 
@@ -1460,6 +1464,15 @@ function openStagesModal(rowIndex) {
   const grid = document.getElementById('modalStagesGrid');
   grid.innerHTML = '';
   const curExtras = extraTicks[itemKey(currentItem)] || {};
+  // ticagens que vêm antes das etapas (entrada de trabalho, não produção)
+  EXTRA_TICKS.filter(e => e.antes).forEach(e => {
+    const ck = !!curExtras[e.key];
+    const ex = document.createElement('div');
+    ex.className = `stage-item extra-tick ${ck ? 'checked' : ''}`;
+    if (podeEditarChecklist) ex.onclick = () => { const chk = ex.querySelector('input'); chk.checked = !chk.checked; ex.classList.toggle('checked', chk.checked); };
+    ex.innerHTML = `<input type="checkbox" ${ck ? 'checked' : ''} id="chk-extra-${e.key}" ${podeEditarChecklist?'':'disabled'}><span class="stage-label">${e.label}</span>`;
+    grid.appendChild(ex);
+  });
   STAGES.forEach((s, i) => {
     const isChecked = currentItem.stages[s];
     const item = document.createElement('div');
@@ -1515,6 +1528,7 @@ async function openReportModal(rowIndex) {
     <div class="report-item"><span class="label">Data Recebimento</span><span class="value">${fmtDate(item.dataRecebimento)}</span></div>
     <div class="report-item"><span class="label">Data Entrega</span><span class="value">${fmtDate(item.dataEntrega)}</span></div>
     <div class="report-item"><span class="label">Lead Time Comercial</span><span class="value">${leadLabel}</span></div>
+    <div class="report-item"><span class="label">PCP → Ficha recebida</span><span class="value" id="reportLeadFicha">—</span></div>
     <div class="report-item"><span class="label">Lead Time de Criação</span><span class="value" id="reportLeadCriacao">—</span></div>
     <div class="report-item"><span class="label">Tempo em Produção</span><span class="value">${prodLabel}</span></div>
     <div class="report-item"><span class="label">Lead Modelagem Téc.</span><span class="value" id="reportLeadModTec">—</span></div>
@@ -1552,6 +1566,24 @@ async function openReportModal(rowIndex) {
     if (error) throw error;
 
     ganttEl.innerHTML = buildGanttHtml(item, data || []);
+
+    // PCP -> Ficha: do envio ao PCP até o Dev marcar que a ficha chegou.
+    const fichaDate = dataEtapaAtual(data || [], 'fichaRecebida');
+    const envioPcp  = parseDate(item.dataEnvioPcp);
+    const leadFichaEl = document.getElementById('reportLeadFicha');
+    if (leadFichaEl) {
+      if (envioPcp && fichaDate) {
+        const dias = Math.round((new Date(fichaDate).setHours(0,0,0,0) - envioPcp.setHours(0,0,0,0)) / 86400000);
+        leadFichaEl.textContent = `${dias}d`;
+      } else if (envioPcp) {
+        const dias = Math.floor((new Date().setHours(0,0,0,0) - envioPcp.setHours(0,0,0,0)) / 86400000);
+        leadFichaEl.textContent = `${dias}d (aguardando a ficha)`;
+      } else if (fichaDate) {
+        leadFichaEl.textContent = 'ficha recebida (sem data de envio ao PCP)';
+      } else {
+        leadFichaEl.textContent = '—';
+      }
+    }
 
     // Lead Time de Criação: Recebimento -> tick da Modelagem 3D
     const modelagemDate = dataEtapaAtual(data || [], 'modelagem3d');
