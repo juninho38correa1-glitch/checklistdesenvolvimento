@@ -706,13 +706,51 @@ async function toggleAtivo(id, ativoAtual) {
   if (error) alert('Erro: ' + error.message); else carregarAdmUsers();
 }
 
+/* Cada responsável só pode ser gente do setor dele. Digitado à mão, um nome
+   com um acento trocado ou um sobrenome faltando fazia o app não achar a
+   pessoa e a solicitação simplesmente não sair — calada. Aqui vira lista. */
+const RESP_POR_SETOR = {
+  responsavel_comercial:    'Comercial',
+  responsavel_compras:      'Compras',
+  responsavel_pcp:          'PCP',
+  responsavel_documentacao: 'Dev'
+};
+
 async function carregarAdmConfigs() {
   const tb = document.getElementById('admConfigs');
-  const { data, error } = await sb.from('configuracoes').select('*').order('chave');
-  if (error) { tb.innerHTML = `<tr><td colspan="4" class="empty">Erro ao carregar.</td></tr>`; return; }
-  tb.innerHTML = data.filter(c => c.chave !== 'leadtimes').map(c => `<tr>
+  const [cfgRes, usRes] = await Promise.all([
+    sb.from('configuracoes').select('*').order('chave'),
+    sb.from('usuarios').select('nome,setor,ativo').eq('ativo', true).order('nome')
+  ]);
+  if (cfgRes.error) { tb.innerHTML = `<tr><td colspan="4" class="empty">Erro ao carregar.</td></tr>`; return; }
+  const usuarios = usRes.data || [];
+  // o setor vem 'dev' minúsculo em usuarios e 'Dev' em setores: compara sem caso
+  const doSetor = setor => usuarios.filter(u => String(u.setor || '').trim().toLowerCase() === setor.toLowerCase());
+
+  const campoValor = (c) => {
+    const setor = RESP_POR_SETOR[c.chave];
+    if (!setor) return `<input class="mini" style="width:90px" id="cfg-${c.chave}" value="${(c.valor||'').replace(/"/g,'&quot;')}">`;
+    const gente = doSetor(setor);
+    const atual = c.valor || '';
+    // Se o valor gravado não é de ninguém do setor, ele continua na lista
+    // marcado como fora — trocar por conta própria seria mudar configuração
+    // de produção sem ninguém pedir.
+    const forasteiro = atual && !gente.some(u => u.nome === atual);
+    if (!gente.length) {
+      return `<select class="mini" style="width:170px" id="cfg-${c.chave}">
+        <option value="${atual.replace(/"/g,'&quot;')}">${atual || '—'}</option>
+      </select><div style="font-size:10px;color:var(--red);margin-top:2px">Nenhum usuário ativo no setor ${setor}</div>`;
+    }
+    return `<select class="mini" style="width:170px" id="cfg-${c.chave}">
+      <option value="">— ninguém —</option>
+      ${forasteiro ? `<option value="${atual.replace(/"/g,'&quot;')}" selected>${atual} (fora do setor ${setor})</option>` : ''}
+      ${gente.map(u => `<option value="${u.nome.replace(/"/g,'&quot;')}" ${u.nome === atual ? 'selected' : ''}>${u.nome}</option>`).join('')}
+    </select><div style="font-size:10px;color:var(--text-muted);margin-top:2px">setor ${setor}</div>`;
+  };
+
+  tb.innerHTML = cfgRes.data.filter(c => c.chave !== 'leadtimes').map(c => `<tr>
     <td style="font-family:'DM Mono',monospace;font-size:11px">${c.chave}</td>
-    <td><input class="mini" style="width:90px" id="cfg-${c.chave}" value="${(c.valor||'').replace(/"/g,'&quot;')}"></td>
+    <td>${campoValor(c)}</td>
     <td style="color:var(--text-muted);font-size:12px">${c.descricao || ''}</td>
     <td><button class="btn btn-ghost mini" onclick="salvarConfig('${c.chave}')">Salvar</button></td>
   </tr>`).join('');
