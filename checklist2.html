@@ -571,10 +571,14 @@ const SESSAO_KEY = 'studyo4_sessao';   // mesma chave usada pelo portal
 // não entram na conta do lead time PCP -> ficha.
 const RETRO_USUARIO = 'retroativo';
 
+// O setor vem gravado em `usuarios` como 'dev' minúsculo e em `setores`
+// como 'Dev' — comparar exato deixaria o time inteiro de fora.
+const ehDoDev = s => String(s || '').trim().toLowerCase() === 'dev';
+
 const EXTRA_TICKS = [
   // Marcada pelo Dev quando a ficha do especial chega do PCP. Não é etapa de
   // produção: é o que fecha o lead time entre "enviado ao PCP" e "ficha na mão".
-  { key: 'fichaRecebida', label: 'Ficha de especial recebida', antes: true },
+  { key: 'fichaRecebida', label: 'Ficha de especial recebida', antes: true, soDev: true },
 ];
 const DOC_ITENS = 'Medições, ficha técnica, ficha comercial e bloco 3D';
 const EXTRA_LABELS = Object.fromEntries(EXTRA_TICKS.map(e => [e.key, e.label]));
@@ -600,6 +604,7 @@ let fichaRetro      = {};  // itemKey -> a data é estimada (marcação retroati
 let activityDates   = {};  // itemKey -> Set de 'YYYY-MM-DD' (etapas concluídas)
 let lastFiltered    = [];  // últimos produtos exibidos (para impressão)
 let podeEditarChecklist = true;   // permissão de EDIÇÃO no checklist (ticar/editar)
+let podeTicarFicha      = true;   // receber a ficha do PCP é só do Dev
 let podeCadastrar       = false;  // permissão de CADASTRO de produtos
 
 // nível de acesso do setor à área
@@ -747,31 +752,51 @@ function fichaRecebidaEm(item) {
 
 function fichaHtml(item) {
   const recebida = (extraTicks[itemKey(item)] || {}).fichaRecebida;
-  const clicavel = podeEditarChecklist
+  const clicavel = podeTicarFicha
     ? `onclick="event.stopPropagation();alternarFicha(${item.rowIndex})" style="cursor:pointer"` : '';
+  const soDev = podeTicarFicha ? '' : ' · só o Dev marca a ficha';
   if (recebida) {
     const quando = fichaDatas[itemKey(item)];
     if (fichaRetro[itemKey(item)]) {
       const titulo = 'Marcada de uma vez porque o produto já tinha etapas ticadas'
                    + (quando ? ` (data estimada: ${new Date(quando).toLocaleDateString('pt-BR')})` : '')
                    + ' — não entra na conta do lead time';
-      return `<span class="dias-badge d-green" style="opacity:.62" title="${titulo}" ${clicavel}>✓ ficha</span>`;
+      return `<span class="dias-badge d-green" style="opacity:.62" title="${titulo}${soDev}" ${clicavel}>✓ ficha</span>`;
     }
     const envio = parseDate(item.dataEnvioPcp);
     const dias = (envio && quando) ? Math.round((new Date(quando).setHours(0,0,0,0) - envio.setHours(0,0,0,0)) / 86400000) : null;
     const titulo = (quando ? 'Recebida em ' + new Date(quando).toLocaleDateString('pt-BR') : 'Recebida')
                  + (dias !== null ? ` · ${dias}d desde o envio ao PCP` : '');
-    return `<span class="dias-badge d-green" title="${titulo}" ${clicavel}>✓ ficha</span>`;
+    return `<span class="dias-badge d-green" title="${titulo}${soDev}" ${clicavel}>✓ ficha</span>`;
   }
   const envio = parseDate(item.dataEnvioPcp);
-  if (!envio) return `<span class="dias-badge d-gray" title="Sem data de envio ao PCP" ${clicavel}>— ficha</span>`;
+  if (!envio) return `<span class="dias-badge d-gray" title="Sem data de envio ao PCP${soDev}" ${clicavel}>— ficha</span>`;
   const esperando = Math.floor((new Date().setHours(0,0,0,0) - envio.setHours(0,0,0,0)) / 86400000);
   const cls = esperando > 15 ? 'd-red' : esperando > 7 ? 'd-orange' : 'd-gray';
-  return `<span class="dias-badge ${cls}" title="Enviado ao PCP em ${fmtDate(item.dataEnvioPcp)} — aguardando a ficha" ${clicavel}>⏳ ${esperando}d</span>`;
+  return `<span class="dias-badge ${cls}" title="Enviado ao PCP em ${fmtDate(item.dataEnvioPcp)} — aguardando a ficha${soDev}" ${clicavel}>⏳ ${esperando}d</span>`;
+}
+
+// Receber a ficha do PCP é o que marca o recebimento do produto pelo Dev,
+// então a data entra sozinha — sem ninguém ter de abrir o produto e digitar.
+// Se já houver uma data diferente, pergunta antes de trocar: sobrescrever em
+// silêncio apagaria um recebimento que alguém registrou de propósito.
+function hojeISO() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+async function carimbarRecebimento(item) {
+  const hoje = hojeISO();
+  if (item.dataRecebimento === hoje) return;
+  if (item.dataRecebimento &&
+      !confirm(`Este produto já tem recebimento em ${fmtDate(item.dataRecebimento)}.
+`
+             + `Trocar pela data de hoje (${fmtDate(hoje)})?`)) return;
+  await callAPI({ rowIndex: item.rowIndex, dataRecebimento: hoje.split('-').reverse().join('/') });
 }
 
 async function alternarFicha(rowIndex) {
-  if (!podeEditarChecklist) return;
+  if (!podeTicarFicha) return;
   const item = allData.find(d => d.rowIndex === rowIndex);
   if (!item) return;
   const key = itemKey(item);
@@ -783,6 +808,7 @@ async function alternarFicha(rowIndex) {
   fichaDatas[key] = novo ? new Date().toISOString() : null;
   fichaRetro[key] = false;   // clique de gente: data medida, essa vale pro lead
   renderTable();
+  if (novo) await carimbarRecebimento(item);   // já renderiza de novo por dentro
 }
 
 /* ── TICAGENS EXTRAS (Supabase, etapa virtual) ─────────── */
@@ -1537,7 +1563,8 @@ function openStagesModal(rowIndex) {
     const ex = document.createElement('div');
     ex.className = `stage-item extra-tick ${ck ? 'checked' : ''}`;
     if (podeEditarChecklist) ex.onclick = () => { const chk = ex.querySelector('input'); chk.checked = !chk.checked; ex.classList.toggle('checked', chk.checked); };
-    ex.innerHTML = `<input type="checkbox" ${ck ? 'checked' : ''} id="chk-extra-${e.key}" ${podeEditarChecklist?'':'disabled'}><span class="stage-label">${e.label}</span>`;
+    const liberado = e.soDev ? podeTicarFicha : podeEditarChecklist;
+    ex.innerHTML = `<input type="checkbox" ${ck ? 'checked' : ''} id="chk-extra-${e.key}" ${liberado?'':'disabled'}><span class="stage-label">${e.label}</span>`;
     grid.appendChild(ex);
   });
   STAGES.forEach((s, i) => {
@@ -1553,7 +1580,8 @@ function openStagesModal(rowIndex) {
       const ex = document.createElement('div');
       ex.className = `stage-item extra-tick ${ck ? 'checked' : ''}`;
       ex.onclick = () => { const chk = ex.querySelector('input'); chk.checked = !chk.checked; ex.classList.toggle('checked', chk.checked); };
-      ex.innerHTML = `<input type="checkbox" ${ck ? 'checked' : ''} id="chk-extra-${e.key}"><span class="stage-label">${e.label}</span>`;
+      const lib = e.soDev ? podeTicarFicha : podeEditarChecklist;
+      ex.innerHTML = `<input type="checkbox" ${ck ? 'checked' : ''} id="chk-extra-${e.key}" ${lib?'':'disabled'}><span class="stage-label">${e.label}</span>`;
       grid.appendChild(ex);
     });
   });
@@ -2014,10 +2042,13 @@ async function saveStagesChanges() {
     for (const e of EXTRA_TICKS) {
       const el = document.getElementById('chk-extra-' + e.key);
       if (!el) continue;
+      if (e.soDev && !podeTicarFicha) continue;
       const novo = el.checked;
       const antigo = !!curExtras[e.key];
       if (novo !== antigo) {
         await logExtraTick(item, e.key, novo);
+        if (e.key === 'fichaRecebida') { fichaDatas[itemKey(item)] = novo ? new Date().toISOString() : null; fichaRetro[itemKey(item)] = false; }
+        if (e.key === 'fichaRecebida' && novo) await carimbarRecebimento(item);
         if (!extraTicks[key]) extraTicks[key] = {};
         extraTicks[key][e.key] = novo;
       }
@@ -2457,6 +2488,7 @@ if (!carregarSessao()) throw new Error('sem sessão — redirecionando para o po
   const nv = nivelArea('checklist');
   if (nv === 'nenhum') { location.href = 'index.html'; throw new Error('sem acesso ao checklist'); }
   podeEditarChecklist = (nv === 'edicao');
+  podeTicarFicha = podeEditarChecklist && ehDoDev(sessao && sessao.setor);
   podeCadastrar = (nivelArea('cadastro') === 'edicao');
   if (podeCadastrar) { document.getElementById('btnNovoProduto').style.display = ''; document.getElementById('thEditar').style.display = ''; }
   if (!podeEditarChecklist) document.getElementById('avisoLeitura').style.display = '';
