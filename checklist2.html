@@ -571,6 +571,18 @@ const SESSAO_KEY = 'studyo4_sessao';   // mesma chave usada pelo portal
 // não entram na conta do lead time PCP -> ficha.
 const RETRO_USUARIO = 'retroativo';
 
+// As duas esperas do início do processo (comercial mandar ao PCP, PCP
+// devolver a ficha) usam a mesma régua, para ninguém ter de lembrar duas.
+const ALERTA_LARANJA_DIAS  = 5;
+const ALERTA_VERMELHO_DIAS = 7;
+function diasDesde(iso) {
+  const d = parseDate(iso);
+  return d ? Math.floor((new Date().setHours(0,0,0,0) - d.setHours(0,0,0,0)) / 86400000) : null;
+}
+function corDaEspera(dias) {
+  return dias >= ALERTA_VERMELHO_DIAS ? 'red' : dias >= ALERTA_LARANJA_DIAS ? 'orange' : 'gray';
+}
+
 // O setor vem gravado em `usuarios` como 'dev' minúsculo e em `setores`
 // como 'Dev' — comparar exato deixaria o time inteiro de fora.
 const ehDoDev = s => String(s || '').trim().toLowerCase() === 'dev';
@@ -787,10 +799,15 @@ function fichaHtml(item) {
     return `<span class="dias-badge d-green" title="${titulo}${soDev}" ${clicavel}>✓ ficha</span>`;
   }
   const envio = parseDate(item.dataEnvioPcp);
-  if (!envio) return `<span class="dias-badge d-gray" title="Sem data de envio ao PCP${soDev}" ${clicavel}>— ficha</span>`;
-  const esperando = Math.floor((new Date().setHours(0,0,0,0) - envio.setHours(0,0,0,0)) / 86400000);
-  const cls = esperando > 15 ? 'd-red' : esperando > 7 ? 'd-orange' : 'd-gray';
-  return `<span class="dias-badge ${cls}" title="Enviado ao PCP em ${fmtDate(item.dataEnvioPcp)} — aguardando a ficha${soDev}" ${clicavel}>⏳ ${esperando}d</span>`;
+  // Sem data de envio ao PCP a espera é outra: quem deve agir é o comercial,
+  // e o relógio corre desde a solicitação. Mostrar cinza parado escondia isso.
+  if (!envio) {
+    const dias = diasDesde(item.dataSolicitacao);
+    if (dias === null) return `<span class="dias-badge d-gray" title="Sem data de solicitação nem de envio ao PCP${soDev}" ${clicavel}>— ficha</span>`;
+    return `<span class="dias-badge d-${corDaEspera(dias)}" title="Solicitado em ${fmtDate(item.dataSolicitacao)} — há ${dias}d sem Data de Envio ao PCP (comercial)${soDev}" ${clicavel}>📅 ${dias}d</span>`;
+  }
+  const esperando = diasDesde(item.dataEnvioPcp);
+  return `<span class="dias-badge d-${corDaEspera(esperando)}" title="Enviado ao PCP em ${fmtDate(item.dataEnvioPcp)} — há ${esperando}d aguardando a ficha${soDev}" ${clicavel}>⏳ ${esperando}d</span>`;
 }
 
 // Receber a ficha do PCP é o que marca o recebimento do produto pelo Dev,
@@ -865,7 +882,11 @@ const SERVICOS = {
   // Aberta sozinha quando a Data de Envio ao PCP é preenchida: é o aviso
   // de que o produto saiu do comercial e o PCP já pode incluir em lote.
   // descLivre: a descrição vai pronta, em bloco, sem prefixo de serviço
-  pcp:          { chave:'responsavel_pcp',          titulo:'Liberado para inclusão em lote', desc:'Produto liberado pelo comercial para o PCP incluir em lote', ic:'🏭', descLivre: true }
+  pcp:          { chave:'responsavel_pcp',          titulo:'Liberado para inclusão em lote', desc:'Produto liberado pelo comercial para o PCP incluir em lote', ic:'🏭', descLivre: true },
+  // Cobranças: umaVezSo impede reabrir a mesma cobrança depois de concluída,
+  // senão a varredura viraria uma nagada a cada vez que alguém abre a tela.
+  comercialPcp: { chave:'responsavel_comercial',    titulo:'Falta a Data de Envio ao PCP', desc:'Pedido parado esperando a data de envio ao PCP', ic:'📅', descLivre: true, umaVezSo: true },
+  pcpFicha:     { chave:'responsavel_pcp',          titulo:'Ficha de especial atrasada',   desc:'Ficha ainda não chegou ao Dev', ic:'⏳', descLivre: true, umaVezSo: true }
 };
 let respServico = {};   // tipo -> { id, nome }
 
@@ -891,7 +912,8 @@ async function abrirSolicitacaoServico(tipo, item, obs, silencioso) {
   if (!resp) { aviso(`Nenhum responsável configurado para ${def.titulo}.\nDefina "${def.chave}" no admin → Configurações.`); return null; }
   try {
     let q = supabaseClient.from('solicitacoes').select('id')
-      .eq('produto_ref', item.produto).in('status', ['aberta','em_andamento']).ilike('titulo', def.titulo + '%');
+      .eq('produto_ref', item.produto).ilike('titulo', def.titulo + '%');
+    if (!def.umaVezSo) q = q.in('status', ['aberta','em_andamento']);
     q = item.nPedido ? q.eq('pedido_ref', item.nPedido) : q.is('pedido_ref', null);
     const { data: existentes } = await q;
     if (existentes && existentes.length) { aviso(`Já existe uma solicitação de ${def.titulo} em aberto para este produto.`); return null; }
@@ -917,6 +939,40 @@ async function abrirSolicitacaoServico(tipo, item, obs, silencioso) {
    sozinha, com os dados do produto no corpo para ele não ter de procurar.
    Só dispara na transição vazio -> preenchido: reeditar a data depois não
    abre solicitação nova. */
+/* Cobranças automáticas das duas esperas do começo do processo.
+   Elas travam o pedido antes de qualquer etapa e ninguém via quando passavam
+   do ponto. Quem dispara a varredura é o Dev, porque é ele quem fica parado
+   esperando — e assim a cobrança sai no nome de quem está sendo travado, não
+   no de quem por acaso abriu a tela.
+   A do comercial só vale para produto que ainda não andou: se as etapas já
+   rodaram, a data faltando é buraco de histórico, não coisa a resolver. */
+async function cobrarPendencias() {
+  if (!podeEditarChecklist || !sessao) return;
+  if (!Object.keys(respServico).length) await carregarRespServicos();
+  for (const item of allData) {
+    if (item.progresso === 0 && item.dataSolicitacao && !item.dataEnvioPcp) {
+      const dias = diasDesde(item.dataSolicitacao);
+      if (dias !== null && dias >= ALERTA_LARANJA_DIAS) {
+        await abrirSolicitacaoServico('comercialPcp', item,
+          `Solicitado em ${fmtDate(item.dataSolicitacao)}, há ${dias} dias, e ainda sem Data de Envio ao PCP.\n\n`
+          + `Sem essa data o PCP não recebe o pedido e o prazo começa a correr contra.\n`
+          + `Produto: ${item.produto}\n`
+          + `Nº pedido: ${item.nPedido || '—'}`, true);
+      }
+    }
+    if (item.dataEnvioPcp && !(extraTicks[itemKey(item)] || {}).fichaRecebida) {
+      const dias = diasDesde(item.dataEnvioPcp);
+      if (dias !== null && dias >= ALERTA_LARANJA_DIAS) {
+        await abrirSolicitacaoServico('pcpFicha', item,
+          `Enviado ao PCP em ${fmtDate(item.dataEnvioPcp)}, há ${dias} dias, e a ficha ainda não chegou ao Dev.\n\n`
+          + `Sem a ficha o Dev não consegue começar.\n`
+          + `Produto: ${item.produto}\n`
+          + `Nº pedido: ${item.nPedido || '—'}`, true);
+      }
+    }
+  }
+}
+
 async function avisarPcpLiberado(prod) {
   if (!prod || !prod.data_envio_pcp) return;
   if (!respServico.pcp) await carregarRespServicos();
@@ -1422,6 +1478,7 @@ async function loadCSV(isSilent = false) {
     activityDates = await loadActivityDates();
     if (!Object.keys(respServico).length) await carregarRespServicos();
     checkStatusAlerts();
+    cobrarPendencias().catch(e => console.error('cobrança automática:', e));
     document.getElementById('stateBox').style.display  = 'none';
     document.getElementById('tableWrap').style.display = 'block';
     populateFilters();
@@ -1865,12 +1922,13 @@ function buildGanttHtml(item, logs) {
     const left = pct(envioPcp);
     const width = Math.max(1, pct(end) - left);
     const retro = fichaDt && fichaRetroGantt;
+    const cor = { red: 'var(--red)', orange: 'var(--orange)', gray: 'var(--text-muted)' };
     const color = retro ? 'var(--text-muted)'
                 : fichaDt ? '#1D8348'
-                : (dias > 15 ? 'var(--red)' : (dias > 7 ? 'var(--orange)' : 'var(--text-muted)'));
+                : cor[corDaEspera(dias)];
     const text = retro ? 'retroativo' : `${dias}d${fichaDt ? '' : ' (aguardando ficha)'}`;
     html += `<div class="gantt-row">
-      <div class="gantt-label">Ficha<div style="font-size:8px;font-weight:400;text-transform:none;letter-spacing:0">Envio PCP → Ficha</div></div>
+      <div class="gantt-label">Ficha<div style="font-size:8px;font-weight:400;text-transform:none;letter-spacing:0">PCP → Recebimento Ficha</div></div>
       <div class="gantt-track">${ganttBar(left, width, color, text, `Envio ao PCP ${fmtDate(item.dataEnvioPcp)}${fichaDt ? (retro ? ' → ficha marcada retroativamente (data estimada ' + fichaDt.toLocaleDateString('pt-BR') + ')' : ' → Ficha recebida em ' + fichaDt.toLocaleDateString('pt-BR')) : ' → ficha ainda não recebida'}`)}</div>
     </div>`;
   }
@@ -1887,6 +1945,22 @@ function buildGanttHtml(item, logs) {
     html += `<div class="gantt-row">
       <div class="gantt-label">Criação<div style="font-size:8px;font-weight:400;text-transform:none;letter-spacing:0">Receb. → Modelagem 3D</div></div>
       <div class="gantt-track">${ganttBar(left, width, color, text, `Recebimento ${fmtDate(item.dataRecebimento)}${modelagem ? ' → Modelagem 3D ' + modelagem.toLocaleDateString('pt-BR') : ' → Modelagem 3D ainda não marcada'}`)}</div>
+    </div>`;
+  }
+
+  // Preparação: da Modelagem 3D até a Programação. É o intervalo em que o
+  // gabarito é extraído e as listas são feitas — fica entre a criação e a
+  // produção, e antes não aparecia em lugar nenhum da linha do tempo.
+  const programacao = firstTrue['programacao'];
+  if (modelagem) {
+    const end = programacao || today;
+    const left = pct(modelagem);
+    const width = Math.max(1, pct(end) - left);
+    const color = programacao ? '#B7791F' : 'var(--orange)';
+    const text = `${calDays(modelagem, end)}d${programacao ? '' : ' (aguardando Programação)'}`;
+    html += `<div class="gantt-row">
+      <div class="gantt-label">Preparação<div style="font-size:8px;font-weight:400;text-transform:none;letter-spacing:0">Itens para produção</div></div>
+      <div class="gantt-track">${ganttBar(left, width, color, text, `Preparação de itens para produção — Modelagem 3D ${modelagem.toLocaleDateString('pt-BR')}${programacao ? ' → Programação ' + programacao.toLocaleDateString('pt-BR') : ' → Programação ainda não marcada'}`)}</div>
     </div>`;
   }
 
