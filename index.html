@@ -57,6 +57,7 @@
 
   /* MODAL */
   .overlay { position:fixed; inset:0; background:rgba(0,0,0,.5); display:none; align-items:center; justify-content:center; z-index:100; padding:20px; backdrop-filter:blur(2px); }
+  #setorOverlay { z-index:120; }  /* abre por cima do modal admin */
   .modal { background:white; border-radius:14px; width:640px; max-width:100%; max-height:90vh; overflow-y:auto; padding:26px; position:relative; }
   .modal h2 { font-family:'DM Serif Display',serif; font-size:22px; margin-bottom:4px; }
   .modal .close { position:absolute; top:16px; right:18px; font-size:24px; cursor:pointer; color:var(--text-muted); }
@@ -104,30 +105,15 @@
     <button class="icon-btn" id="btnPush" onclick="alternarPush()" title="Avisos no computador">🔕 Avisos</button>
     <button class="icon-btn" onclick="abrirTrocarPin()" title="Trocar minha senha">🔑 Minha senha</button>
     <button class="icon-btn hidden" id="btnAdmin" onclick="abrirAdmin()">⚙️ Admin</button>
+    <a class="icon-btn" href="https://st4controle.vercel.app" target="_blank" rel="noopener"
+       title="Ir para o Controle de Produção" style="text-decoration:none">🏭 Produção ↗</a>
     <button class="icon-btn" onclick="sair()">Sair</button>
   </header>
 
   <div class="container">
     <div class="portal-title" id="portalTitle">Desenvolvimento Studyo4</div>
     <div class="portal-sub">Escolha um sistema para começar.</div>
-    <div class="cards">
-      <a class="nav-card" href="checklist.html">
-        <div class="ic">✅</div>
-        <h3>Checklist de Protótipos</h3>
-        <p>Acompanhamento das etapas de desenvolvimento dos produtos.</p>
-      </a>
-      <a class="nav-card" href="solicitacoes.html">
-        <div class="ic">📨</div>
-        <h3>Solicitações</h3>
-        <p>Tarefas encadeáveis entre pessoas, com notificações.</p>
-      </a>
-      <a class="nav-card hidden" id="cardAtividade" href="admin.html">
-        <div class="ic">📊</div>
-        <h3>Painel de Atividade</h3>
-        <p>Estatísticas e feed de ações da equipe no checklist.</p>
-        <span class="tag">Somente admin</span>
-      </a>
-    </div>
+    <div class="cards" id="cardsPortal"></div>
   </div>
 </div>
 
@@ -157,19 +143,49 @@
   </div>
 </div>
 
+<!-- MODAL SETORES -->
+<div class="overlay" id="setorOverlay">
+  <div class="modal" style="width:480px">
+    <span class="close" onclick="fecharOverlay('setorOverlay')">&times;</span>
+    <h2>Setores e acessos</h2>
+    <div style="font-size:12px;color:var(--text-muted);margin-bottom:8px">
+      Cada setor define o que a pessoa <b>vê</b>, o que pode <b>editar</b> e o que é <b>somente leitura</b>.
+    </div>
+    <div id="setoresLista"></div>
+    <button class="btn btn-ghost mini" style="margin-top:10px" onclick="novoSetor()">+ Novo setor</button>
+
+    <div id="setorEdit" class="hidden" style="border-top:1px solid var(--border);margin-top:14px;padding-top:14px">
+      <label class="field-label">Nome do setor</label>
+      <input class="mini" id="setorNomeInput" style="width:100%" placeholder="Ex: Comercial">
+      <table style="margin-top:10px">
+        <thead><tr><th>Área</th><th style="text-align:right">Acesso</th></tr></thead>
+        <tbody id="setorAreas"></tbody>
+      </table>
+      <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px">
+        <button class="btn btn-ghost mini" onclick="document.getElementById('setorEdit').classList.add('hidden')">Cancelar</button>
+        <button class="btn btn-save mini" onclick="salvarSetor()">Salvar setor</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <!-- MODAL ADMIN -->
 <div class="overlay" id="adminOverlay">
   <div class="modal">
     <span class="close" onclick="fecharOverlay('adminOverlay')">&times;</span>
     <h2>Painel Admin</h2>
-    <span class="section-label">Pessoas</span>
+    <div style="display:flex;align-items:center;gap:10px">
+      <span class="section-label" style="border:none;margin:22px 0 10px">Pessoas</span>
+      <button class="btn btn-ghost mini" style="margin-left:auto" onclick="abrirSetores()">⚙️ Setores e acessos</button>
+    </div>
     <table>
-      <thead><tr><th>Nome</th><th>Função</th><th>Perfil</th><th>Ações</th></tr></thead>
+      <thead><tr><th>Nome</th><th>Função</th><th>Setor / Perfil</th><th>Ações</th></tr></thead>
       <tbody id="admUsers"></tbody>
     </table>
-    <div class="row-form">
+    <div class="row-form" style="grid-template-columns:1.3fr 1.1fr .9fr .7fr .5fr auto">
       <input class="mini" id="nuNome" placeholder="Nome">
       <input class="mini" id="nuFuncao" placeholder="Função (opcional)">
+      <select class="mini" id="nuSetor"></select>
       <input class="mini" id="nuPin" placeholder="Senha" maxlength="64">
       <label class="chk"><input type="checkbox" id="nuAdmin"> admin</label>
       <button class="btn btn-ghost mini" onclick="addUsuario()">+ Add</button>
@@ -239,13 +255,53 @@ function sair() {
   location.reload();
 }
 
+/* ── PERMISSÕES ────────────────────────────────────── */
+// Áreas do sistema. Cada usuário tem, em sessao.permissoes[key], um nível:
+// 'nenhum' | 'leitura' | 'edicao'. Admin vê/edita tudo.
+const AREAS = [
+  { key:'checklist',    ic:'✅', titulo:'Controle de Protótipos v2', desc:'Acompanhamento das etapas de desenvolvimento.',      href:'checklist2.html' },
+  { key:'alteracoes',   ic:'🔧', titulo:'Controle de Alterações',   desc:'Ficha do produto: validação e alterações ao longo do tempo.', href:'alteracoes.html' },
+  { key:'solicitacoes', ic:'📨', titulo:'Solicitações',             desc:'Tarefas encadeáveis entre pessoas, com notificações.', href:'solicitacoes.html' },
+  { key:'atividade',    ic:'📊', titulo:'Painel de Atividade',      desc:'Estatísticas e feed de ações da equipe.',            href:'admin.html' },
+  // O v1 continua na lista até a virada: ninguém fica sem a ferramenta que usa hoje.
+  { key:'checklist',    ic:'📋', titulo:'Controle de Protótipos v1', desc:'Versão anterior, que lê a lista de produtos da planilha.', href:'checklist.html', legado:true }
+];
+const NIVEIS = { nenhum:'Sem acesso', leitura:'Somente leitura', edicao:'Edição' };
+
+// Compatibilidade: sessão antiga (sem permissoes) usa o comportamento legado.
+function nivelArea(area) {
+  if (sessao && sessao.admin) return 'edicao';
+  const p = sessao && sessao.permissoes;
+  if (p && Object.keys(p).length) return p[area] || 'nenhum';
+  // legado: sem permissões configuradas -> checklist e solicitações liberados
+  return (area === 'checklist' || area === 'solicitacoes') ? 'edicao' : 'nenhum';
+}
+const podeVer    = area => nivelArea(area) !== 'nenhum';
+const podeEditar = area => nivelArea(area) === 'edicao';
+
+function renderCards() {
+  const el = document.getElementById('cardsPortal');
+  const visiveis = AREAS.filter(a => podeVer(a.key));
+  if (!visiveis.length) { el.innerHTML = '<div style="color:var(--text-muted);font-size:14px">Nenhuma área liberada para você. Fale com o admin.</div>'; return; }
+  el.innerHTML = visiveis.map(a => {
+    const somenteLeitura = nivelArea(a.key) === 'leitura';
+    return `<a class="nav-card" href="${a.href}">
+      <div class="ic">${a.ic}</div>
+      <h3>${a.titulo}</h3>
+      <p>${a.desc}</p>
+      ${a.legado ? '<span class="tag">Versão anterior</span>' : ''}
+      ${somenteLeitura ? '<span class="tag">Somente leitura</span>' : ''}
+    </a>`;
+  }).join('');
+}
+
 /* ── APP ───────────────────────────────────────────── */
 function entrarApp() {
   document.getElementById('loginWrap').classList.add('hidden');
   document.getElementById('appWrap').classList.remove('hidden');
   document.getElementById('userChip').textContent = '👤 ' + sessao.nome;
   document.getElementById('btnAdmin').classList.toggle('hidden', !sessao.admin);
-  document.getElementById('cardAtividade').classList.toggle('hidden', !sessao.admin);
+  renderCards();
   carregarTituloPortal();
   renderBotaoPush();
   atualizarBell();
@@ -436,23 +492,125 @@ async function salvarNovoPin() {
 /* ── ADMIN ─────────────────────────────────────────── */
 async function abrirAdmin() {
   abrirOverlay('adminOverlay');
+  await carregarSetores();
+  document.getElementById('nuSetor').innerHTML = '<option value="">Setor —</option>' +
+    setoresLista.map(s => `<option value="${s.nome}">${s.nome}</option>`).join('');
   await Promise.all([carregarAdmUsers(), carregarAdmConfigs(), carregarAdmHistorico()]);
+}
+
+let admUsuarios = [], setoresLista = [];
+
+async function carregarSetores() {
+  const { data } = await sb.from('setores').select('*').order('nome');
+  setoresLista = data || [];
 }
 
 async function carregarAdmUsers() {
   const tb = document.getElementById('admUsers');
-  const { data, error } = await sb.from('usuarios').select('id,nome,funcao,admin,ativo').order('nome');
+  const { data, error } = await sb.from('usuarios').select('id,nome,funcao,admin,ativo,setor').order('nome');
   if (error) { tb.innerHTML = `<tr><td colspan="4" class="empty">Erro ao carregar.</td></tr>`; return; }
+  admUsuarios = data;
+  const optsSetor = (sel) => '<option value="">—</option>' + setoresLista.map(s =>
+    `<option value="${s.nome}" ${(sel||'').toLowerCase()===s.nome.toLowerCase()?'selected':''}>${s.nome}</option>`).join('');
   tb.innerHTML = data.map(u => `<tr>
     <td><input class="mini" style="width:100%" id="nm-${u.id}" value="${u.nome.replace(/"/g,'&quot;')}"></td>
     <td>${u.funcao || '—'}</td>
-    <td>${u.admin ? '<span class="pill admin">admin</span>' : ''}${!u.ativo ? '<span class="pill off">inativo</span>' : ''}</td>
+    <td>${u.admin
+      ? '<span class="pill admin">admin</span>'
+      : `<select class="mini" onchange="mudarSetor('${u.id}', this.value)">${optsSetor(u.setor)}</select>`}
+      ${!u.ativo ? '<span class="pill off">inativo</span>' : ''}</td>
     <td style="white-space:nowrap">
-      <button class="btn btn-ghost mini" onclick="salvarNome('${u.id}')" title="Salvar nome (propaga para todo o histórico)">Salvar</button>
+      <button class="btn btn-ghost mini" onclick="salvarNome('${u.id}')" title="Salvar nome (propaga para todo o histórico)">Nome</button>
       <button class="btn btn-ghost mini" onclick="resetPin('${u.id}','${u.nome.replace(/'/g,"\\'")}')">PIN</button>
       <button class="btn btn-ghost mini" onclick="toggleAtivo('${u.id}', ${u.ativo})">${u.ativo ? 'Inativar' : 'Ativar'}</button>
     </td>
   </tr>`).join('');
+}
+
+// muda o setor de uma pessoa (as permissões vêm do setor)
+async function mudarSetor(id, setor) {
+  const { error } = await sb.from('usuarios').update({ setor: setor || null }).eq('id', id);
+  if (error) { alert('Erro: ' + error.message); carregarAdmUsers(); return; }
+  const u = admUsuarios.find(x => x.id === id); if (u) u.setor = setor;
+  if (sessao.id === id) {   // mudou o próprio setor → recarrega permissões resolvidas
+    const s = setoresLista.find(x => x.nome.toLowerCase() === (setor||'').toLowerCase());
+    sessao.setor = setor; sessao.permissoes = (s && s.permissoes) || {};
+    localStorage.setItem(SESSAO_KEY, JSON.stringify(sessao));
+    renderCards();
+  }
+}
+
+/* ── SETORES (cadastrar setor + configurar acessos) ── */
+const ADM_AREAS = [
+  { key:'cadastro',     label:'Cadastrar Produtos' },
+  { key:'checklist',    label:'Checklist de Protótipos' },
+  { key:'alteracoes',   label:'Controle de Alterações' },
+  { key:'solicitacoes', label:'Solicitações' },
+  { key:'atividade',    label:'Painel de Atividade' }
+];
+let editandoSetorOriginal = null;
+
+async function abrirSetores() {
+  await carregarSetores();
+  renderSetoresLista();
+  document.getElementById('setorEdit').classList.add('hidden');
+  document.getElementById('setorOverlay').style.display = 'flex';
+}
+
+function renderSetoresLista() {
+  const el = document.getElementById('setoresLista');
+  if (!setoresLista.length) { el.innerHTML = '<div style="color:var(--text-muted);font-size:13px;padding:10px 0">Nenhum setor cadastrado.</div>'; return; }
+  el.innerHTML = setoresLista.map(s => {
+    const resumo = ADM_AREAS.map(a => `${a.label.split(' ')[0]}: <b>${NIVEIS[(s.permissoes||{})[a.key] || 'nenhum']}</b>`).join(' · ');
+    return `<div style="display:flex;align-items:center;gap:8px;padding:9px 0;border-bottom:1px solid var(--border)">
+      <div style="flex:1"><div style="font-weight:600">${s.nome}</div><div style="font-size:10px;color:var(--text-muted)">${resumo}</div></div>
+      <button class="btn btn-ghost mini" onclick="editarSetor('${s.nome.replace(/'/g,"\\'")}')">Editar</button>
+      <button class="btn btn-ghost mini" onclick="excluirSetor('${s.nome.replace(/'/g,"\\'")}')">Excluir</button>
+    </div>`;
+  }).join('');
+}
+
+function abrirFormSetor(nome, perm) {
+  editandoSetorOriginal = nome;
+  const inp = document.getElementById('setorNomeInput');
+  inp.value = nome || ''; inp.disabled = !!nome;
+  document.getElementById('setorAreas').innerHTML = ADM_AREAS.map(a => `<tr>
+    <td>${a.label}</td>
+    <td style="text-align:right"><select id="sperm-${a.key}">
+      <option value="nenhum">Sem acesso</option>
+      <option value="leitura">Somente leitura</option>
+      <option value="edicao">Edição</option>
+    </select></td></tr>`).join('');
+  ADM_AREAS.forEach(a => { document.getElementById('sperm-'+a.key).value = (perm||{})[a.key] || 'nenhum'; });
+  document.getElementById('setorEdit').classList.remove('hidden');
+}
+function novoSetor() { abrirFormSetor(null, {}); }
+function editarSetor(nome) { const s = setoresLista.find(x => x.nome === nome); abrirFormSetor(nome, s ? s.permissoes : {}); }
+
+async function salvarSetor() {
+  const nome = document.getElementById('setorNomeInput').value.trim();
+  if (!nome) { alert('Informe o nome do setor.'); return; }
+  const permissoes = {};
+  ADM_AREAS.forEach(a => { permissoes[a.key] = document.getElementById('sperm-'+a.key).value; });
+  const { error } = await sb.from('setores').upsert({ nome, permissoes });
+  if (error) { alert('Erro: ' + error.message); return; }
+  await carregarSetores();
+  renderSetoresLista();
+  document.getElementById('setorEdit').classList.add('hidden');
+  carregarAdmUsers();
+  // se afeta o meu setor, atualiza minhas permissões na sessão
+  if ((sessao.setor||'').toLowerCase() === nome.toLowerCase()) {
+    sessao.permissoes = permissoes; localStorage.setItem(SESSAO_KEY, JSON.stringify(sessao)); renderCards();
+  }
+}
+
+async function excluirSetor(nome) {
+  const emUso = admUsuarios.filter(u => (u.setor||'').toLowerCase() === nome.toLowerCase()).length;
+  const msg = emUso ? `${emUso} pessoa(s) usam "${nome}" — elas ficam sem setor. Excluir?` : `Excluir o setor "${nome}"?`;
+  if (!confirm(msg)) return;
+  const { error } = await sb.from('setores').delete().eq('nome', nome);
+  if (error) { alert('Erro: ' + error.message); return; }
+  await carregarSetores(); renderSetoresLista(); carregarAdmUsers();
 }
 
 // Renomeia o usuário propagando o nome em etapa_logs e pedido_observacoes
@@ -520,11 +678,13 @@ async function addUsuario() {
   const funcao = document.getElementById('nuFuncao').value.trim();
   const pin = document.getElementById('nuPin').value.trim();
   const admin = document.getElementById('nuAdmin').checked;
+  const setor = document.getElementById('nuSetor').value || null;
   if (!nome || !pin) { alert('Nome e PIN são obrigatórios.'); return; }
-  const { error } = await sb.from('usuarios').insert({ nome, funcao: funcao || null, pin, admin });
+  const { error } = await sb.from('usuarios').insert({ nome, funcao: funcao || null, pin, admin, setor });
   if (error) { alert('Erro: ' + error.message); return; }
   document.getElementById('nuNome').value = ''; document.getElementById('nuFuncao').value = '';
   document.getElementById('nuPin').value = ''; document.getElementById('nuAdmin').checked = false;
+  document.getElementById('nuSetor').value = '';
   carregarAdmUsers();
 }
 
