@@ -317,14 +317,14 @@
       <option value="green">🟢 Finalizados (100%)</option>
     </select>
     <div class="date-filter">
-      <select id="filterDateField" onchange="renderTable()" title="Qual data usar no filtro">
+      <select id="filterDateField" onchange="renderTable()" title="Escolhe qual data o intervalo ao lado usa. Sozinho não filtra nada.">
+        <option value="dataRecebimento">Data: Recebimento</option>
+        <option value="dataSolicitacao">Data: Solicitação</option>
+        <option value="dataEntrega">Data: Entrega</option>
         <option value="frente:dev">Feito pelo Dev (3D + Téc.)</option>
         <option value="frente:modelagem3d">Frente: Modelagem 3D</option>
         <option value="frente:modelagemTec">Frente: Modelagem Téc.</option>
         <option value="frente:erika">Frente: Erika (Extração + Prog. + Compras)</option>
-        <option value="dataRecebimento">Recebimento</option>
-        <option value="dataSolicitacao">Solicitação</option>
-        <option value="dataEntrega">Entrega</option>
       </select>
       <span class="df-label">de</span>
       <input type="date" id="filterDateFrom" onchange="renderTable()" onkeydown="if(event.key==='Tab' && !event.shiftKey){event.preventDefault(); document.getElementById('filterDateTo').focus();}">
@@ -645,8 +645,8 @@ async function reconciliarOrfaos() {
     const porLinha = {};
     allData.forEach(d => { porLinha[d.rowIndex] = d; });
 
-    const { data, error } = await supabaseClient.from('etapa_logs').select('produto, row_index, n_pedido');
-    if (error || !data) return;
+    const data = await buscarTudo(() => supabaseClient.from('etapa_logs').select('produto, row_index, n_pedido'));
+    if (!data) return;
 
     const correcoes = {};   // nome_antigo -> nome_atual
     for (const row of data) {
@@ -698,17 +698,33 @@ function fmtInputDate(str) {
 }
 
 /* ── TEMPO EM PRODUÇÃO (Supabase) ──────────────────────── */
+/* O Supabase devolve no máximo 1000 linhas por requisição, e o resto some
+   calado. `etapa_logs` já passou de 2.500, e como as buscas vêm ordenadas do
+   mais antigo pro mais novo, o app enxergava só até julho: tudo de agosto em
+   diante sumia dos filtros por frente e das contas de tempo. Aqui a leitura
+   vai de mil em mil até acabar. Vale para toda tabela que cresce sozinha,
+   mesmo a que ainda não estourou. */
+const PAGINA_SUPABASE = 1000;
+async function buscarTudo(montarConsulta) {
+  const todas = [];
+  for (let inicio = 0; ; inicio += PAGINA_SUPABASE) {
+    const { data, error } = await montarConsulta().range(inicio, inicio + PAGINA_SUPABASE - 1);
+    if (error) throw error;
+    todas.push(...(data || []));
+    if (!data || data.length < PAGINA_SUPABASE) return todas;
+  }
+}
+
 async function loadProductionTimes() {
   const map = {};
   try {
-    const { data, error } = await supabaseClient
+    const data = await buscarTudo(() => supabaseClient
       .from('etapa_logs')
       // traz também as desmarcações: sem elas, um clique errado contaria para
       // sempre como se a etapa tivesse sido concluída naquele dia
       .select('produto_id, row_index, n_pedido, produto, etapa, status, created_at')
       .in('etapa', [PRODUCAO_INICIO_ETAPA, PRODUCAO_FIM_ETAPA])
-      .order('created_at', { ascending: true });
-    if (error) { console.error('Erro ao buscar logs de produção:', error); return map; }
+      .order('created_at', { ascending: true }));
     const porProduto = {};
     data.forEach(row => {
       const key = logKey(row);
@@ -817,12 +833,11 @@ async function loadExtraTicks() {
   const map = {};
   const keys = EXTRA_TICKS.map(e => e.key);
   try {
-    const { data, error } = await supabaseClient
+    const data = await buscarTudo(() => supabaseClient
       .from('etapa_logs')
       .select('produto_id, n_pedido, produto, etapa, status, created_at, usuario')
       .in('etapa', keys)
-      .order('created_at', { ascending: true });
-    if (error) { console.error('Erro ao buscar ticagens extras:', error); return map; }
+      .order('created_at', { ascending: true }));
     // ascendente: a última linha de cada chave/etapa prevalece (estado atual)
     data.forEach(row => {
       const k = logKey(row);
@@ -1076,12 +1091,11 @@ async function logExtraTick(item, etapaKey, novoStatus) {
 async function loadActivityDates() {
   const map = {};
   try {
-    const { data, error } = await supabaseClient
+    const data = await buscarTudo(() => supabaseClient
       .from('etapa_logs')
       .select('produto_id, n_pedido, produto, etapa, status, created_at')
       .eq('status', true)
-      .order('created_at', { ascending: true });
-    if (error) { console.error('Erro ao buscar atividade do dev:', error); return map; }
+      .order('created_at', { ascending: true }));
     data.forEach(row => {
       const k = logKey(row);
       if (!map[k]) map[k] = {};
@@ -1140,8 +1154,7 @@ function activityDaysFor(item, mode) {
 async function loadObservationCounts() {
   const map = {};
   try {
-    const { data, error } = await supabaseClient.from('pedido_observacoes').select('produto_id, n_pedido, produto');
-    if (error) { console.error('Erro ao buscar observações:', error); return map; }
+    const data = await buscarTudo(() => supabaseClient.from('pedido_observacoes').select('produto_id, n_pedido, produto'));
     data.forEach(row => {
       const key = logKey(row);
       map[key] = (map[key] || 0) + 1;
@@ -1475,7 +1488,7 @@ function renderTable() {
 
   let filtered = allData.filter(item => {
     const s = getStatus(item);
-    const ok1 = !search || item.produto.toLowerCase().includes(search) || (item.responsavel||'').toLowerCase().includes(search) || (item.nPedido||'').includes(search);
+    const ok1 = !search || item.produto.toLowerCase().includes(search) || (item.responsavel||'').toLowerCase().includes(search) || (item.nPedido||'').toLowerCase().includes(search);
     const ok2 = !resp || item.responsavel === resp;
     let ok3 = !stFilt || s === stFilt;
     const temFicha = !!(extraTicks[itemKey(item)] || {}).fichaRecebida;
