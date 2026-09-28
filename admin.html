@@ -86,7 +86,11 @@
   .main-grid { display: grid; grid-template-columns: 360px 1fr; gap: 0; min-height: 100%; }
 
   /* LEFT: USUÁRIOS */
-  .left-panel { border-right: 1px solid var(--border); padding: 20px; background: white; }
+  /* A lista de pessoas fica presa no topo: quem desce o feed atrás de uma
+     atividade não precisa voltar tudo pra cima pra clicar numa pessoa. */
+  .left-panel { border-right: 1px solid var(--border); padding: 20px; background: white;
+                position: sticky; top: 0; align-self: start;
+                max-height: calc(100vh - 118px); overflow-y: auto; }
   .panel-title { font-family: 'DM Serif Display', serif; font-size: 16px; margin-bottom: 14px; color: var(--dark); }
   .user-card {
     border: 1px solid var(--border); border-radius: 8px; padding: 14px 16px;
@@ -234,7 +238,9 @@
 
   @media (max-width: 900px) {
     .main-grid { grid-template-columns: 1fr; }
-    .left-panel { border-right: none; border-bottom: 1px solid var(--border); }
+    /* Numa coluna só, prender a lista comeria a tela inteira. */
+    .left-panel { border-right: none; border-bottom: 1px solid var(--border);
+                  position: static; max-height: none; overflow: visible; }
   }
 
   /* MODAL DETALHE DA SOLICITAÇÃO */
@@ -459,6 +465,21 @@ function fmtDatetime(iso) {
 }
 
 /* ── CARGA ────────────────────────────────────────── */
+/* O Supabase devolve no máximo 1000 linhas por requisição e o resto some sem
+   aviso. Com o filtro em "Tudo" o histórico já passa disso, e como a busca vem
+   da mais nova pra mais velha o painel deixaria de contar a atividade antiga
+   sem dizer nada. Lê de mil em mil até acabar. */
+const PAGINA_SUPABASE = 1000;
+async function buscarTudo(montarConsulta) {
+  const todas = [];
+  for (let inicio = 0; ; inicio += PAGINA_SUPABASE) {
+    const { data, error } = await montarConsulta().range(inicio, inicio + PAGINA_SUPABASE - 1);
+    if (error) { console.error('Erro ao buscar:', error); return todas; }
+    todas.push(...(data || []));
+    if (!data || data.length < PAGINA_SUPABASE) return todas;
+  }
+}
+
 async function loadAll() {
   document.getElementById('lastUpd').textContent = 'Atualizando...';
 
@@ -467,21 +488,25 @@ async function loadAll() {
   // As ticagens de ficha preenchidas de uma vez nos produtos antigos foram
   // trabalho de migração, não atividade de ninguém: no feed elas afogariam o
   // que as pessoas fizeram de verdade, e nas estatísticas inflariam a conta.
-  let logQuery = sb.from('etapa_logs')
-    .select('produto, n_pedido, etapa, status, created_at, usuario')
-    .neq('usuario', 'retroativo')
-    .order('created_at', { ascending: false });
-  if (since) logQuery = logQuery.gte('created_at', since.toISOString());
+  const montaLogs = () => {
+    let q = sb.from('etapa_logs')
+      .select('produto, n_pedido, etapa, status, created_at, usuario')
+      .neq('usuario', 'retroativo')
+      .order('created_at', { ascending: false });
+    if (since) q = q.gte('created_at', since.toISOString());
+    return q;
+  };
+  const montaObs = () => {
+    let q = sb.from('pedido_observacoes')
+      .select('produto, n_pedido, texto, autor, created_at')
+      .order('created_at', { ascending: false });
+    if (since) q = q.gte('created_at', since.toISOString());
+    return q;
+  };
 
-  let obsQuery = sb.from('pedido_observacoes')
-    .select('produto, n_pedido, texto, autor, created_at')
-    .order('created_at', { ascending: false });
-  if (since) obsQuery = obsQuery.gte('created_at', since.toISOString());
-
-  const [logRes, obsRes] = await Promise.all([logQuery, obsQuery]);
-
-  allLogs = (logRes.data || []);
-  allObs  = (obsRes.data || []);
+  const [logs, obs] = await Promise.all([buscarTudo(montaLogs), buscarTudo(montaObs)]);
+  allLogs = logs;
+  allObs  = obs;
 
   // Unifica num feed só
   combined = [
