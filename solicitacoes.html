@@ -408,35 +408,21 @@ async function abrirDetalhe(id) {
   if (error) { tl.innerHTML = '<div class="empty">Erro ao carregar.</div>'; return; }
   detEventos = data || [];
   if (!data.length) { tl.innerHTML = '<div class="empty">Nenhum registro ainda.</div>'; return; }
+  // A linha do tempo é registro do que aconteceu, e registro não se apaga:
+  // era ela que provava quem respondeu o quê e quando. Ninguém exclui — nem
+  // o autor, nem admin. O bloqueio de verdade está no banco (a política de
+  // DELETE foi removida); aqui só sumiu o botão que convidava a tentar.
   tl.innerHTML = data.map(e => {
-    // pode excluir: o próprio autor, ou admin (qualquer um)
-    const podeExcluir = e.autor_id === sessao.id || sessao.admin;
     return `<div class="tl-item">
       <div class="tl-ic">${IC_EVENTO[e.tipo] || '•'}</div>
       <div class="tl-body">
         <div class="tl-texto">${esc(e.texto)}</div>
         <div class="tl-meta">${esc(nomeDe(e.autor_id))} · ${new Date(e.created_at).toLocaleString('pt-BR')}</div>
       </div>
-      ${podeExcluir ? `<button class="tl-del" title="Excluir este registro" onclick="excluirEvento('${e.id}')">&times;</button>` : ''}
     </div>`;
   }).join('');
 }
 
-// Exclui um registro da linha do tempo (só o próprio autor, ou admin)
-async function excluirEvento(id) {
-  const ev = detEventos.find(e => e.id === id);
-  if (!ev) return;
-  if (ev.autor_id !== sessao.id && !sessao.admin) {
-    alert('Você só pode excluir os registros que você mesmo criou.');
-    return;
-  }
-  if (!confirm('Excluir este registro da linha do tempo?\nEssa ação não pode ser desfeita.')) return;
-  const { error } = await sb.from('solicitacao_eventos').delete().eq('id', id);
-  if (error) { alert('Erro ao excluir: ' + error.message); return; }
-  const alvo = detAtual.id;
-  await carregarSolicitacoes();   // atualiza a contagem de registros nos cards
-  abrirDetalhe(alvo);             // recarrega a linha do tempo
-}
 
 // escapa texto para HTML (evita quebrar o layout com < > &)
 function esc(s) {
