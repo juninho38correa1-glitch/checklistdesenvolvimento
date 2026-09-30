@@ -111,6 +111,12 @@
   img.thumb { display:block; }
   .anexo .nome { font-size:9px; color:var(--text-muted); margin-top:3px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
   .anexo .del { position:absolute; top:-6px; right:-6px; width:18px; height:18px; border-radius:50%; background:var(--red); color:#fff; border:none; font-size:12px; line-height:1; cursor:pointer; display:none; }
+  /* Sempre visivel, e nao so' no hover: o comprador precisa achar o download
+     sem descobrir que tem de passar o mouse por cima. */
+  .anexo .baixar { display:block; text-align:center; font-size:9px; letter-spacing:.3px;
+                   color:var(--text-muted); text-decoration:none; border:1px solid var(--border);
+                   border-radius:5px; padding:2px 0; margin-top:3px; background:#fff; }
+  .anexo .baixar:hover { color:var(--dark); border-color:var(--accent); }
   .anexo:hover .del { display:block; }
   .notif-item { border-bottom:1px solid var(--border); padding:10px 2px; font-size:13px; }
   .notif-item.unread { background:#faf6ee; }
@@ -223,7 +229,12 @@
     <span class="section-label">Anexos (fotos / desenhos)</span>
     <div id="detAnexos"><div class="empty">Carregando...</div></div>
     <div style="margin-top:8px">
-      <input type="file" id="anexoInput" accept="image/*,application/pdf" multiple style="display:none" onchange="enviarAnexos()">
+      <!-- DXF e DWG nao tem tipo MIME padrao: o navegador manda vazio e o
+           `accept` so' funciona pela extensao. Por isso a lista mistura os
+           dois jeitos, e quem precisar de um formato fora dela ainda pode
+           escolher "Todos os arquivos" na janela do Windows. -->
+      <input type="file" id="anexoInput" multiple style="display:none" onchange="enviarAnexos()"
+             accept="image/*,.pdf,.dxf,.dwg,.dwf,.step,.stp,.iges,.igs,.skp,.3ds,.xlsx,.xls,.csv,.docx,.doc,.zip,.rar,.7z">
       <button class="btn btn-ghost btn-sm" id="btnAnexar" onclick="document.getElementById('anexoInput').click()">📎 Anexar arquivo</button>
       <span id="anexoStatus" style="font-size:11px;color:var(--text-muted);margin-left:8px"></span>
     </div>
@@ -464,20 +475,57 @@ async function carregarAnexos(id) {
   renderAnexos();
 }
 
+/* Nem todo anexo abre no navegador. DXF, DWG e planilha o Chrome ou baixa
+   sozinho ou mostra lixo na tela, entao para esses o clique JA e' o download e
+   nao existe "abrir". Para imagem e PDF o clique abre, e o botao de baixar
+   fica ao lado para quem quer o arquivo na maquina. */
+const ANEXO_ICONES = [
+  [/\.(dxf|dwg|dwf)$/i,        '\u{1F4D0}', 'desenho CAD'],
+  [/\.(step|stp|iges|igs|3ds|skp)$/i, '\u{1F9CA}', 'modelo 3D'],
+  [/\.(xlsx|xls|csv)$/i,       '\u{1F4CA}', 'planilha'],
+  [/\.(docx|doc|txt|rtf)$/i,   '\u{1F4DD}', 'documento'],
+  [/\.(zip|rar|7z)$/i,         '\u{1F5DC}', 'compactado'],
+  [/\.pdf$/i,                  '\u{1F4C4}', 'PDF']
+];
+
+function anexoTipo(a) {
+  const nome = a.nome || '';
+  if ((a.tipo || '').startsWith('image/')) return { icone: '', rotulo: 'imagem', abre: true };
+  for (const [re, icone, rotulo] of ANEXO_ICONES) {
+    if (re.test(nome)) return { icone, rotulo, abre: /\.pdf$/i.test(nome) };
+  }
+  if ((a.tipo || '').includes('pdf')) return { icone: '\u{1F4C4}', rotulo: 'PDF', abre: true };
+  return { icone: '\u{1F4CE}', rotulo: 'arquivo', abre: false };
+}
+
+/* O Storage serve tudo como "inline". O `?download=` faz o servidor mandar
+   Content-Disposition: attachment com o nome certo — o atributo `download` do
+   link nao serve aqui, porque o arquivo vem de outro dominio e o navegador o
+   ignora. */
+function urlBaixar(a) {
+  return a.url + (a.url.includes('?') ? '&' : '?') + 'download=' + encodeURIComponent(a.nome || 'arquivo');
+}
+
 function renderAnexos() {
   const el = document.getElementById('detAnexos');
   if (!detAnexos.length) { el.innerHTML = '<div class="empty">Nenhum anexo.</div>'; return; }
   el.innerHTML = '<div class="anexos-grid">' + detAnexos.map(a => {
+    const t = anexoTipo(a);
     const ehImg = (a.tipo || '').startsWith('image/');
     const thumb = ehImg
       ? `<img class="thumb" src="${a.url}" alt="${esc(a.nome)}">`
-      : `<div class="thumb">${(a.tipo||'').includes('pdf') ? '📄' : '📎'}</div>`;
+      : `<div class="thumb">${t.icone}</div>`;
     const podeExcluir = a.autor_id === sessao.id || sessao.admin;
+    // Quem nao abre no navegador vai direto para o download: mandar a pessoa
+    // para uma aba com lixo na tela e' pior do que nao ter link.
+    const destino = t.abre || ehImg ? a.url : urlBaixar(a);
+    const dica = t.abre || ehImg ? `Abrir \u2014 ${esc(a.nome)}` : `Baixar \u2014 ${esc(a.nome)} (${t.rotulo})`;
     return `<div class="anexo">
-      <a href="${a.url}" target="_blank" rel="noopener" title="${esc(a.nome)}">
+      <a href="${destino}" target="_blank" rel="noopener" title="${dica}">
         ${thumb}
         <div class="nome">${esc(a.nome || 'arquivo')}</div>
       </a>
+      <a class="baixar" href="${urlBaixar(a)}" title="Baixar ${esc(a.nome)}">\u2193 baixar</a>
       ${podeExcluir ? `<button class="del" title="Excluir anexo" onclick="excluirAnexo('${a.id}')">&times;</button>` : ''}
     </div>`;
   }).join('') + '</div>';
