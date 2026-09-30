@@ -854,7 +854,12 @@ const CFG_PRAZOS = [
   { chave:'alerta_dias_vermelho', rotulo:'Virar vermelho depois de', un:'dias', min:1, max:120,
     ajuda:'Só muda a cor do selo de espera, para separar o que está atrasado do que está muito atrasado. Não abre solicitação nova.' },
   { chave:'dias_alerta_solicitacao', rotulo:'Considerar uma solicitação parada após', un:'dias', min:1, max:60,
-    ajuda:'Sem movimento nenhum por esse tempo, ela ganha o selo <b>parada</b> na lista e no painel de atividade.' }
+    ajuda:'Sem movimento nenhum por esse tempo, ela ganha o selo <b>parada</b> na lista e no painel de atividade. ' +
+          'Um aviso por solicitação, no máximo um por dia.' },
+  { chave:'prazo_dev_dias', rotulo:'Prazo do desenvolvimento inteiro', un:'dias', min:1, max:180,
+    ajuda:'Da <b>data de recebimento da ficha</b> até a <b>Montagem Final</b>. Passou disso e ainda não fechou, ' +
+          'o produto ganha o selo vermelho <b>⚠ Nd no Dev</b> na coluna Tempos. ' +
+          'Hoje, metade dos produtos fecha em até 9 dias e um terço passa de 20.' }
 ];
 
 const CFG_RESPONSAVEIS = [
@@ -1029,6 +1034,8 @@ async function carregarAdmConfigs() {
         <li>A regra de que só o <b>Dev</b> marca a ficha recebida</li>
         <li>Os campos obrigatórios ao finalizar: <b>pés do produto</b> e <b>quantidade de tecido</b></li>
         <li>Os campos do formulário de <b>conferência de medidas</b></li>
+        <li>Os dois limites do <b>tempo de produção</b> (10 e 15 dias) e o da cor da linha
+            quando falta Programação — continuam fixos no código</li>
       </ul>
     </div>`;
 
