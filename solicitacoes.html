@@ -806,9 +806,95 @@ async function registrarEvento(tipo) {
   abrirDetalhe(s.id);
 }
 
+/* ── MEDIDAS QUE NÃO CONFEREM ───────────────────────────────────────
+   Marcar "não" quer dizer que a peça saiu diferente do que está cadastrado, e
+   isso deixa de ser assunto da documentação: quem acerta o produto no Seven é
+   o Cadastro. Para acertar, ele precisa das duas colunas lado a lado — o que
+   está cadastrado hoje e o que a fita mediu na peça.
+   Sai na CONCLUSÃO e não no clique do "não": até concluir, ele ainda pode
+   estar medindo e mudar de ideia. */
+async function encaminharMedidasDivergentes(pai) {
+  if (!ehConferencia(pai) || !detConf || detConf.medicoes_ok !== false) return;
+  try {
+    const { data: cfg } = await sb.from('configuracoes').select('valor')
+      .eq('chave', 'responsavel_cadastro').maybeSingle();
+    const nomeResp = cfg && cfg.valor;
+    if (!nomeResp) {
+      alert('As medidas divergem, mas não há ninguém configurado como responsável do Cadastro.\nConfigure em Admin → Configurações e encaminhe à mão.');
+      return;
+    }
+    const { data: resp } = await sb.from('usuarios').select('id,nome')
+      .eq('nome', nomeResp).eq('ativo', true).maybeSingle();
+    if (!resp) {
+      alert(`As medidas divergem, mas ${nomeResp} não está ativo no sistema.\nEncaminhe à mão para quem for cuidar do cadastro.`);
+      return;
+    }
+
+    let prod = null;
+    if (detConf.produto_id) {
+      const r = await sb.from('produtos')
+        .select('n_pedido,produto,tipo,cod_cadastro,responsavel,pes,qtd_tecido,data_entrega')
+        .eq('id', detConf.produto_id).maybeSingle();
+      prod = r.data;
+    }
+    const linha = (rot, val) => `${rot}: ${val || '—'}`;
+    const sn = v => v == null ? 'não respondido' : (v ? 'sim' : 'não');
+    const corpo = [
+      'As medidas da peça física NÃO conferem com o que está cadastrado.',
+      '',
+      'COMO ESTÁ CADASTRADO',
+      linha('Nº pedido', pai.pedido_ref),
+      linha('Produto', pai.produto_ref),
+      linha('Tipo', prod && prod.tipo),
+      linha('Cód. cadastro', prod && prod.cod_cadastro),
+      linha('Responsável', prod && prod.responsavel),
+      linha('Pés do produto', prod && prod.pes),
+      linha('Quantidade de tecido', prod && prod.qtd_tecido),
+      linha('Data de entrega', prod && prod.data_entrega),
+      '',
+      'O QUE FOI MEDIDO NA PEÇA (cm)',
+      ...CONF_MEDIDAS.map(([k, rot]) => linha(rot, detConf[k])),
+      '',
+      'RESTO DA CONFERÊNCIA',
+      linha('Bloco 3D', sn(detConf.bloco_3d)),
+      linha('Ficha técnica', sn(detConf.ficha_tecnica)),
+      '',
+      'OBSERVAÇÃO DE QUEM CONFERIU',
+      detConf.observacao || '—',
+      '',
+      `Conferido por ${nomeDe(sessao.id)} em ${new Date().toLocaleString('pt-BR')}.`
+    ].join('\n');
+
+    const titulo = `Medidas divergentes — corrigir cadastro — ${pai.produto_ref || pai.titulo}`;
+    const { data: filha, error } = await sb.from('solicitacoes').insert({
+      titulo, descricao: corpo,
+      criador_id: sessao.id, responsavel_id: resp.id, prioridade: pai.prioridade,
+      pedido_ref: pai.pedido_ref, produto_ref: pai.produto_ref,
+      origem_solicitacao_id: pai.id     // fica ligada à conferência que a gerou
+    }).select().single();
+    if (error) throw error;
+
+    await sb.from('solicitacao_eventos').insert({
+      solicitacao_id: pai.id, autor_id: sessao.id, tipo: 'encaminhamento',
+      texto: `Medidas divergentes: encaminhado para ${resp.nome} corrigir o cadastro.`,
+      solicitacao_filha_id: filha.id
+    });
+    await notificar(resp.id, 'Medidas divergentes', titulo, filha.id);
+  } catch (e) {
+    console.error('encaminhamento de medidas divergentes:', e);
+    // a conferência já foi concluída; não dá para fingir que o resto saiu
+    alert('A conferência foi concluída, mas não consegui abrir a solicitação para o Cadastro:\n'
+      + e.message + '\n\nEncaminhe à mão para não perder a correção.');
+  }
+}
+
 async function concluir() {
   const s = detAtual;
-  if (!confirm('Concluir esta solicitação?')) return;
+  const vaiAbrirCadastro = ehConferencia(s) && detConf && detConf.medicoes_ok === false;
+  const pergunta = vaiAbrirCadastro
+    ? 'Concluir esta conferência?\n\nComo as medidas NÃO conferem, será aberta uma solicitação para o Cadastro com os dados do produto e o que você mediu.'
+    : 'Concluir esta solicitação?';
+  if (!confirm(pergunta)) return;
   await sb.from('solicitacoes').update({
     status:'concluida', concluida_em:new Date().toISOString(), updated_at:new Date().toISOString()
   }).eq('id', s.id);
@@ -816,6 +902,8 @@ async function concluir() {
     solicitacao_id:s.id, autor_id:sessao.id, tipo:'status', texto:'Solicitação concluída'
   });
   await notificar(s.criador_id, 'Solicitação concluída', s.titulo, s.id);
+  // medida que não confere vira trabalho para o Cadastro, não fica no aviso
+  await encaminharMedidasDivergentes(s);
   fecharOverlay('detOverlay');
   await carregarSolicitacoes();
 }
