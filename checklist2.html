@@ -106,6 +106,11 @@
   tr.s-orange { background: var(--orange-soft); }
   tr.s-green  { background: var(--green-soft); }
   tr.s-white  { background: #ffffff; }
+  /* 100% das etapas e sem a ficha de custo. Âmbar de propósito: o laranja
+     de alerta (--orange-soft, #FAE9D3) é quase a mesma cor e as duas juntas
+     na tabela não se distinguem. A tarja grossa à esquerda fecha a dúvida. */
+  tr.s-semcusto { background: #FBF1C0; box-shadow: inset 4px 0 0 #B8860B; }
+  tr.s-semcusto td { border-bottom-color: #E8D98A; }
 
   /* BADGES */
   .badge { display: inline-block; padding: 2px 8px; border-radius: 20px; font-size: 10px; font-weight: 600; letter-spacing: 0.5px; text-transform: uppercase; }
@@ -960,6 +965,13 @@ function produtoEncerrado(item) {
   return statusCusto(item) !== 'falta';
 }
 
+/* Fez tudo na fábrica e falta só o papel. É o pior lugar para um produto
+   ficar: a barra diz 100%, o pessoal acha que acabou, e o custo não entrou no
+   Seven. Por isso ele sai do bloco dos encerrados e ganha cor própria. */
+function faltaSoOCusto(item) {
+  return item.progresso >= 100 && statusCusto(item) === 'falta';
+}
+
 function custoHtml(item) {
   if (!ehEspecial(item.tipo)) return '<span style="color:var(--text-muted);font-size:11px">—</span>';
   const st = statusCusto(item);
@@ -1031,7 +1043,7 @@ async function carimbarRecebimento(item) {
       !confirm(`Este produto já tem recebimento em ${fmtDate(item.dataRecebimento)}.
 `
              + `Trocar pela data de hoje (${fmtDate(hoje)})?`)) return;
-  await callAPI({ rowIndex: item.rowIndex, dataRecebimento: hoje.split('-').reverse().join('/') });
+  await callAPI({ id: item.id, rowIndex: item.rowIndex, dataRecebimento: hoje.split('-').reverse().join('/') });
 }
 
 async function alternarFicha(rowIndex) {
@@ -1098,8 +1110,13 @@ const SERVICOS = {
   pcpFicha:     { chave:'responsavel_pcp',          titulo:'Ficha de especial atrasada',   desc:'Ficha ainda não chegou ao Dev', ic:'⏳', descLivre: true, umaVezSo: true },
   // ESP/ terminou tudo: o Cadastro confere o custo e atualiza o Seven se precisar
   cadastro:     { chave:'responsavel_cadastro',     titulo:'Especial concluído — conferir cadastro', desc:'Produto ESP/ finalizado', ic:'📒', descLivre: true, umaVezSo: true },
-  // o mesmo fechamento avisa também quem cuida da documentação
-  docFinal:     { chave:'responsavel_documentacao', titulo:'Especial concluído — documentação', desc:'Produto ESP/ finalizado', ic:'📐', descLivre: true, umaVezSo: true }
+  // 10 etapas fechadas e a ficha de custo ainda não chegou. Antes disso
+  // ninguém era avisado: o aviso ao Cadastro só saia COM a ficha na mão, então
+  // um ESP/ pronto e sem custo ficava parado sem cobrar ninguém.
+  custo:        { chave:'responsavel_custo',        titulo:'Especial 100% — falta a ficha de custo', desc:'Produto ESP/ com as 10 etapas fechadas e sem ficha de custo', ic:'💰', descLivre: true, umaVezSo: true },
+  // o mesmo fechamento manda o Lucas conferir a peça e montar 3D/documentação.
+  // O formulário de conferência vive dentro desta solicitação (solicitacoes.html).
+  docFinal:     { chave:'responsavel_documentacao', titulo:'Conferir medidas, documentação e 3D', desc:'Produto ESP/ finalizado', ic:'📐', descLivre: true, umaVezSo: true }
 };
 let respServico = {};   // tipo -> { id, nome }
 
@@ -1607,36 +1624,78 @@ function cadeadoHtml(item) {
   return ` <span class="dias-badge" style="background:#6B5A4E;color:#fff;margin-left:4px" title="Aguardando o PCP concluir a liberação da ficha — sem edição até lá">🔒 PCP</span>`;
 }
 
-/* ── AVISO AO CADASTRO ────────────────────────────────
-   ESP/ que fecha as 10 etapas E a ficha de custo (quando exigida) avisa quem
-   cuida do cadastro, para conferir o custo e atualizar o Seven se precisar.
+/* ── FECHAMENTO DE UM ESP/ ──────────────────────
+   Quando um ESP/ fecha as 10 etapas, uma de duas coisas acontece:
+
+     falta a ficha de custo  ->  cobra quem cuida de custo, e para aí.
+     ficha na mão            ->  Cadastro (com a ficha anexa) + conferência
+                                 de medidas, 3D e documentação.
+
+   Antes, faltando a ficha, ninguém era avisado: o produto ficava 100% na tela
+   e o custo não entrava no Seven até alguém lembrar.
+
    Só para produto nascido a partir do corte: 514 já estão 100% e disparariam
    todos juntos. */
-async function avisarCadastroSeEncerrou(item) {
+async function avisarFechamentoEsp(item) {
   if (!item || !ehEspecial(item.tipo)) return;
-  if (!produtoEncerrado(item)) return;
+  if (item.progresso < 100) return;
   if (!BLOQUEIO_A_PARTIR_DE || !item.criadoEm) return;
   if (new Date(item.criadoEm) < BLOQUEIO_A_PARTIR_DE) return;
-  if (!respServico.cadastro || !respServico.docFinal) await carregarRespServicos();
+  if (!respServico.cadastro || !respServico.docFinal || !respServico.custo) await carregarRespServicos();
+
   const f = fichasCusto[item.id];
-  const linhas = [
+  const cabecalho = [
     ['Nº pedido', item.nPedido],
     ['Produto', item.produto],
     ['Cód. cadastro', item.codCadastro],
     ['Responsável', item.responsavel],
     ['Pés do produto', item.pes],
-    ['Quantidade de tecido', item.qtdTecido],
-    ['Ficha de custo', item.precisaCusto ? (f ? (f.nome || 'anexada') : 'pendente') : 'não se aplica']
+    ['Quantidade de tecido', item.qtdTecido]
   ].map(([r, v]) => `${r}: ${v || '—'}`).join('\n');
 
-  /* Dois destinos no mesmo fechamento: o Cadastro confere o custo e atualiza
-     o Seven; a Documentação cuida do que é dela. São solicitações separadas
-     de propósito — cada uma é concluída por quem a resolveu. */
-  for (const tipo of ['cadastro', 'docFinal']) {
-    const solId = await abrirSolicitacaoServico(tipo, item, linhas, true);
-    // a ficha de custo viaja JUNTO: quem recebe abre e confere sem caçar o produto
-    if (solId && f) await anexarFichaNaSolicitacao(solId, f);
+  /* Falta a ficha: o produto NÃO está encerrado. Quem cuida de custo é cobrada
+     agora, e o Cadastro/Documentação só entram quando a ficha existir — mandar
+     os três de uma vez faria duas pessoas esperarem por uma terceira. */
+  if (statusCusto(item) === 'falta') {
+    await abrirSolicitacaoServico('custo', item,
+      cabecalho + '\n\nAs 10 etapas fecharam e a ficha de custo ainda não foi anexada.\n'
+      + 'Enquanto ela não entrar, o produto fica marcado como "Aguardando custo"\n'
+      + 'no Controle de Protótipos e o Cadastro não é avisado.', true);
+    return;
   }
+
+  /* Dois destinos, duas solicitações — cada uma é concluída por quem a
+     resolveu. A ficha de custo vai SÓ para o Cadastro: é ele que confere valor
+     e atualiza o Seven. Na conferência de medidas ela não serve para nada e
+     ainda faria o anexo de verdade (foto, desenho) se perder no meio. */
+  const solCadastro = await abrirSolicitacaoServico('cadastro', item,
+    cabecalho + `\nFicha de custo: ${item.precisaCusto ? (f ? (f.nome || 'anexada') : 'pendente') : 'não se aplica'}`, true);
+  if (solCadastro && f) await anexarFichaNaSolicitacao(solCadastro, f);
+
+  const solDoc = await abrirSolicitacaoServico('docFinal', item,
+    cabecalho + '\n\nO ESP/ fechou. Antes da documentação e do bloco 3D, confira a\n'
+    + 'peça física e preencha o formulário desta solicitação:\n\n'
+    + '  • Medições da peça física (largura, profundidade, altura,\n'
+    + '    largura de braço, altura de assento, profundidade livre do sentar)\n'
+    + '  • Bloco 3D: sim / não\n'
+    + '  • Ficha técnica: sim / não', true);
+  if (solDoc) await abrirConferencia(item, solDoc);
+}
+
+/* A linha da conferência nasce JUNTO com a solicitação, e não quando ele
+   abrir o formulário. Assim a tela de solicitações acha a conferência pelo
+   `solicitacao_id` — uma chave de verdade — em vez de procurar o produto pelo
+   nome. Nome de produto é editável, e foi ele que já deixou log órfão antes.
+   Upsert pelo produto: numa retransmissão o mesmo produto fecha de novo, e o
+   que interessa é a conferência apontar para a solicitação mais recente. */
+async function abrirConferencia(item, solicitacaoId) {
+  try {
+    const { error } = await supabaseClient.from('produto_conferencia')
+      .upsert({ produto_id: item.id, solicitacao_id: solicitacaoId,
+                atualizado_em: new Date().toISOString() },
+              { onConflict: 'produto_id' });
+    if (error) console.error('Falha ao abrir a conferência:', error);
+  } catch (e) { console.error('Falha ao abrir a conferência:', e); }
 }
 
 /* Aponta a mesma ficha já guardada para a solicitação, sem reenviar o arquivo:
@@ -1698,7 +1757,7 @@ async function enviarFichaCusto(ev) {
     renderTable();
     showToast();
     // anexar a ficha pode ser a última peça que faltava para encerrar
-    await avisarCadastroSeEncerrou(item);
+    await avisarFechamentoEsp(item);
   } catch (e) {
     alert('Erro ao anexar a ficha: ' + e.message);
     renderBlocoCusto(item);
@@ -1905,7 +1964,7 @@ async function confirmarRetransmissao() {
       const novasEtapas = Object.assign({}, it.stages);
       aDesmarcar.forEach(s => novasEtapas[s] = false);
       await logStageChanges(it, it.stages, novasEtapas);
-      await callAPI({ rowIndex: it.rowIndex, stages: novasEtapas });
+      await callAPI({ id: it.id, rowIndex: it.rowIndex, stages: novasEtapas });
     }
 
     (retransPorProduto[it.id] = retransPorProduto[it.id] || []).push(nova);
@@ -1985,16 +2044,19 @@ function getStatus(item) {
 
 function getSortRank(item) {
   const status = getStatus(item);
-  if (item.progresso >= 100) return 0;
-  if (status === 'red')      return 1;
-  if (status === 'orange')   return 2;
-  return 3;
+  // 1 = fez as 10 etapas e falta a ficha de custo. Fica entre os encerrados e
+  // os atrasados de propósito: é exatamente onde a lista para de rolar, então
+  // é a primeira coisa que aparece quando a tela abre.
+  if (item.progresso >= 100) return faltaSoOCusto(item) ? 1 : 0;
+  if (status === 'red')      return 2;
+  if (status === 'orange')   return 3;
+  return 4;
 }
 function smartSort(a, b) {
   const rankA = getSortRank(a);
   const rankB = getSortRank(b);
   if (rankA !== rankB) return rankA - rankB;
-  if (rankA === 0) {
+  if (rankA === 0 || rankA === 1) {   // os dois blocos de 100% ordenam por data
     const da = parseDate(a.dataRecebimento)?.getTime() ?? 0;
     const db = parseDate(b.dataRecebimento)?.getTime() ?? 0;
     if (da === 0 && db !== 0) return -1;
@@ -2121,7 +2183,7 @@ async function loadCSV(isSilent = false) {
 
 function resetAutoRefresh() {
   if (refreshTimer) clearTimeout(refreshTimer);
-  refreshTimer = setTimeout(() => loadCSV(true), REFRESH_INTERVAL);
+  refreshTimer = setTimeout(() => { revalidarPermissoes(); recarregarQuandoPuder(); }, REFRESH_INTERVAL);
 }
 
 function populateFilters() {
@@ -2238,9 +2300,15 @@ function renderTable() {
     const badgeMap = { red:'Atrasado', orange:'Alerta', green:'Finalizado' };
     let currentBadge = status === 'white' ? (p > 0 ? 'Em andamento' : 'Sem iniciar') : badgeMap[status];
     let badgeClass = status === 'white' ? (p > 0 ? 'b-blue' : 'b-gray') : `b-${status}`;
+    // 100% sem a ficha não é "Finalizado": dizer isso esconderia justamente o
+    // que falta. A barra continua 100% — ela mede fábrica, não papelada.
+    const semCusto = faltaSoOCusto(item);
+    if (semCusto) { currentBadge = 'Aguardando custo'; badgeClass = 'b-orange'; }
     const tr = document.createElement('tr');
-    tr.className = `s-${status}`;
-    if (item.progresso >= 100) lastDoneRow = tr;
+    tr.className = semCusto ? 's-semcusto' : `s-${status}`;
+    // A régua da rolagem é o último encerrado DE VERDADE, para o bloco sem
+    // custo cair na primeira linha visível.
+    if (item.progresso >= 100 && !semCusto) lastDoneRow = tr;
     tr.innerHTML = `
       <td style="font-family:'DM Mono',monospace;font-size:11px;color:var(--text-muted)">${fmtDate(item.dataSolicitacao)}</td>
       <td><span class="badge b-blue" style="font-size:9px">${item.tipo||'—'}</span></td>
@@ -2697,7 +2765,12 @@ function openDateModal(rowIndex) {
   document.getElementById('modalDateOverlay').style.display = 'flex';
 }
 
-function closeModal(id) { document.getElementById(id).style.display = 'none'; currentItem = null; }
+function closeModal(id) {
+  document.getElementById(id).style.display = 'none';
+  currentItem = null;
+  // chegou mudança de outra pessoa enquanto esta modal estava aberta
+  if (recargaPendente && !algumaModalAberta()) recarregarQuandoPuder();
+}
 
 // Define a orientação da página só para a próxima impressão.
 function setPrintOrientation(mode) {
@@ -2843,12 +2916,12 @@ async function saveStagesChanges() {
       }
     }
 
-    await callAPI({ rowIndex: item.rowIndex, stages: updatedStages, responsavel: updatedResp,
+    await callAPI({ id: item.id, rowIndex: item.rowIndex, stages: updatedStages, responsavel: updatedResp,
                     pes, qtdTecido: tecido });
     closeModal('modalStagesOverlay');
-    // fechou tudo: quem cuida do cadastro precisa saber e conferir o custo
+    // fechou as 10 etapas: cobra o custo, ou libera Cadastro e conferência
     const depois = allData.find(d => d.id === item.id) || item;
-    await avisarCadastroSeEncerrou(depois);
+    await avisarFechamentoEsp(depois);
   } finally {
     btn.disabled = false;
   }
@@ -2862,13 +2935,19 @@ async function saveDateChanges() {
     const [y, m, d] = newDateRaw.split('-');
     newDateFmt = `${d}/${m}/${y}`;
   }
-  await callAPI({ rowIndex: currentItem.rowIndex, dataRecebimento: newDateFmt });
+  await callAPI({ id: currentItem.id, rowIndex: currentItem.rowIndex, dataRecebimento: newDateFmt });
   closeModal('modalDateOverlay');
 }
 
 // v2: grava direto na tabela `produtos` (nada de Apps Script/planilha)
 async function callAPI(payload) {
-  const item = allData.find(d => d.rowIndex === payload.rowIndex);
+  /* Procura pelo ID do produto, e só cai na posição quando não veio ID.
+     `rowIndex` é a posição na lista, recalculada a cada carga: se alguém
+     cadastrar um produto enquanto esta tela está aberta, todas as posições
+     andam uma casa e a gravação cairia no produto vizinho. Foi exatamente
+     assim que a planilha corrompeu o pedido 118848. */
+  const item = (payload.id && allData.find(d => d.id === payload.id))
+            || allData.find(d => d.rowIndex === payload.rowIndex);
   if (!item || !item.id) { alert('Produto não encontrado.'); return; }
   const upd = { updated_at: new Date().toISOString() };
   if (payload.stages) upd.etapas = payload.stages;
@@ -2901,7 +2980,12 @@ async function callAPI(payload) {
   } catch (e) { alert('Erro: ' + e.message); }
 }
 
-function showToast() { const t = document.getElementById('toast'); t.classList.add('show'); setTimeout(() => t.classList.remove('show'), 3000); }
+function showToast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg || 'Alteração salva com sucesso!';
+  t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), msg ? 6000 : 3000);
+}
 
 /* ── CADASTRO DE PRODUTO (dentro do checklist) ─────── */
 let editandoProdutoId = null;
@@ -3295,16 +3379,21 @@ function updateHeaderDate() {
 // Exige login do portal antes de qualquer coisa (redireciona se não houver)
 if (!carregarSessao()) throw new Error('sem sessão — redirecionando para o portal');
 
-// Permissões por setor: define edição/leitura e cadastro
-(function aplicarPermissoes() {
+// Permissões por setor: define edição/leitura e cadastro.
+// Deixou de ser função de uma vez só: agora roda de novo quando o setor muda,
+// e por isso liga E desliga cada botão — antes ela só sabia mostrar, então
+// permissão retirada continuava na tela até o F5.
+function aplicarPermissoes() {
   const nv = nivelArea('checklist');
   if (nv === 'nenhum') { location.href = 'index.html'; throw new Error('sem acesso ao checklist'); }
   podeEditarChecklist = (nv === 'edicao');
   podeTicarFicha = podeEditarChecklist && ehDoDev(sessao && sessao.setor);
   podeCadastrar = (nivelArea('cadastro') === 'edicao');
-  if (podeCadastrar) { document.getElementById('btnNovoProduto').style.display = ''; document.getElementById('thEditar').style.display = ''; }
-  if (!podeEditarChecklist) document.getElementById('avisoLeitura').style.display = '';
-})();
+  document.getElementById('btnNovoProduto').style.display = podeCadastrar ? '' : 'none';
+  document.getElementById('thEditar').style.display      = podeCadastrar ? '' : 'none';
+  document.getElementById('avisoLeitura').style.display  = podeEditarChecklist ? 'none' : '';
+}
+aplicarPermissoes();
 
 updateHeaderDate();
 setInterval(updateHeaderDate, 60 * 1000);
@@ -3319,6 +3408,99 @@ document.addEventListener('keydown', (e) => {
   }
 });
 
+
+/* ── TEMPO REAL ─────────────────────────────────────────────────────
+   A tela lia o banco de 60 em 60 segundos. Pior: o navegador estrangula esse
+   relógio quando a aba fica no fundo, e chega a congelar a aba depois de
+   alguns minutos escondida. Era isso o "só atualizou depois do F5" — o PCP
+   liberava, o banco sabia, e a aba aberta do lado não ficava sabendo.
+   Agora o banco AVISA. A varredura de 60s continua como rede de segurança
+   para quando a conexão do tempo real cai. */
+let recargaPendente = false;
+
+function algumaModalAberta() {
+  return [...document.querySelectorAll('.modal-overlay')].some(m => m.style.display === 'flex');
+}
+
+/* Recarregar por baixo de uma modal aberta troca os objetos de `allData`:
+   quem estava com as etapas abertas salvaria em cima de um item que já não é
+   o mesmo. Então espera a modal fechar. */
+function recarregarQuandoPuder() {
+  if (algumaModalAberta()) { recargaPendente = true; return; }
+  recargaPendente = false;
+  loadCSV(true);
+}
+
+function assinarTempoReal() {
+  if (!supabaseClient) return;
+  let t = null;
+  const aviso = () => { clearTimeout(t); t = setTimeout(recarregarQuandoPuder, 400); };
+  supabaseClient.channel('checklist-rt')
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'produtos' },  aviso)
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'etapa_logs' }, aviso)
+    // é aqui que a liberação do PCP entra: concluir a solicitação solta o cadeado
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'solicitacoes' }, aviso)
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'configuracoes' }, async () => {
+      await carregarConfigAlertas();
+      await carregarRespServicos();
+      aviso();
+    })
+    // permissão do setor mudou: chega agora, sem sair e entrar de novo
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'setores' }, () => revalidarPermissoes())
+    .subscribe();
+}
+
+/* ── PERMISSÃO VIVA ─────────────────────────────────────────────────
+   A sessão mora no localStorage com as permissões do momento do login. Mudar
+   o setor no admin não chegava a quem já estava logado: a pessoa seguia com o
+   acesso antigo até sair e entrar. Agora a tela relê a própria linha e o
+   próprio setor — na abertura, a cada varredura, quando a aba volta ao
+   primeiro plano e sempre que `setores` muda.
+   Lê DIRETO da tabela em vez de pedir uma função nova no banco porque nada
+   aqui é segredo: `nome`, `setor`, `admin` e as permissões do setor já são
+   públicos. O `pin` não tem permissão de leitura e continua fora. */
+async function revalidarPermissoes() {
+  if (!sessao || !sessao.id || !supabaseClient) return;
+  try {
+    const { data: u, error } = await supabaseClient.from('usuarios')
+      .select('id,nome,funcao,admin,setor,ativo').eq('id', sessao.id).maybeSingle();
+    // erro de rede não derruba ninguém da tela: fica como está e tenta depois
+    if (error || !u) return;
+    if (!u.ativo) { alert('Seu acesso foi desativado. Fale com o administrador.'); sair(); return; }
+
+    const { data: sets } = await supabaseClient.from('setores').select('nome,permissoes');
+    // 'dev' em `usuarios` e 'Dev' em `setores`: a comparação ignora caixa
+    const achado = (sets || []).find(x =>
+      String(x.nome || '').trim().toLowerCase() === String(u.setor || '').trim().toLowerCase());
+    const permissoes = (achado && achado.permissoes) || {};
+
+    const antes = JSON.stringify([sessao.admin, sessao.setor, sessao.permissoes || {}]);
+    const agora = JSON.stringify([u.admin, u.setor, permissoes]);
+    if (antes === agora) return;
+
+    sessao = { ...sessao, nome: u.nome, funcao: u.funcao, admin: u.admin, setor: u.setor, permissoes };
+    localStorage.setItem(SESSAO_KEY, JSON.stringify(sessao));   // o portal lê a mesma chave
+    aplicarPermissoes();
+    renderOperadorBadge();
+    renderTable();
+    // A tela mudar sozinha assusta; dizer o porquê custa uma linha.
+    showToast('Seu acesso foi atualizado pelo administrador.');
+  } catch (e) { console.error('revalidação de permissão:', e); }
+}
+
+/* A aba volta ao primeiro plano: relê na hora. Enquanto estava escondida o
+   navegador pode ter congelado tanto o relógio quanto o tempo real. */
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState !== 'visible') return;
+  revalidarPermissoes();
+  recarregarQuandoPuder();
+});
+window.addEventListener('online', recarregarQuandoPuder);
+
+assinarTempoReal();
+// Na abertura, antes de tudo: quem entrou com a sessão de ontem tem de começar
+// com a permissão de hoje, e não esperar a próxima varredura.
+revalidarPermissoes();
 loadCSV();
 </script>
 </body>
