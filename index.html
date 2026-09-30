@@ -312,6 +312,53 @@ function entrarApp() {
   renderBotaoPush();
   atualizarBell();
   setInterval(atualizarBell, 30000);
+  revalidarPermissoes();
+  assinarSetores();
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') revalidarPermissoes();
+  });
+}
+
+/* ── PERMISSÃO VIVA ─────────────────────────────────────────────────
+   A sessão guardada no navegador carrega as permissões do dia do login. Mudar
+   o setor de alguém no admin não chegava a quem já estava logado: os cartões
+   do portal continuavam os mesmos até a pessoa sair e entrar de novo. Agora o
+   portal relê a própria linha e o próprio setor ao abrir, quando a aba volta
+   ao primeiro plano e no instante em que `setores` muda no banco.
+   Grava de volta no localStorage, que é a mesma chave que o checklist e as
+   solicitações leem — então corrigir aqui corrige em todas as telas. */
+async function revalidarPermissoes() {
+  if (!sessao || !sessao.id) return;
+  try {
+    const { data: u, error } = await sb.from('usuarios')
+      .select('id,nome,funcao,admin,setor,ativo').eq('id', sessao.id).maybeSingle();
+    if (error || !u) return;                       // rede fora: fica como está
+    if (!u.ativo) { alert('Seu acesso foi desativado. Fale com o administrador.'); sair(); return; }
+
+    const { data: sets } = await sb.from('setores').select('nome,permissoes');
+    // 'dev' em `usuarios` e 'Dev' em `setores`: compara sem caso
+    const achado = (sets || []).find(x =>
+      String(x.nome || '').trim().toLowerCase() === String(u.setor || '').trim().toLowerCase());
+    const permissoes = (achado && achado.permissoes) || {};
+
+    const antes = JSON.stringify([sessao.admin, sessao.setor, sessao.permissoes || {}]);
+    const agora = JSON.stringify([u.admin, u.setor, permissoes]);
+    if (antes === agora) return;
+
+    sessao = { ...sessao, nome: u.nome, funcao: u.funcao, admin: u.admin, setor: u.setor, permissoes };
+    localStorage.setItem(SESSAO_KEY, JSON.stringify(sessao));
+    document.getElementById('userChip').textContent = '👤 ' + sessao.nome;
+    document.getElementById('btnAdmin').classList.toggle('hidden', !sessao.admin);
+    renderCards();
+  } catch (e) { console.error('revalidação de permissão:', e); }
+}
+
+function assinarSetores() {
+  try {
+    sb.channel('portal-permissoes')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'setores' }, revalidarPermissoes)
+      .subscribe();
+  } catch (e) { console.error('tempo real das permissões:', e); }
 }
 
 async function carregarTituloPortal() {
@@ -762,7 +809,10 @@ const RESP_POR_SETOR = {
   responsavel_comercial:    'Comercial',
   responsavel_compras:      'Compras',
   responsavel_pcp:          'PCP',
-  responsavel_documentacao: 'Dev'
+  responsavel_documentacao: 'Dev',
+  responsavel_cadastro:     'Cadastro',
+  // quem é cobrada quando um ESP/ fecha as 10 etapas sem a ficha de custo
+  responsavel_custo:        'Dev'
 };
 
 async function carregarAdmConfigs() {
