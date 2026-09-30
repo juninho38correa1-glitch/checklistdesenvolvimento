@@ -371,7 +371,7 @@
           <th>Recebimento</th>
           <th>Entrega</th>
           <th>Dias s/ início</th>
-          <th>Tempo Produção</th>
+          <th>Tempos</th>
           <th>Etapas</th>
           <th>Progresso</th>
           <th>Status</th>
@@ -637,6 +637,11 @@ const PRODUCAO_INICIO_ETAPA = 'extracaoGab';
 const PRODUCAO_FIM_ETAPA    = 'espumacao';
 const PRODUCAO_ALERTA_DIAS  = 10;
 const PRODUCAO_ATRASO_DIAS  = 15;
+/* Prazo do desenvolvimento inteiro: da data de recebimento da ficha até a
+   Montagem Final. Diferente do "tempo de produção" acima, que mede só o miolo
+   da fábrica — este mede a volta completa, que é o que o Dev promete.
+   Vem da configuração; 15 é só o valor de partida se ela não existir. */
+let PRAZO_DEV_DIAS = 15;
 
 const STATUS_SNAPSHOT_KEY = 'studyo4_status_snapshot';
 const SESSAO_KEY = 'studyo4_sessao';   // mesma chave usada pelo portal
@@ -689,12 +694,14 @@ async function carregarConfigAlertas() {
   try {
     const { data } = await supabaseClient.from('configuracoes').select('chave,valor')
       .in('chave', ['alerta_dias_laranja', 'alerta_dias_vermelho', 'alertas_a_partir_de', 'leadtimes',
-                    'bloqueio_a_partir_de', 'responsavel_cadastro']);
+                    'bloqueio_a_partir_de', 'responsavel_cadastro', 'prazo_dev_dias']);
     const c = {}; (data || []).forEach(x => c[x.chave] = x.valor);
     const laranja  = parseInt(c.alerta_dias_laranja, 10);
     const vermelho = parseInt(c.alerta_dias_vermelho, 10);
     if (!isNaN(laranja))  ALERTA_LARANJA_DIAS  = laranja;
     if (!isNaN(vermelho)) ALERTA_VERMELHO_DIAS = vermelho;
+    const prazoDev = parseInt(c.prazo_dev_dias, 10);
+    if (!isNaN(prazoDev) && prazoDev > 0) PRAZO_DEV_DIAS = prazoDev;
     // O corte vem gravado em UTC com Z. Sem fuso explícito, o navegador leria
       // como hora local e a comparação com created_at (que vem em UTC) errava por
       // 3 horas — produto novo entrava como antigo. Se alguém editar à mão e
@@ -906,6 +913,42 @@ async function loadProductionTimes() {
     console.error('Falha ao conectar ao Supabase (tempo de produção):', e);
   }
   return map;
+}
+
+/* Quantos dias o produto está (ou ficou) no desenvolvimento.
+   Começa na data de recebimento da ficha, que é quando o Dev passa a ser
+   responsável, e termina na Montagem Final. Sem data de recebimento não há
+   como contar — e é o caso de muito produto antigo, que fica de fora. */
+function diasNoDev(item) {
+  const inicio = parseDate(item.dataRecebimento);
+  if (!inicio) return null;
+  const fim = item.stages.montFinal ? ultimaDataDeEtapa(item, 'montFinal') : new Date();
+  if (!fim) return null;
+  const d = Math.floor((fim.setHours(0,0,0,0) - inicio.setHours(0,0,0,0)) / 86400000);
+  return d >= 0 ? d : null;
+}
+
+/* A data em que uma etapa foi concluída, pelo histórico já carregado. */
+function ultimaDataDeEtapa(item, etapa) {
+  const set = activityDates[itemKey(item)];
+  const pt = productionTimes[itemKey(item)];
+  if (etapa === 'montFinal' && pt && pt.end) return new Date(pt.end);
+  if (!set || !set.size) return null;
+  const dias = [...set].sort();
+  return new Date(dias[dias.length - 1] + 'T00:00:00');
+}
+
+/* Selo do prazo do Dev. Só aparece quando há o que dizer: produto que ainda
+   está no Dev e já passou do prazo, ou que fechou estourando. Produto dentro
+   do prazo não ganha selo — a tela já tem informação demais. */
+function prazoDevHtml(item) {
+  const dias = diasNoDev(item);
+  if (dias === null || dias <= PRAZO_DEV_DIAS) return '';
+  const excesso = dias - PRAZO_DEV_DIAS;
+  if (item.stages.montFinal) {
+    return ` <span class="dias-badge d-gray" style="opacity:.8" title="Levou ${dias} dias no desenvolvimento, ${excesso} além do prazo de ${PRAZO_DEV_DIAS}">fechou em ${dias}d</span>`;
+  }
+  return ` <span class="dias-badge d-red" title="No desenvolvimento há ${dias} dias — ${excesso} além do prazo de ${PRAZO_DEV_DIAS} dias, contado da data de recebimento da ficha">⚠ ${dias}d no Dev</span>`;
 }
 
 function productionTimeHtml(item) {
@@ -2364,7 +2407,7 @@ function renderTable() {
       <td style="font-family:'DM Mono',monospace;font-size:11px${podeEditarChecklist ? ';cursor:pointer;text-decoration:underline' : ''}" ${podeEditarChecklist ? `onclick="openDateModal(${item.rowIndex})"` : ''}>${fmtDate(item.dataRecebimento)}</td>
       <td style="font-family:'DM Mono',monospace;font-size:11px">${fmtDate(item.dataEntrega)}</td>
       <td>${diasHtml}</td>
-      <td>${productionTimeHtml(item)}</td>
+      <td>${productionTimeHtml(item)}${prazoDevHtml(item)}</td>
       <td>${stepsHtml}</td>
       <td>${progHtml}</td>
       <td><span class="badge ${badgeClass}">${currentBadge}</span>${cadeadoHtml(item)}</td>
