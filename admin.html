@@ -269,6 +269,13 @@
   .sd-anexo .nm { font-size: 9px; color: var(--text-muted); margin-top: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .sd-empty { color: var(--text-muted); font-size: 13px; text-align: center; padding: 16px; }
   .sd-foot { display: flex; justify-content: flex-end; margin-top: 18px; border-top: 1px solid var(--border); padding-top: 14px; }
+
+  /* ── CAIXA ALTA NA ABA SOLICITAÇÕES ──────────────────────────────
+     Cada um escreve de um jeito — tudo minúsculo, tudo maiúsculo, misturado —
+     e a lista fica visualmente suja. Isto é só aparência: no banco o texto
+     continua exatamente como a pessoa digitou. */
+  #solPessoas, #solFeedList,
+  #sdTitulo, #sdSub, #sdMeta, #sdDescricaoWrap, #sdTimeline { text-transform: uppercase; }
 </style>
 </head>
 <body>
