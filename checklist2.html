@@ -1039,7 +1039,7 @@ async function alternarFicha(rowIndex) {
   const item = allData.find(d => d.rowIndex === rowIndex);
   if (!item) return;
   if (bloqueadoPeloPcp(item)) {
-    alert('Este produto está aguardando o PCP concluir a liberação da ficha.');
+    alert('Este produto ainda não foi liberado pelo PCP — a ficha não pode ser ticada.');
     return;
   }
   const key = itemKey(item);
@@ -1097,7 +1097,9 @@ const SERVICOS = {
   comercialPcp: { chave:'responsavel_comercial',    titulo:'Falta a Data de Envio ao PCP', desc:'Pedido parado esperando a data de envio ao PCP', ic:'📅', descLivre: true, umaVezSo: true },
   pcpFicha:     { chave:'responsavel_pcp',          titulo:'Ficha de especial atrasada',   desc:'Ficha ainda não chegou ao Dev', ic:'⏳', descLivre: true, umaVezSo: true },
   // ESP/ terminou tudo: o Cadastro confere o custo e atualiza o Seven se precisar
-  cadastro:     { chave:'responsavel_cadastro',     titulo:'Especial concluído — conferir cadastro', desc:'Produto ESP/ finalizado', ic:'📒', descLivre: true, umaVezSo: true }
+  cadastro:     { chave:'responsavel_cadastro',     titulo:'Especial concluído — conferir cadastro', desc:'Produto ESP/ finalizado', ic:'📒', descLivre: true, umaVezSo: true },
+  // o mesmo fechamento avisa também quem cuida da documentação
+  docFinal:     { chave:'responsavel_documentacao', titulo:'Especial concluído — documentação', desc:'Produto ESP/ finalizado', ic:'📐', descLivre: true, umaVezSo: true }
 };
 let respServico = {};   // tipo -> { id, nome }
 
@@ -1555,7 +1557,7 @@ async function loadFichasCusto() {
   try {
     const data = await buscarTudo(() => supabaseClient
       .from('produto_anexos')
-      .select('produto_id, url, nome, enviado_por, created_at')
+      .select('produto_id, url, caminho, nome, tipo, enviado_por, created_at')
       .eq('categoria', 'custo')
       .order('created_at', { ascending: true }));
     data.forEach(a => { if (a.produto_id) map[a.produto_id] = a; });
@@ -1582,13 +1584,23 @@ async function loadLiberacaoPcp() {
   return map;
 }
 
+/* Produto novo NASCE bloqueado e só o PCP destrava, concluindo a liberação.
+   A primeira versão só travava quando já existia solicitação aberta — e
+   solicitação só nasce quando alguém preenche a Data de Envio ao PCP. Resultado:
+   produto cadastrado sem essa data ficava livre, que é exatamente o contrário
+   do que a regra quer. */
 function bloqueadoPeloPcp(item) {
   if (!BLOQUEIO_A_PARTIR_DE || !item.criadoEm) return false;
   if (new Date(item.criadoEm) < BLOQUEIO_A_PARTIR_DE) return false;   // produto de antes da regra
   const st = liberacaoPcp[item.produto];
-  if (!st) return false;              // sem solicitação do PCP, nada a esperar
-  return st !== 'concluida' && st !== 'cancelada';
+  return !(st === 'concluida' || st === 'cancelada');
 }
+
+/* Por que o cadastro continua editável mesmo bloqueado: é no cadastro que se
+   preenche a Data de Envio ao PCP, e é ela que faz a solicitação de liberação
+   nascer. Travar também o cadastro deixaria o produto preso para sempre, sem
+   ninguém conseguindo dar o passo que o destrava. O que fica travado é o
+   trabalho: etapas e ficha. */
 
 function cadeadoHtml(item) {
   if (!bloqueadoPeloPcp(item)) return '';
@@ -1605,7 +1617,7 @@ async function avisarCadastroSeEncerrou(item) {
   if (!produtoEncerrado(item)) return;
   if (!BLOQUEIO_A_PARTIR_DE || !item.criadoEm) return;
   if (new Date(item.criadoEm) < BLOQUEIO_A_PARTIR_DE) return;
-  if (!respServico.cadastro) await carregarRespServicos();
+  if (!respServico.cadastro || !respServico.docFinal) await carregarRespServicos();
   const f = fichasCusto[item.id];
   const linhas = [
     ['Nº pedido', item.nPedido],
@@ -1616,7 +1628,29 @@ async function avisarCadastroSeEncerrou(item) {
     ['Quantidade de tecido', item.qtdTecido],
     ['Ficha de custo', item.precisaCusto ? (f ? (f.nome || 'anexada') : 'pendente') : 'não se aplica']
   ].map(([r, v]) => `${r}: ${v || '—'}`).join('\n');
-  await abrirSolicitacaoServico('cadastro', item, linhas, true);
+
+  /* Dois destinos no mesmo fechamento: o Cadastro confere o custo e atualiza
+     o Seven; a Documentação cuida do que é dela. São solicitações separadas
+     de propósito — cada uma é concluída por quem a resolveu. */
+  for (const tipo of ['cadastro', 'docFinal']) {
+    const solId = await abrirSolicitacaoServico(tipo, item, linhas, true);
+    // a ficha de custo viaja JUNTO: quem recebe abre e confere sem caçar o produto
+    if (solId && f) await anexarFichaNaSolicitacao(solId, f);
+  }
+}
+
+/* Aponta a mesma ficha já guardada para a solicitação, sem reenviar o arquivo:
+   é o mesmo documento, e duplicar no bucket só gastaria espaço e criaria duas
+   verdades se alguém trocasse a ficha depois. */
+async function anexarFichaNaSolicitacao(solicitacaoId, ficha) {
+  try {
+    const { error } = await supabaseClient.from('solicitacao_anexos').insert({
+      solicitacao_id: solicitacaoId, url: ficha.url, caminho: ficha.caminho || ficha.url,
+      nome: ficha.nome || 'ficha de custo', tipo: ficha.tipo || null,
+      autor_id: sessao ? sessao.id : null
+    });
+    if (error) console.error('Falha ao anexar a ficha na solicitação:', error);
+  } catch (e) { console.error('Falha ao anexar a ficha na solicitação:', e); }
 }
 
 function abrirSeletorCusto() { document.getElementById('custoInput').click(); }
@@ -2242,8 +2276,10 @@ function openStagesModal(rowIndex) {
   /* Produto ainda não liberado pelo PCP: visível para todos, sem edição.
      Avisa em vez de abrir a tela e deixar a pessoa ticar à toa. */
   if (bloqueadoPeloPcp(currentItem)) {
-    alert('Este produto está aguardando o PCP concluir a liberação da ficha.\n'
-        + 'Até lá ele fica visível para todos, mas sem edição.');
+    alert('Este produto ainda não foi liberado pelo PCP.\n\n'
+        + 'As etapas ficam travadas até o PCP concluir a solicitação de liberação da ficha.\n'
+        + 'Se a Data de Envio ao PCP ainda não foi preenchida, preencha no cadastro (✏️) — '
+        + 'é ela que abre a solicitação para o PCP.');
     return;
   }
   document.getElementById('modalStagesTitle').textContent = currentItem.produto;
@@ -3031,12 +3067,6 @@ function novoProduto() {
 
 // Abre o cadastro em modo EDIÇÃO (comercial edita os campos do produto)
 function editarProduto(rowIndex) {
-  const alvo = allData.find(d => d.rowIndex === rowIndex);
-  if (alvo && bloqueadoPeloPcp(alvo)) {
-    alert('Este produto está aguardando o PCP concluir a liberação da ficha.\n'
-        + 'Até lá ele fica visível para todos, mas sem edição.');
-    return;
-  }
   if (!podeCadastrar) return;
   const item = allData.find(d => d.rowIndex === rowIndex);
   if (!item) return;
