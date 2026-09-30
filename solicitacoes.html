@@ -82,6 +82,28 @@
   .tl-item:hover .tl-del { color:var(--text-muted); }
   .tl-del:hover { color:var(--red) !important; }
   .empty { color:var(--text-muted); font-size:13px; text-align:center; padding:20px; }
+
+  /* CONFERÊNCIA DO ESP/ (medidas da peça física, 3D e ficha técnica) */
+  .conf-box { background:#faf6ee; border:1px solid var(--border); border-radius:10px; padding:12px 14px; }
+  .conf-cab { display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-bottom:10px; }
+  .conf-cab b { font-size:12px; text-transform:uppercase; letter-spacing:.5px; color:#8a6d3b; }
+  .conf-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:9px 12px; }
+  .conf-campo label { font-size:10px; font-weight:600; color:var(--text-muted);
+                      text-transform:uppercase; letter-spacing:.4px; display:block; margin-bottom:3px; }
+  .conf-campo input { width:100%; box-sizing:border-box; }
+  .conf-sn { display:flex; align-items:center; gap:10px; flex-wrap:wrap; padding:7px 0;
+             border-bottom:1px dashed var(--border); font-size:13px; }
+  .conf-sn > span:first-child { flex:1; min-width:150px; }
+  .conf-sn .opts { display:flex; gap:4px; }
+  .conf-sn button { border:1px solid var(--border); background:#fff; border-radius:20px;
+                    padding:3px 13px; font-size:12px; cursor:pointer; font-family:inherit; }
+  .conf-sn button.on-sim { background:#d5efe0; border-color:#1a6e40; color:#1a6e40; font-weight:700; }
+  .conf-sn button.on-nao { background:#f7d9d6; border-color:var(--red); color:var(--red); font-weight:700; }
+  .conf-sn button:disabled { cursor:default; opacity:.75; }
+  .conf-resumo { display:flex; gap:6px; flex-wrap:wrap; }
+  .conf-pill { font-size:11px; border-radius:20px; padding:2px 9px; background:#eee; color:var(--text-muted); }
+  .conf-pill.sim { background:#d5efe0; color:#1a6e40; }
+  .conf-pill.nao { background:#f7d9d6; color:var(--red); }
   .anexos-grid { display:flex; flex-wrap:wrap; gap:8px; }
   .anexo { position:relative; width:78px; }
   .anexo a { display:block; text-decoration:none; color:var(--dark); }
@@ -196,6 +218,7 @@
     <div id="detDescricao" style="margin-top:12px;font-size:13px;white-space:pre-wrap"></div>
 
     <div id="detOC" style="margin-top:12px"></div>
+    <div id="detConferencia" style="margin-top:12px"></div>
 
     <span class="section-label">Anexos (fotos / desenhos)</span>
     <div id="detAnexos"><div class="empty">Carregando...</div></div>
@@ -397,6 +420,7 @@ async function abrirDetalhe(id) {
      <span>${new Date(s.created_at).toLocaleString('pt-BR')}${vinc}</span>`;
   document.getElementById('detDescricao').textContent = s.descricao || '';
   renderOC(s);
+  carregarConferencia(s);
   renderAcoes(s);
   abrirOverlay('detOverlay');
   carregarAnexos(id);
@@ -582,6 +606,150 @@ function ehCompras(s) {
   return (s.titulo || '').toLowerCase().startsWith('compras') || compradores.has(s.responsavel_id);
 }
 function podeSetarOC(s) { return sessao.admin || sessao.id === s.responsavel_id; }
+
+/* ── CONFERÊNCIA DO ESP/ ────────────────────────────────────────────
+   Quando um ESP/ fecha todas as etapas, quem cuida de 3D e documentação
+   recebe uma solicitação para conferir a peça FÍSICA antes de desenhar
+   qualquer coisa. O que ele responde aqui não é recado de solicitação: é
+   medida do produto construído, e serve depois para a ficha técnica, para o
+   bloco 3D e para conferir o próximo igual. Por isso mora em
+   `produto_conferencia`, com uma linha por produto, e não no texto daqui.
+
+   A linha já existe quando a solicitação nasce (o checklist cria as duas
+   juntas), então achamos pelo `solicitacao_id` e nunca pelo nome do produto. */
+const CONF_MEDIDAS = [
+  ['largura',           'Largura'],
+  ['profundidade',      'Profundidade'],
+  ['altura',            'Altura'],
+  ['largura_braco',     'Largura de braço'],
+  ['altura_assento',    'Altura de assento'],
+  ['prof_livre_sentar', 'Profundidade livre do sentar']
+];
+const CONF_SIMNAO = [
+  ['medicoes_ok',   'Medições conferem com o projeto'],
+  ['bloco_3d',      'Bloco 3D'],
+  ['ficha_tecnica', 'Ficha técnica']
+];
+let detConf = null;          // linha de produto_conferencia da solicitação aberta
+
+function ehConferencia(s) {
+  return (s.titulo || '').toLowerCase().startsWith('conferir medidas');
+}
+// mesma regra da OC: quem é dono da solicitação preenche; admin destrava
+function podeConferir(s) { return sessao.admin || sessao.id === s.responsavel_id; }
+
+async function carregarConferencia(s) {
+  const el = document.getElementById('detConferencia');
+  detConf = null;
+  if (!ehConferencia(s)) { el.innerHTML = ''; return; }
+  el.innerHTML = '<div class="empty">Carregando conferência...</div>';
+  const { data, error } = await sb.from('produto_conferencia')
+    .select('*').eq('solicitacao_id', s.id).maybeSingle();
+  if (error) {
+    el.innerHTML = '<div class="empty" style="text-align:left;padding:8px">Não consegui carregar a conferência.</div>';
+    return;
+  }
+  detConf = data || { solicitacao_id: s.id };
+  renderConferencia();
+}
+
+function renderConferencia() {
+  const s = detAtual, c = detConf;
+  const el = document.getElementById('detConferencia');
+  if (!c) { el.innerHTML = ''; return; }
+  const editar = podeConferir(s) && s.status !== 'cancelada';
+
+  const simNao = CONF_SIMNAO.map(([k, rotulo]) => {
+    const v = c[k];
+    const bt = (valor, texto, cls) =>
+      `<button class="${v === valor ? cls : ''}" ${editar ? `onclick="marcarConf('${k}', ${valor})"` : 'disabled'}>${texto}</button>`;
+    return `<div class="conf-sn"><span>${rotulo}</span>
+      <div class="opts">${bt(true, 'Sim', 'on-sim')}${bt(false, 'Não', 'on-nao')}</div></div>`;
+  }).join('');
+
+  const medidas = CONF_MEDIDAS.map(([k, rotulo]) => `<div class="conf-campo">
+      <label for="conf-${k}">${rotulo} (cm)</label>
+      <input id="conf-${k}" value="${esc(c[k] || '')}" ${editar ? '' : 'disabled'} placeholder="—">
+    </div>`).join('');
+
+  const quando = c.atualizado_em && (c.largura || c.medicoes_ok != null)
+    ? `<span style="font-size:11px;color:var(--text-muted)">salvo em ${new Date(c.atualizado_em).toLocaleString('pt-BR')}</span>` : '';
+
+  el.innerHTML = `<div class="conf-box">
+    <div class="conf-cab"><b>📐 Conferência da peça física</b>${quando}</div>
+    ${simNao}
+    <div style="margin:12px 0 4px"><span class="field-label">Medições da peça física</span></div>
+    <div class="conf-grid">${medidas}</div>
+    <div style="margin-top:10px">
+      <label class="field-label" for="conf-obs">Observação (o que divergiu, se divergiu)</label>
+      <textarea id="conf-obs" rows="2" style="width:100%;box-sizing:border-box" ${editar ? '' : 'disabled'}>${esc(c.observacao || '')}</textarea>
+    </div>
+    ${editar
+      ? `<button class="btn btn-primary btn-sm" style="margin-top:10px" onclick="salvarConferencia()">Salvar conferência</button>
+         <span id="confStatus" style="font-size:11px;color:var(--text-muted);margin-left:8px"></span>`
+      : `<div style="font-size:11px;color:var(--text-muted);margin-top:8px">Só ${esc(nomeDe(s.responsavel_id))} preenche esta conferência.</div>`}
+  </div>`;
+}
+
+/* Sim/Não gravam na hora: são um clique, e perder o clique porque a pessoa
+   fechou a modal antes de salvar seria pior do que uma ida ao banco. */
+async function marcarConf(campo, valor) {
+  if (!detConf) return;
+  detConf[campo] = (detConf[campo] === valor) ? null : valor;   // reclicar limpa
+  renderConferencia();
+  await gravarConferencia({ [campo]: detConf[campo] });
+}
+
+async function salvarConferencia() {
+  const st = document.getElementById('confStatus');
+  const dados = { observacao: document.getElementById('conf-obs').value.trim() || null };
+  CONF_MEDIDAS.forEach(([k]) => {
+    dados[k] = document.getElementById('conf-' + k).value.trim() || null;
+  });
+  Object.assign(detConf, dados);
+  if (st) st.textContent = 'Salvando...';
+  const ok = await gravarConferencia(dados, true);
+  if (st) st.textContent = ok ? 'Salvo.' : 'Não consegui salvar.';
+}
+
+/* `upsert` com a chave do produto: a linha já nasceu junto da solicitação,
+   mas se alguém apagou (ou é uma solicitação antiga, de antes disto), ela se
+   recria em vez de a tela travar. */
+async function gravarConferencia(dados, registrarNaLinha) {
+  try {
+    const s = detAtual;
+    const linha = { ...detConf, ...dados, solicitacao_id: s.id,
+                    conferido_por: sessao.id, atualizado_em: new Date().toISOString() };
+    if (!linha.produto_id) {
+      const { data: p } = await sb.from('produtos').select('id')
+        .eq('produto', s.produto_ref || '').eq('n_pedido', s.pedido_ref || '').maybeSingle();
+      if (!p) { alert('Não achei o produto desta solicitação para guardar a conferência.'); return false; }
+      linha.produto_id = p.id;
+      detConf.produto_id = p.id;
+    }
+    const { error } = await sb.from('produto_conferencia').upsert(linha, { onConflict: 'produto_id' });
+    if (error) throw error;
+    // A linha do tempo é o que prova o que foi conferido e quando.
+    if (registrarNaLinha) {
+      await sb.from('solicitacao_eventos').insert({ solicitacao_id: s.id, autor_id: sessao.id,
+        tipo: 'processo', texto: '📐 Conferência atualizada — ' + resumoConferencia(linha) });
+      await notificar(s.criador_id, 'Conferência atualizada', `${s.titulo}: ${resumoConferencia(linha)}`, s.id);
+      await abrirDetalhe(s.id);
+    }
+    return true;
+  } catch (e) {
+    console.error('conferência:', e);
+    alert('Erro ao salvar a conferência: ' + e.message);
+    return false;
+  }
+}
+
+function resumoConferencia(c) {
+  const sn = v => v == null ? '—' : (v ? 'sim' : 'não');
+  const med = CONF_MEDIDAS.filter(([k]) => c[k]).map(([k, r]) => `${r.toLowerCase()} ${c[k]}`).join(', ');
+  return `medições: ${sn(c.medicoes_ok)} · bloco 3D: ${sn(c.bloco_3d)} · ficha técnica: ${sn(c.ficha_tecnica)}`
+       + (med ? ` · ${med}` : '');
+}
 
 function renderOC(s) {
   const el = document.getElementById('detOC');
