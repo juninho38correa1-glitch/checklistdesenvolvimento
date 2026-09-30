@@ -995,9 +995,17 @@ function custoMarcado() {
   return !!m && m.value === 'sim';
 }
 
+/* Produto que nasceu antes de existir o sistema de custos. Ninguém respondeu
+   “precisa de ficha?” porque a pergunta não existia — esses vieram da planilha.
+   Marcar como “não precisa” seria mentira: não se sabe. */
+function ehDoSistemaAntigo(item) {
+  return !!BLOQUEIO_A_PARTIR_DE && !!item.criadoEm
+      && new Date(item.criadoEm) < BLOQUEIO_A_PARTIR_DE;
+}
+
 /* Situação da ficha de custo, para a coluna e para as regras. */
 function statusCusto(item) {
-  if (!item.precisaCusto) return 'nao-precisa';
+  if (!item.precisaCusto) return ehDoSistemaAntigo(item) ? 'sistema-antigo' : 'nao-precisa';
   return fichasCusto[item.id] ? 'anexada' : 'falta';
 }
 
@@ -1018,6 +1026,13 @@ function faltaSoOCusto(item) {
 function custoHtml(item) {
   if (!ehEspecial(item.tipo)) return '<span style="color:var(--text-muted);font-size:11px">—</span>';
   const st = statusCusto(item);
+  if (st === 'sistema-antigo') {
+    const daPlanilha = String(item.origem || '') === 'planilha';
+    const titulo = 'Cadastrado antes de existir o controle de custo no checklist'
+                 + (daPlanilha ? ', importado da planilha antiga' : '')
+                 + '. Não dá para dizer se precisava de ficha — ninguém foi perguntado.';
+    return `<span class="dias-badge" style="background:#efe7d6;color:var(--text-muted);font-size:10px" title="${titulo}">sistema antigo</span>`;
+  }
   if (st === 'nao-precisa') return '<span style="color:var(--text-muted);font-size:11px">não precisa</span>';
   if (st === 'anexada') {
     const f = fichasCusto[item.id];
@@ -1809,7 +1824,11 @@ function renderBlocoCusto(item) {
     return;
   }
   if (!item.precisaCusto) {
-    el.innerHTML = '<div class="timeline-empty" style="text-align:left;padding:6px 0">Este produto foi cadastrado como <b>sem</b> necessidade de ficha de custo.</div>';
+    el.innerHTML = ehDoSistemaAntigo(item)
+      ? '<div class="timeline-empty" style="text-align:left;padding:6px 0">Produto do <b>sistema antigo</b>: foi cadastrado antes de o checklist controlar custo'
+        + (String(item.origem || '') === 'planilha' ? ', importado da planilha' : '')
+        + '. Ninguém foi perguntado se precisava de ficha, então não dá para dizer que não precisa.</div>'
+      : '<div class="timeline-empty" style="text-align:left;padding:6px 0">Este produto foi cadastrado como <b>sem</b> necessidade de ficha de custo.</div>';
     return;
   }
   const f = fichasCusto[item.id];
@@ -2227,6 +2246,7 @@ async function loadCSV(isSilent = false) {
       id: p.id,                 // ID FIXO do produto (usado nas gravações)
       criadoEm: p.created_at || '',   // decide se entra na contagem de alertas
       precisaCusto: !!p.precisa_custo,
+      origem: p.origem || '',        // 'planilha' = importado do sistema antigo
       pes: p.pes || '',
       qtdTecido: p.qtd_tecido || '',
       codCadastro: p.cod_cadastro || '',
