@@ -1712,6 +1712,50 @@ async function anexarFichaNaSolicitacao(solicitacaoId, ficha) {
   } catch (e) { console.error('Falha ao anexar a ficha na solicitação:', e); }
 }
 
+/* A cobrança da ficha de custo existe por causa de uma falta. Anexada a ficha,
+   a falta acabou: deixar a solicitação aberta obrigaria quem cuida de custo a
+   voltar lá só para dizer que já resolveu, e até lá a lista de pendências
+   mostraria um problema que não existe mais.
+   Fecha independentemente de quem anexou — o que resolve é a ficha existir —
+   e a linha do tempo registra quem foi. */
+async function concluirCobrancaDeCusto(item) {
+  if (!item || !ehEspecial(item.tipo)) return;
+  const def = SERVICOS.custo;
+  try {
+    let q = supabaseClient.from('solicitacoes').select('id,criador_id')
+      .eq('produto_ref', item.produto)
+      .ilike('titulo', def.titulo + '%')
+      .in('status', ['aberta', 'em_andamento']);
+    q = item.nPedido ? q.eq('pedido_ref', item.nPedido) : q.is('pedido_ref', null);
+    const { data: abertas, error } = await q;
+    if (error) { console.error('Falha ao procurar a cobrança de custo:', error); return; }
+    if (!abertas || !abertas.length) return;
+
+    const agora = new Date().toISOString();
+    for (const sol of abertas) {
+      const { error: e1 } = await supabaseClient.from('solicitacoes')
+        .update({ status: 'concluida', concluida_em: agora, updated_at: agora }).eq('id', sol.id);
+      if (e1) { console.error('Falha ao concluir a cobrança de custo:', e1); continue; }
+
+      // registro não se apaga e não se adivinha: fica escrito o porquê e por quem
+      await supabaseClient.from('solicitacao_eventos').insert({
+        solicitacao_id: sol.id, autor_id: sessao ? sessao.id : null, tipo: 'status',
+        texto: `Concluída automaticamente: a ficha de custo foi anexada ao produto por ${getOperador() || '—'}.`
+      });
+
+      // quem abriu a cobrança fica sabendo que ela se resolveu
+      if (sol.criador_id && sessao && sol.criador_id !== sessao.id) {
+        const { data: notif } = await supabaseClient.from('notificacoes').insert({
+          para_usuario_id: sol.criador_id, titulo: 'Solicitação concluída',
+          corpo: `${def.titulo} — ${item.produto}`, origem: 'checklist', ref: sol.id
+        }).select().single();
+        if (notif) supabaseClient.functions.invoke('quick-endpoint', { body: { record: notif } })
+          .catch(e => console.error('push:', e));
+      }
+    }
+  } catch (e) { console.error('Falha ao concluir a cobrança de custo:', e); }
+}
+
 function abrirSeletorCusto() { document.getElementById('custoInput').click(); }
 
 function renderBlocoCusto(item) {
@@ -1756,6 +1800,8 @@ async function enviarFichaCusto(ev) {
     renderBlocoCusto(item);
     renderTable();
     showToast();
+    // a cobrança existia porque a ficha faltava; ela chegou, então fecha sozinha
+    await concluirCobrancaDeCusto(item);
     // anexar a ficha pode ser a última peça que faltava para encerrar
     await avisarFechamentoEsp(item);
   } catch (e) {
