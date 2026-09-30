@@ -535,8 +535,8 @@ async function carregarAdmUsers() {
 
 // muda o setor de uma pessoa (as permissões vêm do setor)
 async function mudarSetor(id, setor) {
-  const { error } = await sb.from('usuarios').update({ setor: setor || null }).eq('id', id);
-  if (error) { alert('Erro: ' + error.message); carregarAdmUsers(); return; }
+  const r = await chamarComoAdmin('admin_definir_setor', { p_usuario_id: id, p_setor: setor || null });
+  if (!r.ok) { carregarAdmUsers(); return; }
   const u = admUsuarios.find(x => x.id === id); if (u) u.setor = setor;
   if (sessao.id === id) {   // mudou o próprio setor → recarrega permissões resolvidas
     const s = setoresLista.find(x => x.nome.toLowerCase() === (setor||'').toLowerCase());
@@ -623,8 +623,8 @@ async function excluirSetor(nome) {
 async function salvarNome(id) {
   const novo = document.getElementById('nm-' + id).value.trim();
   if (!novo) { alert('O nome não pode ficar vazio.'); return; }
-  const { error } = await sb.rpc('renomear_usuario', { p_usuario_id: id, p_nome_novo: novo });
-  if (error) { alert('Erro: ' + error.message); return; }
+  const r = await chamarComoAdmin('admin_renomear_usuario', { p_usuario_id: id, p_nome_novo: novo });
+  if (!r.ok) return;
   alert('Nome atualizado e propagado para todo o histórico.');
   // se renomeou a si mesmo, atualiza a sessão
   if (sessao.id === id) {
@@ -683,13 +683,46 @@ async function carregarAdmHistorico() {
   }
 }
 
+/* O painel de pessoas não escreve mais direto na tabela: `anon` perdeu
+   INSERT e UPDATE em `usuarios` porque essa permissão não distingue o painel
+   de uma requisição montada à mão — e a chave está no código-fonte da página.
+   Com ela, qualquer um trocava a senha de qualquer pessoa e entrava como ela.
+   Agora cada operação passa por uma função que exige o PIN de um admin ativo.
+   A senha fica SÓ nesta variável, em memória: nunca no localStorage, para não
+   virar o mesmo problema da sessão que sobrevive no PC de outra pessoa. */
+let _senhaAdmin = null;
+
+async function pedirSenhaAdmin(reperguntar) {
+  if (_senhaAdmin && !reperguntar) return _senhaAdmin;
+  const p = prompt('Sua senha de administrador, para confirmar a alteração:');
+  if (p === null || !p.trim()) return null;
+  _senhaAdmin = p.trim();
+  return _senhaAdmin;
+}
+
+/* Chama uma função de admin. Se a senha estiver errada, esquece a guardada e
+   pergunta de novo uma vez — senão o admin ficaria preso numa senha velha. */
+async function chamarComoAdmin(fn, args) {
+  let senha = await pedirSenhaAdmin(false);
+  if (!senha) return { cancelado: true };
+  let r = await sb.rpc(fn, Object.assign({ p_admin_id: sessao.id, p_admin_pin: senha }, args));
+  if (r.error && /senha de administrador/i.test(r.error.message || '')) {
+    _senhaAdmin = null;
+    senha = await pedirSenhaAdmin(true);
+    if (!senha) return { cancelado: true };
+    r = await sb.rpc(fn, Object.assign({ p_admin_id: sessao.id, p_admin_pin: senha }, args));
+  }
+  if (r.error) { alert('Erro: ' + r.error.message); return { erro: r.error }; }
+  return { ok: true, data: r.data };
+}
+
 // Converte todas as ocorrências de um nome avulso para o nome do usuário escolhido
 async function vincularNome(nomeAntigo) {
   const selId = 'vinc-' + btoa(unescape(encodeURIComponent(nomeAntigo))).replace(/=/g,'');
   const usuarioId = document.getElementById(selId).value;
   if (!confirm(`Vincular todos os registros de "${nomeAntigo}" a este usuário?`)) return;
-  const { error } = await sb.rpc('vincular_nome_historico', { p_usuario_id: usuarioId, p_nome_antigo: nomeAntigo });
-  if (error) { alert('Erro: ' + error.message); return; }
+  const r = await chamarComoAdmin('admin_vincular_nome', { p_usuario_id: usuarioId, p_nome_antigo: nomeAntigo });
+  if (!r.ok) return;
   alert('Histórico unificado.');
   carregarAdmHistorico();
 }
@@ -701,8 +734,9 @@ async function addUsuario() {
   const admin = document.getElementById('nuAdmin').checked;
   const setor = document.getElementById('nuSetor').value || null;
   if (!nome || !pin) { alert('Nome e PIN são obrigatórios.'); return; }
-  const { error } = await sb.from('usuarios').insert({ nome, funcao: funcao || null, pin, admin, setor });
-  if (error) { alert('Erro: ' + error.message); return; }
+  const r = await chamarComoAdmin('admin_criar_usuario', {
+    p_nome: nome, p_funcao: funcao || null, p_pin: pin, p_admin: admin, p_setor: setor });
+  if (!r.ok) return;
   document.getElementById('nuNome').value = ''; document.getElementById('nuFuncao').value = '';
   document.getElementById('nuPin').value = ''; document.getElementById('nuAdmin').checked = false;
   document.getElementById('nuSetor').value = '';
@@ -710,15 +744,15 @@ async function addUsuario() {
 }
 
 async function resetPin(id, nome) {
-  const novo = prompt(`Novo PIN para ${nome}:`);
+  const novo = prompt(`Nova senha para ${nome}:`);
   if (novo === null || !novo.trim()) return;
-  const { error } = await sb.from('usuarios').update({ pin: novo.trim() }).eq('id', id);
-  if (error) alert('Erro: ' + error.message); else alert('PIN atualizado.');
+  const r = await chamarComoAdmin('admin_resetar_pin', { p_usuario_id: id, p_pin_novo: novo.trim() });
+  if (r.ok) alert('Senha atualizada.');
 }
 
 async function toggleAtivo(id, ativoAtual) {
-  const { error } = await sb.from('usuarios').update({ ativo: !ativoAtual }).eq('id', id);
-  if (error) alert('Erro: ' + error.message); else carregarAdmUsers();
+  const r = await chamarComoAdmin('admin_definir_ativo', { p_usuario_id: id, p_valor: !ativoAtual });
+  if (r.ok) carregarAdmUsers();
 }
 
 /* Cada responsável só pode ser gente do setor dele. Digitado à mão, um nome
