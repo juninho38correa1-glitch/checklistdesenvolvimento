@@ -76,6 +76,43 @@
   .notif-item .t { font-weight:600; }
   .notif-item .m { color:var(--text-muted); font-size:11px; margin-top:2px; }
   .empty { color:var(--text-muted); font-size:13px; text-align:center; padding:16px; }
+
+  /* PAINEL DE CONFIGURAÇÕES — agrupado por assunto.
+     Antes era uma tabela de chave/valor: para trocar o prazo de cobrança
+     era preciso saber que ele se chamava `alerta_dias_laranja`. */
+  .cfg-grupo { background:white; border:1px solid var(--border); border-radius:12px;
+               padding:16px 18px; margin-bottom:14px; }
+  .cfg-grupo > h4 { font-size:14px; margin:0 0 3px; display:flex; align-items:center; gap:8px; }
+  .cfg-grupo > .por-que { font-size:12.5px; color:var(--text-muted); margin:0 0 14px; line-height:1.5; }
+  .cfg-item { display:grid; grid-template-columns:1fr auto; gap:6px 16px; align-items:center;
+              padding:11px 0; border-top:1px solid var(--border); }
+  .cfg-item:first-of-type { border-top:none; padding-top:2px; }
+  .cfg-item .rot { font-size:13.5px; font-weight:600; }
+  .cfg-item .aj { font-size:12px; color:var(--text-muted); grid-column:1/-1; margin-top:-4px; line-height:1.5; }
+  .cfg-item .aj b { color:var(--dark); font-weight:600; }
+  .cfg-item .ctrl { display:flex; align-items:center; gap:7px; white-space:nowrap; }
+  .cfg-item .ctrl input, .cfg-item .ctrl select { width:auto; }
+  .cfg-item input[type=number] { width:74px; text-align:center; font-variant-numeric:tabular-nums; }
+  .cfg-item input[type=date] { width:auto; }
+  .cfg-item select { min-width:180px; }
+  .cfg-item .un { font-size:12px; color:var(--text-muted); }
+  .cfg-rodape { display:flex; align-items:center; gap:12px; margin-top:14px;
+                border-top:1px solid var(--border); padding-top:13px; }
+  .cfg-ok { font-size:12px; color:var(--green); }
+  .cfg-erro { font-size:12px; color:var(--red); }
+  .cfg-chave { font-family:'DM Mono',monospace; font-size:10px; color:var(--text-muted);
+               background:var(--cream); border-radius:4px; padding:1px 6px; }
+  .cfg-cuidado { border-left:3px solid var(--orange); }
+  .cfg-fixo { background:var(--cream); border-style:dashed; }
+  .cfg-fixo ul { margin:0; padding-left:18px; font-size:12.5px; color:var(--text-muted); }
+  .cfg-fixo li { margin-bottom:3px; }
+  .cfg-gente { display:flex; flex-wrap:wrap; gap:6px 14px; grid-column:1/-1; margin-top:4px; }
+  .cfg-gente label { display:flex; align-items:center; gap:6px; font-size:13px; }
+  .cfg-gente input { width:auto; }
+  @media (max-width:560px) {
+    .cfg-item { grid-template-columns:1fr; }
+    .cfg-item .ctrl { justify-content:flex-start; }
+  }
 </style>
 </head>
 <body>
@@ -200,20 +237,7 @@
     </table>
 
     <span class="section-label">Configurações</span>
-    <table>
-      <thead><tr><th>Chave</th><th>Valor</th><th>Descrição</th><th></th></tr></thead>
-      <tbody id="admConfigs"></tbody>
-    </table>
-
-    <span class="section-label">Lead times da Linha do Tempo</span>
-    <div style="font-size:12px;color:var(--text-muted);margin-bottom:8px">
-      Onde cada tempo começa e onde termina. Vale para a Linha do Tempo do Processo e para o resumo do produto.
-    </div>
-    <table>
-      <thead><tr><th>Lead time</th><th>Começa em</th><th>Termina em</th></tr></thead>
-      <tbody id="admLeadtimes"><tr><td colspan="3" class="empty">Carregando...</td></tr></tbody>
-    </table>
-    <button class="btn btn-ghost mini" style="margin-top:8px" onclick="salvarLeadtimes()">Salvar lead times</button>
+    <div id="painelConfig"><div class="empty">Carregando...</div></div>
   </div>
 </div>
 
@@ -548,7 +572,7 @@ async function abrirAdmin() {
   await carregarSetores();
   document.getElementById('nuSetor').innerHTML = '<option value="">Setor —</option>' +
     setoresLista.map(s => `<option value="${s.nome}">${s.nome}</option>`).join('');
-  await Promise.all([carregarAdmUsers(), carregarAdmConfigs(), carregarAdmHistorico(), carregarAdmLeadtimes()]);
+  await Promise.all([carregarAdmUsers(), carregarAdmConfigs(), carregarAdmHistorico()]);
 }
 
 let admUsuarios = [], setoresLista = [];
@@ -815,44 +839,276 @@ const RESP_POR_SETOR = {
   responsavel_custo:        'Dev'
 };
 
+/* ── PAINEL DE CONFIGURAÇÕES ─────────────────────────────────────────
+   Era uma tabela de chave/valor: para mudar o prazo de cobrança era preciso
+   saber que ele se chamava `alerta_dias_laranja` e que o número servia para
+   três coisas ao mesmo tempo. Agora cada ajuste tem nome em português, diz o
+   que acontece quando muda e fica junto dos que tratam do mesmo assunto.
+   A chave técnica continua à vista, pequena, porque é por ela que a gente se
+   acha quando precisa mexer no banco. */
+
+const CFG_PRAZOS = [
+  { chave:'alerta_dias_laranja', rotulo:'Cobrar o Comercial e o PCP depois de', un:'dias', min:1, max:90,
+    ajuda:'Abre a cobrança automática <b>e</b> é quando o selo de espera fica laranja — um número só para as duas coisas. ' +
+          '<b>Comercial:</b> pedido parado sem Data de Envio ao PCP. <b>PCP:</b> ficha do especial que ainda não chegou ao Dev.' },
+  { chave:'alerta_dias_vermelho', rotulo:'Virar vermelho depois de', un:'dias', min:1, max:120,
+    ajuda:'Só muda a cor do selo de espera, para separar o que está atrasado do que está muito atrasado. Não abre solicitação nova.' },
+  { chave:'dias_alerta_solicitacao', rotulo:'Considerar uma solicitação parada após', un:'dias', min:1, max:60,
+    ajuda:'Sem movimento nenhum por esse tempo, ela ganha o selo <b>parada</b> na lista e no painel de atividade.' }
+];
+
+const CFG_RESPONSAVEIS = [
+  { chave:'responsavel_comercial',    rotulo:'Comercial',            recebe:'Falta a Data de Envio ao PCP' },
+  { chave:'responsavel_pcp',          rotulo:'PCP',                  recebe:'Liberado para inclusão em lote · Ficha de especial atrasada' },
+  { chave:'responsavel_custo',        rotulo:'Ficha de custo',       recebe:'Especial 100% — falta a ficha de custo' },
+  { chave:'responsavel_cadastro',     rotulo:'Cadastro',             recebe:'Especial concluído — conferir cadastro (vai com a ficha de custo anexada)' },
+  { chave:'responsavel_documentacao', rotulo:'Documentação e 3D',    recebe:'Conferir medidas, documentação e 3D (vai sem a ficha de custo)' },
+  { chave:'responsavel_compras',      rotulo:'Compras',              recebe:'Solicitações encaminhadas para compras' }
+];
+
+const CFG_CORTES = [
+  { chave:'alertas_a_partir_de',  rotulo:'Cobranças por prazo valem a partir de',
+    ajuda:'Produto cadastrado <b>antes</b> desta data nunca gera cobrança. Existe porque centenas de produtos antigos disparariam alerta todos juntos no dia em que a regra entrou.' },
+  { chave:'bloqueio_a_partir_de', rotulo:'Bloqueio até o PCP liberar vale a partir de',
+    ajuda:'Produto cadastrado <b>a partir</b> desta data nasce só-leitura até o PCP concluir a liberação. Recuar esta data tranca de uma vez todos os produtos que ela passar a alcançar.' }
+];
+
+let cfgUsuarios = [];
+let cfgOriginais = {};   // valor como estava no banco, para não regravar o que ninguém mexeu
+
+function cfgEsc(t) { return String(t == null ? '' : t).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;'); }
+
 async function carregarAdmConfigs() {
-  const tb = document.getElementById('admConfigs');
+  const el = document.getElementById('painelConfig');
   const [cfgRes, usRes] = await Promise.all([
     sb.from('configuracoes').select('*').order('chave'),
     sb.from('usuarios').select('nome,setor,ativo').eq('ativo', true).order('nome')
   ]);
-  if (cfgRes.error) { tb.innerHTML = `<tr><td colspan="4" class="empty">Erro ao carregar.</td></tr>`; return; }
-  const usuarios = usRes.data || [];
-  // o setor vem 'dev' minúsculo em usuarios e 'Dev' em setores: compara sem caso
-  const doSetor = setor => usuarios.filter(u => String(u.setor || '').trim().toLowerCase() === setor.toLowerCase());
+  if (cfgRes.error) { el.innerHTML = '<div class="empty">Erro ao carregar as configurações.</div>'; return; }
+  cfgUsuarios = usRes.data || [];
+  const v = {}; (cfgRes.data || []).forEach(c => v[c.chave] = c.valor);
+  cfgOriginais = { ...v };
 
-  const campoValor = (c) => {
-    const setor = RESP_POR_SETOR[c.chave];
-    if (!setor) return `<input class="mini" style="width:90px" id="cfg-${c.chave}" value="${(c.valor||'').replace(/"/g,'&quot;')}">`;
+  // o setor vem 'dev' minúsculo em usuarios e 'Dev' em setores: compara sem caso
+  const doSetor = setor => cfgUsuarios.filter(u =>
+    String(u.setor || '').trim().toLowerCase() === String(setor).toLowerCase());
+
+  const listaDeGente = (chave, atual) => {
+    const setor = RESP_POR_SETOR[chave];
     const gente = doSetor(setor);
-    const atual = c.valor || '';
-    // Se o valor gravado não é de ninguém do setor, ele continua na lista
-    // marcado como fora — trocar por conta própria seria mudar configuração
-    // de produção sem ninguém pedir.
-    const forasteiro = atual && !gente.some(u => u.nome === atual);
     if (!gente.length) {
-      return `<select class="mini" style="width:170px" id="cfg-${c.chave}">
-        <option value="${atual.replace(/"/g,'&quot;')}">${atual || '—'}</option>
-      </select><div style="font-size:10px;color:var(--red);margin-top:2px">Nenhum usuário ativo no setor ${setor}</div>`;
+      return `<select id="cfg-${chave}" disabled><option>${cfgEsc(atual) || '—'}</option></select>`;
     }
-    return `<select class="mini" style="width:170px" id="cfg-${c.chave}">
+    // Valor gravado que não é de ninguém do setor continua na lista, marcado
+    // como fora: trocar sozinho seria mudar produção sem ninguém pedir.
+    const forasteiro = atual && !gente.some(u => u.nome === atual);
+    return `<select id="cfg-${chave}">
       <option value="">— ninguém —</option>
-      ${forasteiro ? `<option value="${atual.replace(/"/g,'&quot;')}" selected>${atual} (fora do setor ${setor})</option>` : ''}
-      ${gente.map(u => `<option value="${u.nome.replace(/"/g,'&quot;')}" ${u.nome === atual ? 'selected' : ''}>${u.nome}</option>`).join('')}
-    </select><div style="font-size:10px;color:var(--text-muted);margin-top:2px">setor ${setor}</div>`;
+      ${forasteiro ? `<option value="${cfgEsc(atual)}" selected>${cfgEsc(atual)} (fora do setor ${setor})</option>` : ''}
+      ${gente.map(u => `<option value="${cfgEsc(u.nome)}" ${u.nome === atual ? 'selected' : ''}>${cfgEsc(u.nome)}</option>`).join('')}
+    </select>`;
   };
 
-  tb.innerHTML = cfgRes.data.filter(c => c.chave !== 'leadtimes').map(c => `<tr>
-    <td style="font-family:'DM Mono',monospace;font-size:11px">${c.chave}</td>
-    <td>${campoValor(c)}</td>
-    <td style="color:var(--text-muted);font-size:12px">${c.descricao || ''}</td>
-    <td><button class="btn btn-ghost mini" onclick="salvarConfig('${c.chave}')">Salvar</button></td>
-  </tr>`).join('');
+  const soData = t => {
+    const x = String(t || '').trim();
+    return /^\d{4}-\d{2}-\d{2}/.test(x) ? x.slice(0, 10) : '';
+  };
+
+  const st4 = String(v.usuarios_st4 || '').split(',').map(x => x.trim()).filter(Boolean);
+
+  el.innerHTML = `
+    <div class="cfg-grupo">
+      <h4>⏱️ Prazos das cobranças automáticas</h4>
+      <p class="por-que">Quanto tempo o sistema espera antes de abrir uma solicitação sozinho. Cada cobrança
+      nasce uma vez só por produto — concluir e deixar o problema de pé não faz nascer outra.</p>
+      ${CFG_PRAZOS.map(c => `
+        <div class="cfg-item">
+          <span class="rot">${c.rotulo}</span>
+          <span class="ctrl">
+            <input type="number" id="cfg-${c.chave}" value="${cfgEsc(v[c.chave] || '')}" min="${c.min}" max="${c.max}">
+            <span class="un">${c.un}</span>
+            <span class="cfg-chave">${c.chave}</span>
+          </span>
+          <span class="aj">${c.ajuda}</span>
+        </div>`).join('')}
+      <div class="cfg-rodape">
+        <button class="btn btn-ghost mini" onclick="salvarGrupo('prazos', this)">Salvar prazos</button>
+        <span id="st-prazos"></span>
+      </div>
+    </div>
+
+    <div class="cfg-grupo">
+      <h4>👤 Quem recebe cada aviso automático</h4>
+      <p class="por-que">A lista de cada linha mostra só quem está ativo no setor correspondente.
+      Deixar em “ninguém” desliga aquele aviso: nada é criado e nada é perdido.</p>
+      ${CFG_RESPONSAVEIS.map(c => `
+        <div class="cfg-item">
+          <span class="rot">${c.rotulo}</span>
+          <span class="ctrl">${listaDeGente(c.chave, v[c.chave] || '')}<span class="cfg-chave">${c.chave}</span></span>
+          <span class="aj">Recebe: ${c.recebe}</span>
+        </div>`).join('')}
+      <div class="cfg-rodape">
+        <button class="btn btn-ghost mini" onclick="salvarGrupo('responsaveis', this)">Salvar responsáveis</button>
+        <span id="st-responsaveis"></span>
+      </div>
+    </div>
+
+    <div class="cfg-grupo cfg-cuidado">
+      <h4>📅 A partir de quando cada regra vale</h4>
+      <p class="por-que">Estas duas datas separam o sistema em antes e depois. Mexer nelas alcança produtos
+      que já existem — é o ajuste mais perigoso desta tela.</p>
+      ${CFG_CORTES.map(c => `
+        <div class="cfg-item">
+          <span class="rot">${c.rotulo}</span>
+          <span class="ctrl">
+            <input type="date" id="cfg-${c.chave}" value="${soData(v[c.chave])}">
+            <span class="cfg-chave">${c.chave}</span>
+          </span>
+          <span class="aj">${c.ajuda}</span>
+        </div>`).join('')}
+      <div class="cfg-rodape">
+        <button class="btn btn-ghost mini" onclick="salvarGrupo('cortes', this)">Salvar datas de corte</button>
+        <span id="st-cortes"></span>
+      </div>
+    </div>
+
+    <div class="cfg-grupo">
+      <h4>📐 Lead times da Linha do Tempo</h4>
+      <p class="por-que">Onde cada tempo começa e onde termina. Vale para a Linha do Tempo do Processo
+      e para o resumo do produto.</p>
+      <table>
+        <thead><tr><th>Lead time</th><th>Começa em</th><th>Termina em</th></tr></thead>
+        <tbody id="admLeadtimes"><tr><td colspan="3" class="empty">Carregando...</td></tr></tbody>
+      </table>
+      <div class="cfg-rodape">
+        <button class="btn btn-ghost mini" onclick="salvarLeadtimes()">Salvar lead times</button>
+      </div>
+    </div>
+
+    <div class="cfg-grupo">
+      <h4>📺 Acesso ao ST4 Controle</h4>
+      <p class="por-que">Quem aparece na tela de login do st4controle. As TVs não têm login: são telas de
+      parede que ligam sozinhas, e um login ali deixaria a tela parada depois de qualquer reinício.</p>
+      <div class="cfg-item">
+        <span class="rot">Pode entrar</span>
+        <span class="ctrl"><span class="cfg-chave">usuarios_st4</span></span>
+        <div class="cfg-gente">
+          ${cfgUsuarios.map((u, i) => `<label><input type="checkbox" id="st4-${i}" value="${cfgEsc(u.nome)}"
+            ${st4.includes(u.nome) ? 'checked' : ''}> ${cfgEsc(u.nome)}</label>`).join('')}
+        </div>
+      </div>
+      <div class="cfg-rodape">
+        <button class="btn btn-ghost mini" onclick="salvarGrupo('st4', this)">Salvar acesso ao ST4</button>
+        <span id="st-st4"></span>
+      </div>
+    </div>
+
+    <div class="cfg-grupo">
+      <h4>🏠 Portal</h4>
+      <div class="cfg-item">
+        <span class="rot">Título no topo da página</span>
+        <span class="ctrl">
+          <input type="text" id="cfg-titulo_portal" value="${cfgEsc(v.titulo_portal || '')}" style="width:220px">
+          <span class="cfg-chave">titulo_portal</span>
+        </span>
+      </div>
+      <div class="cfg-rodape">
+        <button class="btn btn-ghost mini" onclick="salvarGrupo('portal', this)">Salvar</button>
+        <span id="st-portal"></span>
+      </div>
+    </div>
+
+    <div class="cfg-grupo cfg-fixo">
+      <h4>🔒 O que ainda não se muda por aqui</h4>
+      <p class="por-que">Estas coisas estão no código das páginas. Mudar qualquer uma exige alterar e
+      publicar os arquivos — não dá para fazer por esta tela.</p>
+      <ul>
+        <li>Os nomes e a ordem das <b>10 etapas</b> do protótipo</li>
+        <li>O <b>título de cada solicitação automática</b> e o texto que vai no corpo</li>
+        <li>Quais áreas existem no controle de acesso (protótipos, cadastro, solicitações, atividade, alterações)</li>
+        <li>A regra de que só o <b>Dev</b> marca a ficha recebida</li>
+        <li>Os campos obrigatórios ao finalizar: <b>pés do produto</b> e <b>quantidade de tecido</b></li>
+        <li>Os campos do formulário de <b>conferência de medidas</b></li>
+      </ul>
+    </div>`;
+
+  carregarAdmLeadtimes();
+}
+
+/* Salva um grupo inteiro de uma vez e responde ali mesmo, em vez de abrir um
+   alerta por campo. Cada grupo sabe quais chaves são suas. */
+async function salvarGrupo(grupo, botao) {
+  const st = document.getElementById('st-' + grupo);
+  const pares = [];
+
+  if (grupo === 'prazos') {
+    for (const c of CFG_PRAZOS) {
+      const n = parseInt(document.getElementById('cfg-' + c.chave).value, 10);
+      if (isNaN(n) || n < c.min || n > c.max) {
+        st.className = 'cfg-erro';
+        st.textContent = `“${c.rotulo}” precisa de um número entre ${c.min} e ${c.max}.`;
+        return;
+      }
+      pares.push([c.chave, String(n)]);
+    }
+    const laranja  = Number(pares.find(x => x[0] === 'alerta_dias_laranja')[1]);
+    const vermelho = Number(pares.find(x => x[0] === 'alerta_dias_vermelho')[1]);
+    if (vermelho < laranja) {
+      st.className = 'cfg-erro';
+      st.textContent = 'O prazo do vermelho não pode ser menor que o da cobrança.';
+      return;
+    }
+  } else if (grupo === 'responsaveis') {
+    CFG_RESPONSAVEIS.forEach(c => pares.push([c.chave, document.getElementById('cfg-' + c.chave).value]));
+  } else if (grupo === 'cortes') {
+    for (const c of CFG_CORTES) {
+      const d = document.getElementById('cfg-' + c.chave).value;
+      if (!d) { st.className = 'cfg-erro'; st.textContent = `Informe a data de “${c.rotulo}”.`; return; }
+      /* O valor guardado tem hora ('2026-09-28T19:49:47Z') e o campo de data
+         só mostra o dia. Regravar sem ter mexido apagaria a hora e puxaria o
+         corte quase um dia para trás, trazendo produtos que estavam de fora.
+         Então só grava quando o DIA realmente mudou. */
+      const antes = String(cfgOriginais[c.chave] || '').slice(0, 10);
+      if (d === antes) continue;
+      pares.push([c.chave, d]);
+    }
+    if (!pares.length) {
+      st.className = 'cfg-ok';
+      st.textContent = 'Nada mudou nas datas.';
+      return;
+    }
+  } else if (grupo === 'st4') {
+    const nomes = cfgUsuarios
+      .map((u, i) => document.getElementById('st4-' + i).checked ? u.nome : null)
+      .filter(Boolean);
+    if (!nomes.length) {
+      st.className = 'cfg-erro';
+      st.textContent = 'Marque pelo menos uma pessoa, senão ninguém entra no ST4.';
+      return;
+    }
+    pares.push(['usuarios_st4', nomes.join(', ')]);
+  } else if (grupo === 'portal') {
+    pares.push(['titulo_portal', document.getElementById('cfg-titulo_portal').value.trim()]);
+  }
+
+  botao.disabled = true;
+  st.className = '';
+  st.textContent = 'Salvando...';
+  try {
+    for (const [chave, valor] of pares) {
+      const { error } = await sb.from('configuracoes')
+        .update({ valor, updated_at: new Date().toISOString() }).eq('chave', chave);
+      if (error) throw error;
+    }
+    pares.forEach(([k, val]) => cfgOriginais[k] = val);
+    st.className = 'cfg-ok';
+    st.textContent = 'Salvo. As telas abertas já pegaram a mudança.';
+  } catch (e) {
+    st.className = 'cfg-erro';
+    st.textContent = 'Não consegui salvar: ' + e.message;
+  } finally {
+    botao.disabled = false;
+  }
 }
 
 /* Editor dos lead times. O JSON fica numa linha só da tabela de
@@ -910,13 +1166,7 @@ async function salvarLeadtimes() {
   const { error } = await sb.from('configuracoes')
     .update({ valor: JSON.stringify(novo), updated_at: new Date().toISOString() }).eq('chave','leadtimes');
   if (error) alert('Erro: ' + error.message);
-  else alert('Lead times salvos. Quem estiver com o checklist aberto vê na próxima atualização.');
-}
-
-async function salvarConfig(chave) {
-  const valor = document.getElementById('cfg-' + chave).value;
-  const { error } = await sb.from('configuracoes').update({ valor, updated_at: new Date().toISOString() }).eq('chave', chave);
-  if (error) alert('Erro: ' + error.message); else alert('Configuração salva.');
+  else alert('Lead times salvos. As telas abertas já pegaram a mudança.');
 }
 
 /* ── UTIL ──────────────────────────────────────────── */
