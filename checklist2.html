@@ -370,7 +370,8 @@
           <th>Etapas</th>
           <th>Progresso</th>
           <th>Status</th>
-          <th title="Ficha do especial recebida do PCP">Ficha</th>
+          <th title="Ficha de custo do produto (só ESP/)">Custo</th>
+        <th title="Ficha do especial recebida do PCP">Ficha</th>
           <th id="thEditar" style="display:none"></th>
         </tr>
       </thead>
@@ -390,6 +391,16 @@
     <div class="edit-section">
       <label class="section-label">Responsável</label>
       <input type="text" id="editResponsavel" class="edit-input">
+    </div>
+    <div class="edit-section" id="secaoFinalizacao">
+      <label class="section-label">Para finalizar (obrigatório)</label>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+        <div><label class="section-label" style="font-size:10px">Pés do produto</label>
+          <input type="text" id="editPes" class="edit-input" placeholder="ex: pé palito 15cm preto"></div>
+        <div><label class="section-label" style="font-size:10px">Quantidade de tecido</label>
+          <input type="text" id="editTecido" class="edit-input" placeholder="ex: 12,5 m"></div>
+      </div>
+      <div id="avisoFinalizacao" style="font-size:11px;color:var(--orange);margin-top:5px"></div>
     </div>
     <div class="edit-section">
       <label class="section-label">Etapas</label>
@@ -488,6 +499,11 @@
       </div>
     </div>
     <div class="edit-section">
+      <label class="section-label">Ficha de custo</label>
+      <div id="blocoCusto"><div class="timeline-empty">Carregando...</div></div>
+      <input type="file" id="custoInput" accept="image/*,application/pdf" style="display:none" onchange="enviarFichaCusto(event)">
+    </div>
+    <div class="edit-section">
       <label class="section-label">Retransmissão</label>
       <div id="blocoRetrans"><div class="timeline-empty">Carregando...</div></div>
     </div>
@@ -566,9 +582,21 @@
       <div><label class="section-label">Cód. cadastro</label><input class="edit-input" id="fCod"></div>
       <div><label class="section-label">Nº Pedido *</label><input class="edit-input" id="fPedido" onblur="checarPedidoDuplicado()"><div id="avisoPedido" style="font-size:11px;color:var(--orange);margin-top:3px"></div></div>
       <div><label class="section-label">Tipo</label>
-        <select class="edit-input" id="fTipo"><option value="">—</option><option value="E/">E/</option><option value="ESP/">ESP/</option></select>
+        <select class="edit-input" id="fTipo" onchange="atualizarCampoCusto()"><option value="">—</option><option value="E/">E/</option><option value="ESP/">ESP/</option></select>
       </div>
       <div><label class="section-label">Produto *</label><input class="edit-input" id="fProduto"></div>
+      <div id="campoCusto" style="display:none">
+        <label class="section-label">Precisa de ficha de custo?</label>
+        <div style="display:flex;gap:16px;align-items:center;padding-top:6px">
+          <label style="display:flex;gap:6px;align-items:center;cursor:pointer;font-size:13px">
+            <input type="radio" name="fCusto" value="sim"> Sim</label>
+          <label style="display:flex;gap:6px;align-items:center;cursor:pointer;font-size:13px">
+            <input type="radio" name="fCusto" value="nao" checked> Não</label>
+        </div>
+        <div style="font-size:11px;color:var(--text-muted);margin-top:4px">
+          Marcando Sim, o produto só é dado por encerrado com a ficha de custo anexada.
+        </div>
+      </div>
       <div><label class="section-label">Data solicitação</label><input class="edit-input" type="date" id="fSolic" onkeydown="tabDate(event,'fEnvioPcp')"></div>
       <div><label class="section-label">Data de Envio ao PCP</label><input class="edit-input" type="date" id="fEnvioPcp" onkeydown="tabDate(event,'fEntrega')"></div>
       <div><label class="section-label">Data Entrega</label><input class="edit-input" type="date" id="fEntrega" onkeydown="tabDate(event,'btnSalvarProduto')" oninput="atualizarPrazoEntrega()"><div id="avisoEntrega" style="font-size:11px;margin-top:3px"></div></div>
@@ -655,7 +683,8 @@ const ROTULO_PONTA = { data_solicitacao: 'Data de solicitação', data_envio_pcp
 async function carregarConfigAlertas() {
   try {
     const { data } = await supabaseClient.from('configuracoes').select('chave,valor')
-      .in('chave', ['alerta_dias_laranja', 'alerta_dias_vermelho', 'alertas_a_partir_de', 'leadtimes']);
+      .in('chave', ['alerta_dias_laranja', 'alerta_dias_vermelho', 'alertas_a_partir_de', 'leadtimes',
+                    'bloqueio_a_partir_de', 'responsavel_cadastro']);
     const c = {}; (data || []).forEach(x => c[x.chave] = x.valor);
     const laranja  = parseInt(c.alerta_dias_laranja, 10);
     const vermelho = parseInt(c.alerta_dias_vermelho, 10);
@@ -669,6 +698,11 @@ async function carregarConfigAlertas() {
       const txt = String(c.alertas_a_partir_de).trim();
       const d = /^\d{4}-\d{2}-\d{2}$/.test(txt) ? new Date(txt + 'T00:00:00') : new Date(txt);
       if (!isNaN(d)) ALERTAS_A_PARTIR_DE = d;
+    }
+    if (c.bloqueio_a_partir_de) {
+      const t = String(c.bloqueio_a_partir_de).trim();
+      const d = /^\d{4}-\d{2}-\d{2}$/.test(t) ? new Date(t + 'T00:00:00') : new Date(t);
+      if (!isNaN(d)) BLOQUEIO_A_PARTIR_DE = d;
     }
     if (c.leadtimes) {
       const lt = JSON.parse(c.leadtimes);
@@ -893,6 +927,50 @@ function fichaRecebidaEm(item) {
 
 /* Marca discreta na lista: produto que já voltou por retransmissão é outra
    história, e quem olha a tabela precisa ver isso sem abrir o produto. */
+/* O custo só existe para ESP/. A comparação ignora caixa porque há produto
+   gravado como 'esp/' minúsculo na base. */
+function ehEspecial(tipo) { return String(tipo || '').trim().toLowerCase() === 'esp/'; }
+
+function atualizarCampoCusto() {
+  const bloco = document.getElementById('campoCusto');
+  if (!bloco) return;
+  const especial = ehEspecial(document.getElementById('fTipo').value);
+  bloco.style.display = especial ? '' : 'none';
+  if (!especial) {
+    const nao = document.querySelector('input[name="fCusto"][value="nao"]');
+    if (nao) nao.checked = true;     // deixou de ser ESP/: não carrega exigência
+  }
+}
+
+function custoMarcado() {
+  const m = document.querySelector('input[name="fCusto"]:checked');
+  return !!m && m.value === 'sim';
+}
+
+/* Situação da ficha de custo, para a coluna e para as regras. */
+function statusCusto(item) {
+  if (!item.precisaCusto) return 'nao-precisa';
+  return fichasCusto[item.id] ? 'anexada' : 'falta';
+}
+
+/* Encerrado de verdade: as 10 etapas E, quando exigida, a ficha de custo.
+   É isso que libera o aviso ao Cadastro. */
+function produtoEncerrado(item) {
+  if (item.progresso < 100) return false;
+  return statusCusto(item) !== 'falta';
+}
+
+function custoHtml(item) {
+  if (!ehEspecial(item.tipo)) return '<span style="color:var(--text-muted);font-size:11px">—</span>';
+  const st = statusCusto(item);
+  if (st === 'nao-precisa') return '<span style="color:var(--text-muted);font-size:11px">não precisa</span>';
+  if (st === 'anexada') {
+    const f = fichasCusto[item.id];
+    return `<span class="dias-badge d-green" title="Ficha de custo anexada em ${new Date(f.created_at).toLocaleDateString('pt-BR')} por ${esc(f.enviado_por || '—')}">📎 anexada</span>`;
+  }
+  return `<span class="dias-badge d-red" title="Produto marcado como precisa de custo e ainda sem a ficha anexada">falta a ficha</span>`;
+}
+
 function retransHtml(item) {
   const rs = retransDe(item);
   if (!rs.length) return '';
@@ -960,6 +1038,10 @@ async function alternarFicha(rowIndex) {
   if (!podeTicarFicha) return;
   const item = allData.find(d => d.rowIndex === rowIndex);
   if (!item) return;
+  if (bloqueadoPeloPcp(item)) {
+    alert('Este produto está aguardando o PCP concluir a liberação da ficha.');
+    return;
+  }
   const key = itemKey(item);
   const novo = !(extraTicks[key] || {}).fichaRecebida;
   if (!novo && !confirm('Desmarcar a ficha recebida deste produto?')) return;
@@ -1013,7 +1095,9 @@ const SERVICOS = {
   // Cobranças: umaVezSo impede reabrir a mesma cobrança depois de concluída,
   // senão a varredura viraria uma nagada a cada vez que alguém abre a tela.
   comercialPcp: { chave:'responsavel_comercial',    titulo:'Falta a Data de Envio ao PCP', desc:'Pedido parado esperando a data de envio ao PCP', ic:'📅', descLivre: true, umaVezSo: true },
-  pcpFicha:     { chave:'responsavel_pcp',          titulo:'Ficha de especial atrasada',   desc:'Ficha ainda não chegou ao Dev', ic:'⏳', descLivre: true, umaVezSo: true }
+  pcpFicha:     { chave:'responsavel_pcp',          titulo:'Ficha de especial atrasada',   desc:'Ficha ainda não chegou ao Dev', ic:'⏳', descLivre: true, umaVezSo: true },
+  // ESP/ terminou tudo: o Cadastro confere o custo e atualiza o Seven se precisar
+  cadastro:     { chave:'responsavel_cadastro',     titulo:'Especial concluído — conferir cadastro', desc:'Produto ESP/ finalizado', ic:'📒', descLivre: true, umaVezSo: true }
 };
 let respServico = {};   // tipo -> { id, nome }
 
@@ -1460,6 +1544,132 @@ async function carregarUsuariosAtivos() {
    quando) dentro do próprio registro da retransmissão, e o ciclo novo passa a
    contar do zero, com as próprias datas — as do produto ficam intactas. */
 let retransPorProduto = {};   // produto_id -> [retransmissões, da mais antiga p/ a mais nova]
+let fichasCusto = {};         // produto_id -> anexo da ficha de custo (o mais recente)
+let liberacaoPcp = {};        // produto_id -> status da solicitação de liberação do PCP
+let BLOQUEIO_A_PARTIR_DE = null;
+
+/* Fichas de custo já anexadas. Guarda a mais recente de cada produto: se
+   alguém anexar de novo por ter mandado a errada, vale a última. */
+async function loadFichasCusto() {
+  const map = {};
+  try {
+    const data = await buscarTudo(() => supabaseClient
+      .from('produto_anexos')
+      .select('produto_id, url, nome, enviado_por, created_at')
+      .eq('categoria', 'custo')
+      .order('created_at', { ascending: true }));
+    data.forEach(a => { if (a.produto_id) map[a.produto_id] = a; });
+  } catch (e) { console.error('Falha ao buscar fichas de custo:', e); }
+  return map;
+}
+
+/* ── FICHA DE CUSTO ────────────────────────────────── */
+/* ── BLOQUEIO ATÉ O PCP LIBERAR ─────────────────────────
+   Produto novo aparece para todo mundo, mas fica só-leitura enquanto o PCP
+   não concluir a solicitação de liberação. Vale só para quem nasceu a partir
+   do corte: sem isso, 330 produtos antigos com data de PCP e sem solicitação
+   travariam de uma vez. */
+async function loadLiberacaoPcp() {
+  const map = {};
+  try {
+    const data = await buscarTudo(() => supabaseClient
+      .from('solicitacoes')
+      .select('produto_ref, pedido_ref, status, created_at')
+      .like('titulo', 'Liberado para inclus%')
+      .order('created_at', { ascending: true }));
+    data.forEach(sol => { if (sol.produto_ref) map[sol.produto_ref] = sol.status; });
+  } catch (e) { console.error('Falha ao buscar liberações do PCP:', e); }
+  return map;
+}
+
+function bloqueadoPeloPcp(item) {
+  if (!BLOQUEIO_A_PARTIR_DE || !item.criadoEm) return false;
+  if (new Date(item.criadoEm) < BLOQUEIO_A_PARTIR_DE) return false;   // produto de antes da regra
+  const st = liberacaoPcp[item.produto];
+  if (!st) return false;              // sem solicitação do PCP, nada a esperar
+  return st !== 'concluida' && st !== 'cancelada';
+}
+
+function cadeadoHtml(item) {
+  if (!bloqueadoPeloPcp(item)) return '';
+  return ` <span class="dias-badge" style="background:#6B5A4E;color:#fff;margin-left:4px" title="Aguardando o PCP concluir a liberação da ficha — sem edição até lá">🔒 PCP</span>`;
+}
+
+/* ── AVISO AO CADASTRO ────────────────────────────────
+   ESP/ que fecha as 10 etapas E a ficha de custo (quando exigida) avisa quem
+   cuida do cadastro, para conferir o custo e atualizar o Seven se precisar.
+   Só para produto nascido a partir do corte: 514 já estão 100% e disparariam
+   todos juntos. */
+async function avisarCadastroSeEncerrou(item) {
+  if (!item || !ehEspecial(item.tipo)) return;
+  if (!produtoEncerrado(item)) return;
+  if (!BLOQUEIO_A_PARTIR_DE || !item.criadoEm) return;
+  if (new Date(item.criadoEm) < BLOQUEIO_A_PARTIR_DE) return;
+  if (!respServico.cadastro) await carregarRespServicos();
+  const f = fichasCusto[item.id];
+  const linhas = [
+    ['Nº pedido', item.nPedido],
+    ['Produto', item.produto],
+    ['Cód. cadastro', item.codCadastro],
+    ['Responsável', item.responsavel],
+    ['Pés do produto', item.pes],
+    ['Quantidade de tecido', item.qtdTecido],
+    ['Ficha de custo', item.precisaCusto ? (f ? (f.nome || 'anexada') : 'pendente') : 'não se aplica']
+  ].map(([r, v]) => `${r}: ${v || '—'}`).join('\n');
+  await abrirSolicitacaoServico('cadastro', item, linhas, true);
+}
+
+function abrirSeletorCusto() { document.getElementById('custoInput').click(); }
+
+function renderBlocoCusto(item) {
+  const el = document.getElementById('blocoCusto');
+  if (!el) return;
+  if (!ehEspecial(item.tipo)) {
+    el.innerHTML = '<div class="timeline-empty" style="text-align:left;padding:6px 0">Só produto ESP/ tem ficha de custo.</div>';
+    return;
+  }
+  if (!item.precisaCusto) {
+    el.innerHTML = '<div class="timeline-empty" style="text-align:left;padding:6px 0">Este produto foi cadastrado como <b>sem</b> necessidade de ficha de custo.</div>';
+    return;
+  }
+  const f = fichasCusto[item.id];
+  const podeAnexar = podeEditarChecklist || podeCadastrar;
+  if (f) {
+    el.innerHTML = `<div style="background:#e4f1e8;border:1px solid var(--border);border-radius:8px;padding:10px 12px;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+      <span style="font-size:11px;font-weight:700;color:var(--green);text-transform:uppercase;letter-spacing:.4px">📎 Ficha de custo</span>
+      <a href="${f.url}" target="_blank" rel="noopener" style="font-weight:600">${esc(f.nome || 'abrir arquivo')}</a>
+      <span style="font-size:11px;color:var(--text-muted)">${esc(f.enviado_por || '—')} · ${new Date(f.created_at).toLocaleDateString('pt-BR')}</span>
+      ${podeAnexar ? '<button class="btn btn-ghost" style="margin-left:auto;padding:4px 10px;font-size:12px" onclick="abrirSeletorCusto()">Substituir</button>' : ''}
+    </div>`;
+  } else {
+    el.innerHTML = `<div style="background:#fdecea;border:1px dashed var(--red);border-radius:8px;padding:10px 12px">
+      <div style="font-size:13px;margin-bottom:6px"><b>Falta a ficha de custo.</b> Sem ela o produto não é dado por encerrado.</div>
+      ${podeAnexar ? '<button class="btn btn-save" onclick="abrirSeletorCusto()">📎 Anexar ficha de custo</button>'
+                   : '<span style="font-size:12px;color:var(--text-muted)">Você não tem permissão para anexar.</span>'}
+    </div>`;
+  }
+}
+
+async function enviarFichaCusto(ev) {
+  const file = ev.target.files && ev.target.files[0];
+  ev.target.value = '';
+  if (!file || !currentItem) return;
+  const item = currentItem;
+  const el = document.getElementById('blocoCusto');
+  el.innerHTML = '<div class="timeline-empty" style="text-align:left;padding:6px 0">Enviando...</div>';
+  try {
+    await subirAnexo(item.id, file, 'custo');
+    fichasCusto = await loadFichasCusto();
+    renderBlocoCusto(item);
+    renderTable();
+    showToast();
+    // anexar a ficha pode ser a última peça que faltava para encerrar
+    await avisarCadastroSeEncerrou(item);
+  } catch (e) {
+    alert('Erro ao anexar a ficha: ' + e.message);
+    renderBlocoCusto(item);
+  }
+}
 
 async function loadRetransmissoes() {
   const map = {};
@@ -1831,6 +2041,9 @@ async function loadCSV(isSilent = false) {
       rowIndex: i + 1,          // índice sequencial (só para os handlers da tela)
       id: p.id,                 // ID FIXO do produto (usado nas gravações)
       criadoEm: p.created_at || '',   // decide se entra na contagem de alertas
+      precisaCusto: !!p.precisa_custo,
+      pes: p.pes || '',
+      qtdTecido: p.qtd_tecido || '',
       codCadastro: p.cod_cadastro || '',
       dataSolicitacao: p.data_solicitacao || '',
       dataEnvioPcp: p.data_envio_pcp || '',
@@ -1849,6 +2062,8 @@ async function loadCSV(isSilent = false) {
     extraTicks = await loadExtraTicks();
     activityDates = await loadActivityDates();
     retransPorProduto = await loadRetransmissoes();
+    fichasCusto = await loadFichasCusto();
+    liberacaoPcp = await loadLiberacaoPcp();
     if (!usuariosAtivos.length) await carregarUsuariosAtivos();
     if (!Object.keys(respServico).length) await carregarRespServicos();
     checkStatusAlerts();
@@ -2004,7 +2219,8 @@ function renderTable() {
       <td>${productionTimeHtml(item)}</td>
       <td>${stepsHtml}</td>
       <td>${progHtml}</td>
-      <td><span class="badge ${badgeClass}">${currentBadge}</span></td>
+      <td><span class="badge ${badgeClass}">${currentBadge}</span>${cadeadoHtml(item)}</td>
+      <td>${custoHtml(item)}</td>
       <td>${fichaHtml(item)}${retransHtml(item)}</td>
       ${podeCadastrar ? `<td style="text-align:center"><button class="btn btn-cancel" style="padding:4px 8px;font-size:12px" title="Editar cadastro" onclick="event.stopPropagation();editarProduto(${item.rowIndex})">✏️</button></td>` : ''}
     `;
@@ -2023,9 +2239,21 @@ function renderTable() {
 function openStagesModal(rowIndex) {
   currentItem = allData.find(d => d.rowIndex === rowIndex);
   if (!currentItem) return;
+  /* Produto ainda não liberado pelo PCP: visível para todos, sem edição.
+     Avisa em vez de abrir a tela e deixar a pessoa ticar à toa. */
+  if (bloqueadoPeloPcp(currentItem)) {
+    alert('Este produto está aguardando o PCP concluir a liberação da ficha.\n'
+        + 'Até lá ele fica visível para todos, mas sem edição.');
+    return;
+  }
   document.getElementById('modalStagesTitle').textContent = currentItem.produto;
   document.getElementById('modalStagesSubtitle').textContent = `Pedido: ${currentItem.nPedido || '—'}`;
   document.getElementById('editResponsavel').value = currentItem.responsavel || '';
+  document.getElementById('editPes').value = currentItem.pes || '';
+  document.getElementById('editTecido').value = currentItem.qtdTecido || '';
+  document.getElementById('editPes').disabled = !podeEditarChecklist;
+  document.getElementById('editTecido').disabled = !podeEditarChecklist;
+  document.getElementById('avisoFinalizacao').textContent = '';
   document.getElementById('editResponsavel').disabled = !podeEditarChecklist;
   document.getElementById('btnSaveStages').style.display = podeEditarChecklist ? '' : 'none';
   const grid = document.getElementById('modalStagesGrid');
@@ -2125,6 +2353,7 @@ async function openReportModal(rowIndex) {
     const { data, error } = await query;
     if (error) throw error;
 
+    renderBlocoCusto(item);
     renderBlocoRetrans(item);
     ganttEl.innerHTML = buildGanttHtml(item, data || []);
 
@@ -2534,6 +2763,19 @@ async function saveStagesChanges() {
     const item = currentItem;
     const updatedStages = {};
     STAGES.forEach(s => { updatedStages[s] = document.getElementById('chk-' + s).checked; });
+    const pes    = document.getElementById('editPes').value.trim();
+    const tecido = document.getElementById('editTecido').value.trim();
+    const vaiFechar = STAGES.every(st => updatedStages[st]);
+    /* Pés e quantidade de tecido só são cobrados na hora de fechar: durante o
+       processo ninguém sabe ainda, e travar antes só atrapalharia quem tica. */
+    if (vaiFechar && (!pes || !tecido)) {
+      const falta = [!pes ? 'Pés do produto' : null, !tecido ? 'Quantidade de tecido' : null].filter(Boolean);
+      document.getElementById('avisoFinalizacao').textContent =
+        'Preencha antes de finalizar: ' + falta.join(' e ') + '.';
+      document.getElementById((!pes ? 'editPes' : 'editTecido')).focus();
+      btn.disabled = false;
+      return;
+    }
     let updatedResp = document.getElementById('editResponsavel').value;
     /* Quem tica a Modelagem 3D é quem assume o produto, então o responsável
        entra sozinho — ninguém precisa digitar o próprio nome. Preenche apenas
@@ -2565,8 +2807,12 @@ async function saveStagesChanges() {
       }
     }
 
-    await callAPI({ rowIndex: item.rowIndex, stages: updatedStages, responsavel: updatedResp });
+    await callAPI({ rowIndex: item.rowIndex, stages: updatedStages, responsavel: updatedResp,
+                    pes, qtdTecido: tecido });
     closeModal('modalStagesOverlay');
+    // fechou tudo: quem cuida do cadastro precisa saber e conferir o custo
+    const depois = allData.find(d => d.id === item.id) || item;
+    await avisarCadastroSeEncerrou(depois);
   } finally {
     btn.disabled = false;
   }
@@ -2591,6 +2837,8 @@ async function callAPI(payload) {
   const upd = { updated_at: new Date().toISOString() };
   if (payload.stages) upd.etapas = payload.stages;
   if (payload.responsavel !== undefined) upd.responsavel = payload.responsavel || null;
+  if (payload.pes !== undefined)        upd.pes = payload.pes || null;
+  if (payload.qtdTecido !== undefined)  upd.qtd_tecido = payload.qtdTecido || null;
   if (payload.dataRecebimento !== undefined)   // vem como dd/mm/yyyy → grava yyyy-mm-dd
     upd.data_recebimento = payload.dataRecebimento ? payload.dataRecebimento.split('/').reverse().join('-') : null;
   try {
@@ -2607,6 +2855,8 @@ async function callAPI(payload) {
     // atualiza em memória (sem recarregar tudo)
     if (payload.stages) { item.stages = payload.stages; item.progresso = Math.round(STAGES.filter(s => payload.stages[s]).length / STAGES.length * 100); }
     if (payload.responsavel !== undefined) item.responsavel = payload.responsavel;
+    if (payload.pes !== undefined)        item.pes = payload.pes;
+    if (payload.qtdTecido !== undefined)  item.qtdTecido = payload.qtdTecido;
     if (upd.data_recebimento !== undefined) item.dataRecebimento = upd.data_recebimento || '';
     showToast();
     productionTimes = await loadProductionTimes();
@@ -2689,6 +2939,7 @@ async function logEdicao(produtoId, produtoNome, alteracoes) {
 const LOG_CAMPOS = {
   cod_cadastro: 'Cód. cadastro', n_pedido: 'Nº Pedido', tipo: 'Tipo', produto: 'Produto',
   data_solicitacao: 'Data solicitação', data_envio_pcp: 'Data envio ao PCP',
+  precisa_custo: 'Precisa de ficha de custo', pes: 'Pés do produto', qtd_tecido: 'Quantidade de tecido',
   data_entrega: 'Data entrega', responsavel: 'Responsável', data_recebimento: 'Data recebimento'
 };
 function fmtLogValor(v) {
@@ -2768,6 +3019,9 @@ function novoProduto() {
   editandoProdutoId = null;
   document.getElementById('tituloProdModal').textContent = 'Novo produto';
   ['fCod','fPedido','fTipo','fProduto','fEnvioPcp','fEntrega'].forEach(i => document.getElementById(i).value = '');
+  const naoCusto = document.querySelector('input[name="fCusto"][value="nao"]');
+  if (naoCusto) naoCusto.checked = true;
+  atualizarCampoCusto();
   document.getElementById('fSolic').value = hojeISO();   // hoje = quando o comercial recebeu/lançou
   limparAvisosCadastro();
   anexosPendentes = []; cadAnexosExistentes = []; renderCadAnexos();
@@ -2777,6 +3031,12 @@ function novoProduto() {
 
 // Abre o cadastro em modo EDIÇÃO (comercial edita os campos do produto)
 function editarProduto(rowIndex) {
+  const alvo = allData.find(d => d.rowIndex === rowIndex);
+  if (alvo && bloqueadoPeloPcp(alvo)) {
+    alert('Este produto está aguardando o PCP concluir a liberação da ficha.\n'
+        + 'Até lá ele fica visível para todos, mas sem edição.');
+    return;
+  }
   if (!podeCadastrar) return;
   const item = allData.find(d => d.rowIndex === rowIndex);
   if (!item) return;
@@ -2788,6 +3048,9 @@ function editarProduto(rowIndex) {
   document.getElementById('fProduto').value = item.produto || '';
   document.getElementById('fSolic').value = item.dataSolicitacao || '';
   document.getElementById('fEnvioPcp').value = item.dataEnvioPcp || '';
+  const radioCusto = document.querySelector(`input[name="fCusto"][value="${item.precisaCusto ? 'sim' : 'nao'}"]`);
+  if (radioCusto) radioCusto.checked = true;
+  atualizarCampoCusto();
   document.getElementById('fEntrega').value = item.dataEntrega || '';
   limparAvisosCadastro();
   atualizarPrazoEntrega();
@@ -2817,6 +3080,8 @@ async function salvarProduto() {
     n_pedido: nPedido,
     tipo: document.getElementById('fTipo').value || null,
     produto,
+    // só ESP/ carrega exigência de custo; nos outros o campo nem aparece
+    precisa_custo: ehEspecial(document.getElementById('fTipo').value) && custoMarcado(),
     data_solicitacao: dSolic,
     data_envio_pcp: document.getElementById('fEnvioPcp').value || null,
     data_entrega: dEntrega
@@ -2829,7 +3094,8 @@ async function salvarProduto() {
       const mapaAntigo = {
         cod_cadastro: antigo.codCadastro || null, n_pedido: antigo.nPedido || null, tipo: antigo.tipo || null,
         produto: antigo.produto || null, data_solicitacao: antigo.dataSolicitacao || null,
-        data_envio_pcp: antigo.dataEnvioPcp || null, data_entrega: antigo.dataEntrega || null
+        data_envio_pcp: antigo.dataEnvioPcp || null, data_entrega: antigo.dataEntrega || null,
+        precisa_custo: !!antigo.precisaCusto
       };
       const dif = {};
       Object.keys(dados).forEach(k => { if ((mapaAntigo[k] || null) !== (dados[k] || null)) dif[k] = { de: mapaAntigo[k] || null, para: dados[k] || null }; });
@@ -2919,7 +3185,7 @@ function comprimirImagem(file) {
 
 // Comprime (se imagem), sobe pro Storage e grava o metadado. Reusado no
 // relatório e no cadastro do produto.
-async function subirAnexo(produtoId, file) {
+async function subirAnexo(produtoId, file, categoria) {
   const blob = await comprimirImagem(file);
   const ehImg = file.type.startsWith('image/');
   const nomeBase = file.name.replace(/\.[^.]+$/, '');
@@ -2932,7 +3198,8 @@ async function subirAnexo(produtoId, file) {
   const { data: pub } = supabaseClient.storage.from(ANEXO_BUCKET).getPublicUrl(path);
   const { error: metaErr } = await supabaseClient.from('produto_anexos').insert({
     produto_id: produtoId, url: pub.publicUrl, caminho: path,
-    nome: file.name, tipo, tamanho: blob.size, enviado_por: sessao.nome
+    nome: file.name, tipo, tamanho: blob.size, enviado_por: sessao.nome,
+    categoria: categoria || null
   });
   if (metaErr) throw metaErr;
 }
