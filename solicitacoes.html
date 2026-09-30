@@ -981,12 +981,23 @@ async function verificarAtrasadas() {
     diasParados(s) >= diasAlerta
   );
   if (!minhas.length) return;
+  /* A ordem importa: `find` devolve o PRIMEIRO que casa, e sem ordenar isso
+     era o aviso mais ANTIGO. Comparar o mais antigo com `updated_at` dava
+     quase sempre "ainda não avisei", e o alerta saía de novo a cada vez que
+     alguém abria a tela — uma única solicitação gerou 106 avisos em 9 dias.
+     Decrescente, o primeiro que casa é o último aviso, que é o que interessa. */
   const { data: jaAvisadas } = await sb.from('notificacoes')
-    .select('ref, created_at').eq('para_usuario_id', sessao.id).eq('origem','solicitacao_atraso');
+    .select('ref, created_at').eq('para_usuario_id', sessao.id).eq('origem','solicitacao_atraso')
+    .order('created_at', { ascending: false });
   for (const s of minhas) {
-    // só avisa de novo se a solicitação se moveu depois do último aviso
-    const aviso = (jaAvisadas || []).find(n => n.ref === s.id);
-    if (aviso && new Date(aviso.created_at) > new Date(s.updated_at)) continue;
+    const ultimo = (jaAvisadas || []).find(n => n.ref === s.id);
+    if (ultimo) {
+      // já avisei depois da última movimentação: não há nada de novo a dizer
+      if (new Date(ultimo.created_at) > new Date(s.updated_at)) continue;
+      // rede de segurança: no máximo um aviso por dia sobre a mesma solicitação,
+      // aconteça o que acontecer com as datas
+      if (Date.now() - new Date(ultimo.created_at).getTime() < 86400000) continue;
+    }
     const { data: nova } = await sb.from('notificacoes').insert({
       para_usuario_id: sessao.id,
       titulo: `Solicitação parada há ${diasParados(s)} dias`,
