@@ -1412,6 +1412,50 @@ async function avisarPcpLiberado(prod, observacao) {
   await abrirSolicitacaoServico('pcp', item, corpo, true);
 }
 
+/* ── DESFAZER A LIBERAÇÃO AO PCP ────────────────────────────────────
+   Preencher a Data de Envio ao PCP abre a solicitação de liberação. Apagar a
+   data tem de desfazer isso: sem o caminho de volta, o pedido fica dizendo
+   duas coisas ao mesmo tempo — a solicitação afirma que foi mandado e o
+   cadastro afirma que não. Aconteceu com o 116707, e ninguém percebeu por
+   dois dias.
+   Cancela em vez de apagar: a solicitação já esteve na fila de alguém, e
+   registro que some não deixa ninguém entender o que houve. */
+async function reverterLiberacaoPcp(prod, dataAntiga) {
+  if (!prod || !prod.produto) return;
+  const def = SERVICOS.pcp;
+  try {
+    let q = supabaseClient.from('solicitacoes').select('id,responsavel_id')
+      .eq('produto_ref', prod.produto).ilike('titulo', def.titulo + '%')
+      .in('status', ['aberta', 'em_andamento']);
+    q = prod.n_pedido ? q.eq('pedido_ref', prod.n_pedido) : q.is('pedido_ref', null);
+    const { data: abertas, error } = await q;
+    if (error) { console.error('reverter liberação:', error); return; }
+    if (!abertas || !abertas.length) return;
+
+    const agora = new Date().toISOString();
+    for (const sol of abertas) {
+      const { error: e1 } = await supabaseClient.from('solicitacoes')
+        .update({ status: 'cancelada', updated_at: agora }).eq('id', sol.id);
+      if (e1) { console.error('reverter liberação:', e1); continue; }
+      await supabaseClient.from('solicitacao_eventos').insert({
+        solicitacao_id: sol.id, autor_id: sessao ? sessao.id : null, tipo: 'status',
+        texto: `Cancelada: ${getOperador() || '—'} removeu a Data de Envio ao PCP`
+             + `${dataAntiga ? ' (era ' + fmtDate(dataAntiga) + ')' : ''}. `
+             + `O produto volta a esperar o comercial.`
+      });
+      if (sol.responsavel_id && sessao && sol.responsavel_id !== sessao.id) {
+        const { data: n } = await supabaseClient.from('notificacoes').insert({
+          para_usuario_id: sol.responsavel_id, titulo: 'Liberação cancelada',
+          corpo: `${prod.produto} — a Data de Envio ao PCP foi removida`,
+          origem: 'checklist', ref: sol.id
+        }).select().single();
+        if (n) supabaseClient.functions.invoke('quick-endpoint', { body: { record: n } })
+          .catch(e => console.error('push:', e));
+      }
+    }
+  } catch (e) { console.error('reverter liberação:', e); }
+}
+
 async function atualizarStatusServico(tipo, item) {
   const def = SERVICOS[tipo], resp = respServico[tipo];
   const statusEl = document.getElementById('status-' + tipo);
@@ -3898,6 +3942,9 @@ async function salvarProduto() {
       if (!mapaAntigo.data_envio_pcp && dados.data_envio_pcp)
         avisarPcpLiberado({ ...dados, id: editandoProdutoId }, obsNova)
           .catch(e => console.error('aviso PCP:', e));
+      // e o caminho de volta: tirou a data, a liberação deixa de valer
+      if (mapaAntigo.data_envio_pcp && !dados.data_envio_pcp)
+        await reverterLiberacaoPcp({ ...dados, id: editandoProdutoId }, mapaAntigo.data_envio_pcp);
     } else {
       dados.etapas = {}; dados.criado_por = sessao.id;
       const { data: novo, error } = await supabaseClient.from('produtos').insert(dados).select().single();
