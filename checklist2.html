@@ -607,6 +607,17 @@
       <div><label class="section-label">Data Entrega</label><input class="edit-input" type="date" id="fEntrega" onkeydown="tabDate(event,'btnSalvarProduto')" oninput="atualizarPrazoEntrega()"><div id="avisoEntrega" style="font-size:11px;margin-top:3px"></div></div>
     </div>
     <div style="margin-top:12px">
+      <label class="section-label" id="rotuloObsCad">Observação do pedido</label>
+      <div id="obsCadExistentes"></div>
+      <textarea class="edit-input" id="fObs" rows="2" style="resize:vertical"
+                placeholder="o que o pessoal precisa saber sobre este item"></textarea>
+      <div style="font-size:11px;color:var(--text-muted);margin-top:3px">
+        Entra na linha do tempo do produto e, quando houver Data de Envio ao PCP,
+        vai junto na solicitação para o PCP.
+      </div>
+    </div>
+
+    <div style="margin-top:12px">
       <label class="section-label">Anexos do pedido (PDF ou foto)</label>
       <div id="cadAnexosLista" style="margin:4px 0"></div>
       <input type="file" id="cadAnexoInput" accept="image/*,application/pdf" multiple style="display:none" onchange="adicionarAnexosPendentes(event)">
@@ -1262,7 +1273,7 @@ async function cobrarPendencias() {
   }
 }
 
-async function avisarPcpLiberado(prod) {
+async function avisarPcpLiberado(prod, observacao) {
   if (!prod || !prod.data_envio_pcp) return;
   if (!respServico.pcp) await carregarRespServicos();
   // uma por linha: em bloco corrido o PCP tem de caçar o dado no meio do texto
@@ -1276,8 +1287,11 @@ async function avisarPcpLiberado(prod) {
     ['Data de entrega',       fmtDate(prod.data_entrega)],
     ['Liberado por',          sessao.nome]
   ].map(([rotulo, valor]) => `${rotulo}: ${valor || '—'}`).join('\n');
+  // O recado que o comercial escreveu no cadastro vale mais que qualquer campo:
+  // vai separado e no fim, onde o olho para.
+  const corpo = observacao ? dados + '\n\nObservação do comercial:\n' + observacao : dados;
   const item = { produto: prod.produto, nPedido: prod.n_pedido || null };
-  await abrirSolicitacaoServico('pcp', item, dados, true);
+  await abrirSolicitacaoServico('pcp', item, corpo, true);
 }
 
 async function atualizarStatusServico(tipo, item) {
@@ -3247,7 +3261,9 @@ function novoProduto() {
   if (!podeCadastrar) return;
   editandoProdutoId = null;
   document.getElementById('tituloProdModal').textContent = 'Novo produto';
-  ['fCod','fPedido','fTipo','fProduto','fEnvioPcp','fEntrega'].forEach(i => document.getElementById(i).value = '');
+  ['fCod','fPedido','fTipo','fProduto','fEnvioPcp','fEntrega','fObs'].forEach(i => document.getElementById(i).value = '');
+  document.getElementById('rotuloObsCad').textContent = 'Observação do pedido';
+  document.getElementById('obsCadExistentes').innerHTML = '';
   const naoCusto = document.querySelector('input[name="fCusto"][value="nao"]');
   if (naoCusto) naoCusto.checked = true;
   atualizarCampoCusto();
@@ -3278,11 +3294,60 @@ function editarProduto(rowIndex) {
   limparAvisosCadastro();
   atualizarPrazoEntrega();
   anexosPendentes = []; cadAnexosExistentes = [];
+  // Observação é registro, não campo editável: aqui se ACRESCENTA uma nova, e
+  // as que já existem ficam à vista para ninguém repetir o que já está dito.
+  document.getElementById('fObs').value = '';
+  document.getElementById('rotuloObsCad').textContent = 'Acrescentar observação';
+  document.getElementById('obsCadExistentes').innerHTML = '';
+  carregarObsCadastro(item.id);
   document.getElementById('cadAnexosLista').innerHTML = '<div style="font-size:12px;color:var(--text-muted)">Carregando anexos...</div>';
   carregarAnexosCadastro(item.id);
   closeModal('modalStagesOverlay');
   document.getElementById('modalNovoProduto').style.display = 'flex';
   document.getElementById('fCod').focus();
+}
+
+/* Grava o que foi escrito no campo de observação do cadastro e devolve o
+   texto, para quem avisa o PCP poder mandar junto. Devolve vazio quando não
+   há nada escrito — campo em branco não vira observação vazia. */
+async function gravarObsCadastro(produtoId, dados) {
+  const campo = document.getElementById('fObs');
+  const texto = campo ? campo.value.trim() : '';
+  if (!texto || !produtoId) return '';
+  try {
+    const { error } = await supabaseClient.from('pedido_observacoes').insert({
+      produto_id: produtoId,
+      n_pedido: dados.n_pedido || null,
+      produto: dados.produto,
+      texto,
+      autor: getOperador() || null
+    });
+    if (error) throw error;
+    campo.value = '';
+    return texto;
+  } catch (e) {
+    console.error('observação do cadastro:', e);
+    alert('O produto foi salvo, mas não consegui gravar a observação: ' + e.message);
+    return '';
+  }
+}
+
+async function carregarObsCadastro(produtoId) {
+  const el = document.getElementById('obsCadExistentes');
+  if (!el || !produtoId) return;
+  try {
+    const { data } = await supabaseClient.from('pedido_observacoes')
+      .select('texto,autor,created_at').eq('produto_id', produtoId)
+      .order('created_at', { ascending: false });
+    if (!data || !data.length) { el.innerHTML = ''; return; }
+    el.innerHTML = `<div style="background:var(--cream);border:1px solid var(--border);border-radius:8px;
+         padding:7px 9px;margin-bottom:6px;max-height:110px;overflow-y:auto">
+      ${data.map(o => `<div style="font-size:12px;line-height:1.4;margin-bottom:4px">
+        ${esc(o.texto)}
+        <span style="color:var(--text-muted);font-size:10px"> — ${esc(o.autor || '—')},
+        ${new Date(o.created_at).toLocaleDateString('pt-BR')}</span></div>`).join('')}
+    </div>`;
+  } catch (e) { console.error('observações do cadastro:', e); }
 }
 
 async function salvarProduto() {
@@ -3327,15 +3392,20 @@ async function salvarProduto() {
       if (error) throw error;
       await logEdicao(editandoProdutoId, produto, dif);
       // só quando a data ACABOU de ser preenchida (antes vazia)
+      const obsNova = await gravarObsCadastro(editandoProdutoId, dados);
       if (!mapaAntigo.data_envio_pcp && dados.data_envio_pcp)
-        avisarPcpLiberado(dados).catch(e => console.error('aviso PCP:', e));
+        avisarPcpLiberado({ ...dados, id: editandoProdutoId }, obsNova)
+          .catch(e => console.error('aviso PCP:', e));
     } else {
       dados.etapas = {}; dados.criado_por = sessao.id;
       const { data: novo, error } = await supabaseClient.from('produtos').insert(dados).select().single();
       if (error) throw error;
       alvoId = novo.id;
+      // A observação é gravada ANTES do aviso: o PCP recebe a solicitação no
+      // mesmo instante do cadastro, e sem isso ela chegaria sem o recado.
+      const obsNova = await gravarObsCadastro(alvoId, dados);
       notificarNovoEspecial(novo).catch(e => console.error('Falha ao notificar Dev/PCP:', e));
-      if (novo.data_envio_pcp) avisarPcpLiberado(novo).catch(e => console.error('aviso PCP:', e));
+      if (novo.data_envio_pcp) avisarPcpLiberado(novo, obsNova).catch(e => console.error('aviso PCP:', e));
     }
     // Envia os anexos escolhidos no cadastro (imagem é comprimida em subirAnexo)
     if (alvoId && anexosPendentes.length) {
