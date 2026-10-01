@@ -1224,8 +1224,9 @@ const SERVICOS = {
   // senão a varredura viraria uma nagada a cada vez que alguém abre a tela.
   comercialPcp: { chave:'responsavel_comercial',    titulo:'Falta a Data de Envio ao PCP', desc:'Pedido parado esperando a data de envio ao PCP', ic:'📅', descLivre: true, umaVezSo: true },
   pcpFicha:     { chave:'responsavel_pcp',          titulo:'Ficha de especial atrasada',   desc:'Ficha ainda não chegou ao Dev', ic:'⏳', descLivre: true, umaVezSo: true },
-  // ESP/ terminou tudo: o Cadastro confere o custo e atualiza o Seven se precisar
-  cadastro:     { chave:'responsavel_cadastro',     titulo:'Especial concluído — conferir cadastro', desc:'Produto ESP/ finalizado', ic:'📒', descLivre: true, umaVezSo: true },
+  // Produto terminou as 10 etapas: o Cadastro acerta o Seven com os pés e a
+  // quantidade de tecido. Vale para E/ e ESP/ — no ESP/ vai também a ficha de custo.
+  cadastro:     { chave:'responsavel_cadastro',     titulo:'Produto concluído — conferir cadastro', desc:'Produto finalizado', ic:'📒', descLivre: true, umaVezSo: true },
   // 10 etapas fechadas e a ficha de custo ainda não chegou. Antes disso
   // ninguém era avisado: o aviso ao Cadastro só saia COM a ficha na mão, então
   // um ESP/ pronto e sem custo ficava parado sem cobrar ninguém.
@@ -1756,7 +1757,7 @@ function cadeadoHtml(item) {
    Só para produto nascido a partir do corte: 514 já estão 100% e disparariam
    todos juntos. */
 async function avisarFechamentoEsp(item) {
-  if (!item || !ehEspecial(item.tipo)) return;
+  if (!item) return;
   if (item.progresso < 100) return;
   if (!BLOQUEIO_A_PARTIR_DE || !item.criadoEm) return;
   if (new Date(item.criadoEm) < BLOQUEIO_A_PARTIR_DE) return;
@@ -1771,6 +1772,17 @@ async function avisarFechamentoEsp(item) {
     ['Pés do produto', item.pes],
     ['Quantidade de tecido', item.qtdTecido]
   ].map(([r, v]) => `${r}: ${v || '—'}`).join('\n');
+
+  /* E/ comum: o Cadastro precisa dos pés e da quantidade de tecido para
+     acertar o produto no Seven, e isso vale para QUALQUER produto que fecha —
+     não é privilégio do especial. O que o E/ não tem é ficha de custo nem
+     conferência de medidas: aquilo nasce do ESP/. */
+  if (!ehEspecial(item.tipo)) {
+    await abrirSolicitacaoServico('cadastro', item,
+      cabecalho + '\n\nProduto fechou as 10 etapas. Confira o cadastro no Seven com os\n'
+      + 'pés e a quantidade de tecido acima.', true);
+    return;
+  }
 
   /* Falta a ficha: o produto NÃO está encerrado. Quem cuida de custo é cobrada
      agora, e o Cadastro/Documentação só entram quando a ficha existir — mandar
@@ -2601,6 +2613,8 @@ async function openReportModal(rowIndex) {
     <div class="report-item"><span class="label">Data Solicitação</span><span class="value">${fmtDate(item.dataSolicitacao)}</span></div>
     <div class="report-item"><span class="label">Data Recebimento</span><span class="value">${fmtDate(item.dataRecebimento)}</span></div>
     <div class="report-item"><span class="label">Data Entrega</span><span class="value">${fmtDate(item.dataEntrega)}</span></div>
+    <div class="report-item"><span class="label">Pés do produto</span><span class="value">${esc(item.pes) || '—'}</span></div>
+    <div class="report-item"><span class="label">Qtd. de tecido</span><span class="value">${esc(item.qtdTecido) || '—'}</span></div>
     <div class="report-item"><span class="label">Lead Comercial</span><span class="value" id="reportLead_comercial">—</span></div>
     <div class="report-item"><span class="label">Lead PCP</span><span class="value" id="reportLead_ficha">—</span></div>
     <div class="report-item"><span class="label">Lead de Criação</span><span class="value" id="reportLead_criacao">—</span></div>
