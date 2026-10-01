@@ -59,6 +59,14 @@
   .stat-num { font-family: 'DM Serif Display', serif; font-size: 26px; color: var(--dark); line-height: 1; }
   .sdot { width: 7px; height: 7px; border-radius: 50%; display: inline-block; flex-shrink: 0; }
 
+  /* Lead time de resposta (aba Solicitações) */
+  .lt-bar { display: flex; flex-wrap: wrap; background: white; border: 1px solid var(--border); border-radius: 8px; margin-bottom: 14px; }
+  .lt-card { flex: 1 1 170px; padding: 11px 14px; border-right: 1px solid var(--border); text-align: center; }
+  .lt-card:last-child { border-right: none; }
+  .lt-label { font-size: 9px; text-transform: uppercase; letter-spacing: 1px; color: var(--text-muted); margin-bottom: 5px; }
+  .lt-num { font-family: 'DM Serif Display', serif; font-size: 22px; color: var(--dark); line-height: 1; }
+  .lt-sub { font-size: 10px; color: var(--text-muted); margin-top: 4px; line-height: 1.3; }
+
   /* FILTER BAR */
   .filter-bar {
     display: flex; align-items: center; gap: 10px; padding: 10px 24px;
@@ -384,6 +392,10 @@
 
 <!-- ABA: SOLICITACOES -->
 <div id="tab-solic" class="tab-content">
+
+  <!-- Quanto tempo as solicitações levam para serem concluídas -->
+  <div class="lt-bar" id="solLeadtime"></div>
+
   <div class="cad-grid">
 
     <!-- Esquerda: por pessoa -->
@@ -811,6 +823,69 @@ let solPessoaAtiva = null;
 const SOL_LBL = { aberta:'Aberta', em_andamento:'Em andamento', concluida:'Concluída', cancelada:'Cancelada' };
 const solNome = id => (solUsuarios.find(u => u.id === id) || {}).nome || '—';
 function solDiasParado(s) { return Math.floor((Date.now() - new Date(s.updated_at).getTime()) / 86400000); }
+
+/* Quanto tempo a solicitação levou da abertura até alguém concluir.
+   A hora da conclusão sai de `concluida_em`, coluna própria gravada pelos três
+   caminhos que concluem (a mão na tela de solicitações, automática pela ficha
+   de custo e automática pelo anexo). NÃO usar `updated_at`: ele também se mexe
+   ao gravar a OC e ao encaminhar, e nesses casos o tempo sairia maior do que
+   foi de verdade. */
+function solDuracaoMs(s) {
+  if (s.status !== 'concluida' || !s.concluida_em) return null;
+  const ms = new Date(s.concluida_em).getTime() - new Date(s.created_at).getTime();
+  return ms >= 0 ? ms : null;   // relógio torto não vira estatística
+}
+
+function fmtDuracao(ms) {
+  if (ms == null || !isFinite(ms)) return '—';
+  const min = Math.round(ms / 60000);
+  if (min < 60) return min + 'min';
+  const h = Math.floor(min / 60);
+  if (h < 24) return h + 'h' + (min % 60 ? ' ' + (min % 60) + 'min' : '');
+  const d = Math.floor(h / 24);
+  return d + 'd' + (h % 24 ? ' ' + (h % 24) + 'h' : '');
+}
+
+function solMediana(v) {
+  if (!v.length) return null;
+  const a = [...v].sort((x, y) => x - y), m = a.length >> 1;
+  return a.length % 2 ? a[m] : (a[m - 1] + a[m]) / 2;
+}
+function solPercentil(v, p) {
+  if (!v.length) return null;
+  const a = [...v].sort((x, y) => x - y);
+  return a[Math.min(a.length - 1, Math.floor(p * a.length))];
+}
+
+/* Os números seguem os MESMOS filtros da lista à direita: escolher uma pessoa
+   mostra o lead time dela, e não o da empresa inteira. */
+function renderSolLeadtime(lista) {
+  const el = document.getElementById('solLeadtime');
+  if (!el) return;
+  const dur = lista.map(solDuracaoMs).filter(v => v != null);
+  if (!dur.length) {
+    el.innerHTML = `<div class="lt-card"><div class="lt-label">Lead time de resposta</div>
+      <div class="lt-num">—</div><div class="lt-sub">nenhuma solicitação concluída nesta seleção</div></div>`;
+    return;
+  }
+  const med = solMediana(dur);
+  const avg = dur.reduce((a, b) => a + b, 0) / dur.length;
+  const p90 = solPercentil(dur, 0.9);
+  /* Mediana primeiro, e não a média: as poucas solicitações que ficam semanas
+     paradas puxam a média para muito acima do que é o dia a dia. As duas estão
+     aqui porque a diferença entre elas é informação, não ruído. */
+  const cartoes = [
+    ['Concluídas', String(dur.length), 'com hora de abertura e de conclusão'],
+    ['Tempo típico (mediana)', fmtDuracao(med), 'metade foi respondida em menos que isso'],
+    ['Média', fmtDuracao(avg), avg > med * 1.5
+        ? 'bem acima da mediana — puxada pelas poucas muito demoradas'
+        : 'próxima da mediana'],
+    ['9 em cada 10 até', fmtDuracao(p90), 'só 10% demoram mais que isso']
+  ];
+  el.innerHTML = cartoes.map(([l, n, sub]) =>
+    `<div class="lt-card"><div class="lt-label">${l}</div>`
+    + `<div class="lt-num">${n}</div><div class="lt-sub">${sub}</div></div>`).join('');
+}
 function solEstaParada(s) {
   return (s.status === 'aberta' || s.status === 'em_andamento') && solDiasParado(s) >= solDiasAlerta;
 }
@@ -849,7 +924,9 @@ function renderSolPessoas() {
     const abertas = minhas.filter(s => s.status === 'aberta' || s.status === 'em_andamento').length;
     const paradas = minhas.filter(solEstaParada).length;
     const concl   = minhas.filter(s => s.status === 'concluida').length;
-    return { id:u.id, nome:u.nome, total:minhas.length, abertas, paradas, concl };
+    const durs    = minhas.map(solDuracaoMs).filter(v => v != null);
+    return { id:u.id, nome:u.nome, total:minhas.length, abertas, paradas, concl,
+             med: solMediana(durs) };
   }).filter(x => x.total > 0).sort((a,b) => b.abertas - a.abertas || b.total - a.total);
 
   if (!stats.length) {
@@ -865,7 +942,7 @@ function renderSolPessoas() {
         <div class="user-avatar">${iniciais}</div>
         <div>
           <div class="user-name">${x.nome}</div>
-          <div class="user-last">${x.abertas} em aberto · ${x.concl} concluída(s)</div>
+          <div class="user-last">${x.abertas} em aberto · ${x.concl} concluída(s)${x.med != null ? ' · ⏱ ' + fmtDuracao(x.med) + ' típico' : ''}</div>
         </div>
       </div>
       <div class="user-meta">
@@ -904,6 +981,7 @@ function renderSolFeed() {
     return true;
   });
 
+  renderSolLeadtime(lista);
   document.getElementById('solFeedCount').textContent = `${lista.length} solicitação(ões)`;
   const el = document.getElementById('solFeedList');
   if (!lista.length) {
@@ -918,11 +996,15 @@ function renderSolFeed() {
       ? ` <span style="font-family:'DM Mono',monospace;font-size:10px;color:var(--text-muted)">#${s.pedido_ref}</span>` : '';
     const parada = solEstaParada(s)
       ? ` <span class="user-tag tag-accent">⚠ parada ${solDiasParado(s)}d</span>` : '';
+    const dur = solDuracaoMs(s);
+    const tempo = dur != null
+      ? ` <span class="user-tag tag-green" title="Aberta em ${new Date(s.created_at).toLocaleString('pt-BR')}`
+        + ` · concluída em ${new Date(s.concluida_em).toLocaleString('pt-BR')}">⏱ ${fmtDuracao(dur)}</span>` : '';
     return `<div class="feed-item" style="cursor:pointer" title="Abrir solicitação" onclick="abrirSolDetalhe('${s.id}')">
       <div class="feed-dot ${s.status === 'concluida' ? 'fd-etapa' : 'fd-obs'}"></div>
       <div class="feed-body">
         <div class="feed-action">
-          <span class="stage-name">${destaque}</span>${sub}${pedidoTag}${parada}
+          <span class="stage-name">${destaque}</span>${sub}${pedidoTag}${parada}${tempo}
         </div>
         <div class="feed-meta">
           <span>${solNome(s.criador_id)} → <strong>${solNome(s.responsavel_id)}</strong></span>
@@ -951,7 +1033,8 @@ async function abrirSolDetalhe(id) {
      <span>${sdEsc(solNome(s.criador_id))} → <strong>${sdEsc(solNome(s.responsavel_id))}</strong></span>
      <span>prioridade: ${sdEsc(s.prioridade)}</span>
      <span>${new Date(s.created_at).toLocaleString('pt-BR')}${pedido}</span>
-     ${solEstaParada(s) ? `<span class="user-tag tag-accent">⚠ parada ${solDiasParado(s)}d</span>` : ''}`;
+     ${solEstaParada(s) ? `<span class="user-tag tag-accent">⚠ parada ${solDiasParado(s)}d</span>` : ''}
+     ${solDuracaoMs(s) != null ? `<span class="user-tag tag-green">⏱ concluída em ${fmtDuracao(solDuracaoMs(s))}</span>` : ''}`;
   document.getElementById('sdDescricaoWrap').innerHTML = s.descricao
     ? `<div class="sd-label">Descrição</div><div class="sd-desc">${sdEsc(s.descricao)}</div>` : '';
 
