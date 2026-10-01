@@ -451,7 +451,7 @@ async function abrirDetalhe(id) {
     return `<div class="tl-item">
       <div class="tl-ic">${IC_EVENTO[e.tipo] || '•'}</div>
       <div class="tl-body">
-        <div class="tl-texto">${esc(e.texto)}</div>
+        <div class="tl-texto">${mencRealcar(esc(e.texto))}</div>
         <div class="tl-meta">${esc(nomeDe(e.autor_id))} · ${new Date(e.created_at).toLocaleString('pt-BR')}</div>
       </div>
     </div>`;
@@ -631,6 +631,8 @@ function printSolicitacao() {
 }
 
 function renderAcoes(s) {
+  // o campo nasce junto com o HTML das ações: liga o @ assim que ele existir
+  setTimeout(() => mencLigar(document.getElementById('acTexto')), 0);
   const concl = s.status === 'concluida' || s.status === 'cancelada';
   document.getElementById('detAcoes').innerHTML = concl
     ? `<div class="empty">Solicitação ${LBL_STATUS[s.status].toLowerCase()}.</div>`
@@ -841,11 +843,170 @@ async function salvarOC() {
   abrirDetalhe(s.id);
 }
 
+/* ── MENÇÕES COM @ ──────────────────────────────────────────────────
+   Escrever "@" num comentário abre a lista de quem existe no sistema. Ao
+   escolher, o nome entra no texto e a pessoa recebe aviso no sininho e no
+   celular.
+
+   O nome completo entra no texto, com espaços, e é por isso que a detecção
+   compara com a lista de usuários em vez de usar um regex de palavra: "Pablo
+   Teixeira" não é uma palavra só, e um regex pararia no primeiro espaço.
+
+   A lista flutuante nasce colada ao campo e é criada na hora, para não
+   depender de nenhum HTML novo na página. */
+var MENC_LISTA = null, MENC_CAMPO = null, MENC_OPCOES = [], MENC_SEL = 0;
+
+function mencPessoas() { return usuarios || []; }
+
+/* O "@parcial" que está sendo escrito agora, se houver. Só vale quando o @
+   abre palavra: um e-mail no meio do texto não deve abrir a lista. */
+function mencTrecho(campo) {
+  const pos = campo.selectionStart;
+  const antes = campo.value.slice(0, pos);
+  const at = antes.lastIndexOf('@');
+  if (at < 0) return null;
+  if (at > 0 && !/\s/.test(antes[at - 1])) return null;
+  const parcial = antes.slice(at + 1);
+  if (parcial.includes('\n') || parcial.length > 24) return null;
+  return { at, parcial };
+}
+
+function mencFechar() {
+  window.removeEventListener('scroll', mencReposicionar, true);
+  window.removeEventListener('resize', mencReposicionar);
+  if (MENC_LISTA) { MENC_LISTA.remove(); MENC_LISTA = null; }
+  MENC_CAMPO = null; MENC_OPCOES = []; MENC_SEL = 0;
+}
+function mencReposicionar() {
+  if (!MENC_LISTA || !MENC_CAMPO) return;
+  const r = MENC_CAMPO.getBoundingClientRect();
+  if (!r.height) { mencFechar(); return; }     // campo saiu da tela
+  MENC_LISTA.style.left = r.left + 'px';
+  MENC_LISTA.style.width = Math.max(200, Math.min(r.width, 320)) + 'px';
+  // abre para cima quando não cabe embaixo
+  const abaixo = window.innerHeight - r.bottom;
+  if (abaixo < 200 && r.top > 200) { MENC_LISTA.style.top = ''; MENC_LISTA.style.bottom = (window.innerHeight - r.top + 4) + 'px'; }
+  else { MENC_LISTA.style.bottom = ''; MENC_LISTA.style.top = (r.bottom + 4) + 'px'; }
+}
+
+
+function mencDesenhar() {
+  if (!MENC_LISTA) {
+    MENC_LISTA = document.createElement('div');
+    MENC_LISTA.style.cssText = 'position:fixed;z-index:9999;background:#fff;border:1px solid #ddd3c0;'
+      + 'border-radius:8px;box-shadow:0 8px 20px rgba(0,0,0,.14);max-height:190px;overflow-y:auto;'
+      + 'min-width:200px;font-size:13px;font-family:inherit';
+    document.body.appendChild(MENC_LISTA);
+  }
+  mencReposicionar();
+  /* A modal do produto carrega observações, anexos e a linha do tempo depois
+     de abrir, e cada uma empurra o campo para baixo. Medir uma vez só deixava
+     a lista presa no layout de antes — ela aparecia fora da tela. Então
+     remede no quadro seguinte e sempre que a página rolar. */
+  requestAnimationFrame(mencReposicionar);
+  window.addEventListener('scroll', mencReposicionar, true);
+  window.addEventListener('resize', mencReposicionar);
+
+  MENC_LISTA.innerHTML = MENC_OPCOES.map((u, i) => {
+    const sel = i === MENC_SEL;
+    return `<div data-i="${i}" style="padding:7px 11px;cursor:pointer;display:flex;gap:8px;align-items:baseline;`
+      + `${sel ? 'background:#efe7d6;' : ''}">`
+      + `<b style="font-weight:600">${mencEsc(u.nome)}</b>`
+      + `<span style="font-size:11px;color:#8A8278">${mencEsc(u.setor || '')}</span></div>`;
+  }).join('');
+  [...MENC_LISTA.children].forEach(d => {
+    d.onmousedown = (e) => { e.preventDefault(); mencEscolher(Number(d.dataset.i)); };
+  });
+}
+
+function mencEsc(t) {
+  return String(t == null ? '' : t).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+function mencEscolher(i) {
+  const u = MENC_OPCOES[i];
+  const campo = MENC_CAMPO;
+  if (!u || !campo) return;
+  const t = mencTrecho(campo);
+  if (!t) { mencFechar(); return; }
+  const depois = campo.value.slice(campo.selectionStart);
+  campo.value = campo.value.slice(0, t.at) + '@' + u.nome + ' ' + depois;
+  const novoPos = t.at + u.nome.length + 2;
+  mencFechar();
+  campo.focus();
+  campo.setSelectionRange(novoPos, novoPos);
+}
+
+function mencAoDigitar(campo) {
+  const t = mencTrecho(campo);
+  if (!t) { mencFechar(); return; }
+  const busca = t.parcial.toLowerCase();
+  MENC_OPCOES = mencPessoas()
+    .filter(u => !busca || u.nome.toLowerCase().includes(busca))
+    .slice(0, 8);
+  if (!MENC_OPCOES.length) { mencFechar(); return; }
+  MENC_CAMPO = campo;
+  MENC_SEL = 0;
+  mencDesenhar();
+}
+
+function mencAoTeclar(ev) {
+  if (!MENC_LISTA || !MENC_OPCOES.length) return false;
+  if (ev.key === 'ArrowDown') { MENC_SEL = (MENC_SEL + 1) % MENC_OPCOES.length; mencDesenhar(); ev.preventDefault(); return true; }
+  if (ev.key === 'ArrowUp')   { MENC_SEL = (MENC_SEL - 1 + MENC_OPCOES.length) % MENC_OPCOES.length; mencDesenhar(); ev.preventDefault(); return true; }
+  if (ev.key === 'Enter' || ev.key === 'Tab') { mencEscolher(MENC_SEL); ev.preventDefault(); return true; }
+  if (ev.key === 'Escape') { mencFechar(); ev.preventDefault(); return true; }
+  return false;
+}
+
+function mencLigar(campo) {
+  if (!campo || campo.dataset.mencOn) return;
+  campo.dataset.mencOn = '1';
+  campo.addEventListener('input', () => mencAoDigitar(campo));
+  campo.addEventListener('keydown', (ev) => { mencAoTeclar(ev); }, true);
+  campo.addEventListener('blur', () => setTimeout(mencFechar, 120));
+}
+
+/* Quem foi mencionado de verdade: compara com a lista, não com um padrão de
+   texto. Assim "@Pablo Teixeira" encontra o Pablo e "@qualquer coisa" não
+   encontra ninguém. */
+function mencEncontradas(texto) {
+  const t = String(texto || '');
+  return mencPessoas().filter(u => t.includes('@' + u.nome));
+}
+
+/* Avisa cada mencionado. Nunca avisa quem escreveu: mencionar a si mesmo é
+   quase sempre o cursor no lugar errado, não um pedido de atenção. */
+async function mencAvisar(texto, titulo, corpo, ref) {
+  const quem = mencEncontradas(texto).filter(u => u.id !== (sessao || {}).id);
+  for (const u of quem) {
+    try { await notificar(u.id, titulo, corpo, ref, 'solicitacao'); } catch (e) { console.error('aviso de menção:', e); }
+  }
+  return quem.map(u => u.nome);
+}
+
+/* Realce do nome no texto já escapado. Entra DEPOIS do escape, nunca antes:
+   o texto vem do que as pessoas digitam e não pode virar HTML. */
+function mencRealcar(textoEscapado) {
+  let saida = String(textoEscapado || '');
+  // nomes maiores primeiro, senão "Pablo" comeria o começo de "Pablo Teixeira"
+  const nomes = mencPessoas().map(u => u.nome).sort((a, b) => b.length - a.length);
+  nomes.forEach(n => {
+    const alvo = '@' + mencEsc(n);
+    saida = saida.split(alvo).join(
+      '<span style="background:#efe7d6;color:#8a6d3b;border-radius:3px;padding:0 3px;font-weight:600">'
+      + alvo + '</span>');
+  });
+  return saida;
+}
+
 async function registrarEvento(tipo) {
   const texto = document.getElementById('acTexto').value.trim();
   if (!texto) { alert('Escreva algo antes.'); return; }
   const s = detAtual;
   await sb.from('solicitacao_eventos').insert({ solicitacao_id:s.id, autor_id:sessao.id, tipo, texto });
+  await mencAvisar(texto, `${nomeDe(sessao.id)} mencionou você`,
+                   `${s.produto_ref || s.titulo}: ${texto.slice(0, 90)}`, s.id);
   const novoStatus = s.status === 'aberta' ? 'em_andamento' : s.status;
   await sb.from('solicitacoes').update({ status:novoStatus, updated_at:new Date().toISOString() }).eq('id', s.id);
   // avisa o criador que a solicitação dele andou
