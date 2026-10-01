@@ -1341,6 +1341,9 @@ async function abrirSolicitacaoServico(tipo, item, obs, silencioso) {
       }).select().single();
       if (notif) supabaseClient.functions.invoke('quick-endpoint', { body: { record: notif } }).catch(e => console.error('push:', e));
     }
+    // os administradores acompanham: cópia para quem não é o responsável
+    await entregarAviso((await adminsAtivos()).filter(a => a.id !== resp.id),
+      `Solicitação aberta: ${def.titulo}`, `${item.produto} → ${resp.nome || '—'}`, sol.id);
     return sol.id;
   } catch (e) { aviso('Erro ao abrir solicitação: ' + e.message); return null; }
 }
@@ -1851,8 +1854,12 @@ async function addObservacao() {
       autor: getOperador() || null
     });
     if (error) throw error;
-    await mencAvisar(texto, `${getOperador() || 'Alguém'} mencionou você`,
+    const mencionados = await mencAvisar(texto, `${getOperador() || 'Alguém'} mencionou você`,
                      `${currentItem.produto}: ${texto.slice(0, 90)}`, currentItem.id);
+    // admins acompanham, menos quem já foi avisado pela menção
+    const jaAvisados = new Set(mencionados);
+    await entregarAviso((await adminsAtivos()).filter(a => !jaAvisados.has(a.nome)),
+      `${getOperador() || 'Alguém'} anotou`, `${currentItem.produto}: ${texto.slice(0, 90)}`, currentItem.id);
     input.value = '';
     const list = await loadObservacoesList(currentItem);
     renderObservacoes(list);
@@ -3353,6 +3360,12 @@ async function saveStagesChanges() {
     const item = currentItem;
     const updatedStages = {};
     STAGES.forEach(s => { updatedStages[s] = document.getElementById('chk-' + s).checked; });
+    /* O que mudou NESTE salvamento. Serve para o aviso dizer o que foi feito,
+       em vez de "mexeram no produto": quem recebe precisa saber se fecharam a
+       Costura ou se desmarcaram a Espumação. */
+    const mudancasEtapa = STAGES
+      .filter(st => !!item.stages[st] !== updatedStages[st])
+      .map(st => ({ label: STAGE_LABELS[STAGES.indexOf(st)], marcou: updatedStages[st] }));
     const pes    = document.getElementById('editPes').value.trim();
     const tecido = document.getElementById('editTecido').value.trim();
     const vaiFechar = STAGES.every(st => updatedStages[st]);
@@ -3419,6 +3432,7 @@ async function saveStagesChanges() {
     // fechou as 10 etapas: cobra o custo, ou libera Cadastro e conferência
     const depois = allData.find(d => d.id === item.id) || item;
     const divergencia = vaiFechar ? await gravarDivergencia(depois, temDivergencia, med) : null;
+    await avisarEtapasTicadas(depois, mudancasEtapa);
     await avisarFechamentoEsp(depois, divergencia);
   } finally {
     btn.disabled = false;
@@ -3872,6 +3886,57 @@ async function salvarProduto() {
   finally { btn.disabled = false; btn.textContent = 'Salvar produto'; }
 }
 
+/* ── QUEM ACOMPANHA O QUE ACONTECE ─────────────────────────────────
+   Os administradores recebem toda movimentação: produto cadastrado,
+   solicitação aberta ou concluída, observação escrita.
+
+   A ticagem de etapa fica FORA desse pacote, de propósito. Em 28/09 foram 95
+   ticagens num dia só; 95 avisos no celular fazem a pessoa desligar a
+   notificação, e aí ela perde junto as que importam. Ela vai só para quem
+   pediu, na configuração `usuarios_avisos_etapas`. */
+async function adminsAtivos() {
+  try {
+    const { data } = await supabaseClient.from('usuarios')
+      .select('id,nome').eq('admin', true).eq('ativo', true);
+    return data || [];
+  } catch (e) { console.error('admins:', e); return []; }
+}
+
+async function listaDaConfig(chave) {
+  try {
+    const { data: cfg } = await supabaseClient.from('configuracoes')
+      .select('valor').eq('chave', chave).maybeSingle();
+    const nomes = String((cfg && cfg.valor) || '').split(',').map(x => x.trim()).filter(Boolean);
+    if (!nomes.length) return [];
+    const { data } = await supabaseClient.from('usuarios')
+      .select('id,nome').in('nome', nomes).eq('ativo', true);
+    return data || [];
+  } catch (e) { console.error('lista ' + chave + ':', e); return []; }
+}
+
+/* Entrega o aviso a cada pessoa uma vez só. A mesma pessoa pode estar em duas
+   listas (admin E no aviso do Dev) e receberia o mesmo recado duplicado. */
+async function entregarAviso(pessoas, titulo, corpo, ref) {
+  const vistos = new Set();
+  for (const u of pessoas) {
+    if (!u || !u.id || vistos.has(u.id)) continue;
+    if (sessao && u.id === sessao.id) continue;   // quem fez não precisa ser avisado
+    vistos.add(u.id);
+    try {
+      const { data: n } = await supabaseClient.from('notificacoes').insert({
+        para_usuario_id: u.id, titulo, corpo, origem: 'checklist', ref
+      }).select().single();
+      if (n) supabaseClient.functions.invoke('quick-endpoint', { body: { record: n } })
+        .catch(e => console.error('push:', e));
+    } catch (e) { console.error('aviso:', e); }
+  }
+  return vistos.size;
+}
+
+async function avisarAdmins(titulo, corpo, ref) {
+  return entregarAviso(await adminsAtivos(), titulo, corpo, ref);
+}
+
 /* Quem recebe os avisos do Dev. Antes era "todo mundo do setor dev", o que
    enchia o sininho do Lucas e da Nathyelly com produto que não é assunto
    deles. Agora é uma lista escolhida, em Admin → Configurações. */
@@ -3890,19 +3955,25 @@ async function usuariosDeAviso() {
 // #4 — Avisa quem acompanha o Dev que um produto novo foi lançado.
 async function notificarNovoEspecial(prod) {
   if (!prod || !supabaseClient) return;
-  const gente = await usuariosDeAviso();
+  // os dois públicos no mesmo aviso: quem acompanha o Dev e os administradores
+  const gente = [...(await usuariosDeAviso()), ...(await adminsAtivos())];
   if (!gente.length) return;
   // O título dizia "Novo especial" para qualquer produto, inclusive E/ comum.
   const rotulo = ehEspecial(prod.tipo) ? 'Novo especial' : 'Novo produto';
   const corpo = `Pedido ${prod.n_pedido || '—'} · lançado por ${sessao.nome}`;
-  for (const u of gente) {
-    if (u.id === sessao.id) continue;                       // não notifica quem lançou
-    const { data: notif } = await supabaseClient.from('notificacoes').insert({
-      para_usuario_id: u.id, titulo: `🆕 ${rotulo}: ${prod.produto}`,
-      corpo, origem: 'checklist', ref: prod.id
-    }).select().single();
-    if (notif) supabaseClient.functions.invoke('quick-endpoint', { body: { record: notif } }).catch(e => console.error('push:', e));
-  }
+  await entregarAviso(gente, `🆕 ${rotulo}: ${prod.produto}`, corpo, prod.id);
+}
+
+/* Ticagem de etapa: só para quem está na configuração, hoje o Osmar.
+   Um aviso por salvamento, não por etapa — quem fecha cinco de uma vez não
+   deve render cinco avisos. */
+async function avisarEtapasTicadas(item, mudancas) {
+  if (!mudancas || !mudancas.length) return;
+  const gente = await listaDaConfig('usuarios_avisos_etapas');
+  if (!gente.length) return;
+  const resumo = mudancas.map(m => `${m.marcou ? '✓' : '✗'} ${m.label}`).join(', ');
+  await entregarAviso(gente, `${getOperador() || 'Alguém'} ticou etapa`,
+    `${item.produto}${item.nPedido ? ' · ped ' + item.nPedido : ''} — ${resumo}`, item.id);
 }
 
 /* ── #2 ANEXOS DO PRODUTO (compressão automática de imagem) ── */
