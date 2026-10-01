@@ -920,6 +920,7 @@ async function carregarAdmConfigs() {
   };
 
   const st4 = String(v.usuarios_st4 || '').split(',').map(x => x.trim()).filter(Boolean);
+  const avisosDev = String(v.usuarios_avisos_dev || '').split(',').map(x => x.trim()).filter(Boolean);
 
   el.innerHTML = `
     <div class="cfg-grupo">
@@ -952,6 +953,16 @@ async function carregarAdmConfigs() {
           <span class="ctrl">${listaDeGente(c.chave, v[c.chave] || '')}<span class="cfg-chave">${c.chave}</span></span>
           <span class="aj">Recebe: ${c.recebe}</span>
         </div>`).join('')}
+      <div class="cfg-item">
+        <span class="rot">Avisos do Dev</span>
+        <span class="ctrl"><span class="cfg-chave">usuarios_avisos_dev</span></span>
+        <span class="aj">Recebem: <b>produto novo cadastrado</b> e <b>item liberado pelo PCP</b>.
+          Antes isto ia para o setor Dev inteiro, inclusive para quem não cuida do assunto.</span>
+        <div class="cfg-gente">
+          ${cfgUsuarios.map((u, i) => `<label><input type="checkbox" id="avdev-${i}" value="${cfgEsc(u.nome)}"
+            ${avisosDev.includes(u.nome) ? 'checked' : ''}> ${cfgEsc(u.nome)}</label>`).join('')}
+        </div>
+      </div>
       <div class="cfg-rodape">
         <button class="btn btn-ghost mini" onclick="salvarGrupo('responsaveis', this)">Salvar responsáveis</button>
         <span id="st-responsaveis"></span>
@@ -1067,6 +1078,10 @@ async function salvarGrupo(grupo, botao) {
     }
   } else if (grupo === 'responsaveis') {
     CFG_RESPONSAVEIS.forEach(c => pares.push([c.chave, document.getElementById('cfg-' + c.chave).value]));
+    const avisos = cfgUsuarios
+      .map((u, i) => (document.getElementById('avdev-' + i) || {}).checked ? u.nome : null)
+      .filter(Boolean);
+    pares.push(['usuarios_avisos_dev', avisos.join(', ')]);
   } else if (grupo === 'cortes') {
     for (const c of CFG_CORTES) {
       const d = document.getElementById('cfg-' + c.chave).value;
