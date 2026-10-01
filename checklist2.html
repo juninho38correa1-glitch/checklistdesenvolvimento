@@ -3677,17 +3677,33 @@ async function salvarProduto() {
   finally { btn.disabled = false; btn.textContent = 'Salvar produto'; }
 }
 
-// #4 — Avisa o Dev/PCP (setor 'dev') que um especial novo foi lançado.
+/* Quem recebe os avisos do Dev. Antes era "todo mundo do setor dev", o que
+   enchia o sininho do Lucas e da Nathyelly com produto que não é assunto
+   deles. Agora é uma lista escolhida, em Admin → Configurações. */
+async function usuariosDeAviso() {
+  try {
+    const { data: cfg } = await supabaseClient.from('configuracoes')
+      .select('valor').eq('chave', 'usuarios_avisos_dev').maybeSingle();
+    const nomes = String((cfg && cfg.valor) || '').split(',').map(x => x.trim()).filter(Boolean);
+    if (!nomes.length) return [];
+    const { data } = await supabaseClient.from('usuarios')
+      .select('id,nome').in('nome', nomes).eq('ativo', true);
+    return data || [];
+  } catch (e) { console.error('lista de avisos do Dev:', e); return []; }
+}
+
+// #4 — Avisa quem acompanha o Dev que um produto novo foi lançado.
 async function notificarNovoEspecial(prod) {
   if (!prod || !supabaseClient) return;
-  const { data: devs, error } = await supabaseClient
-    .from('usuarios').select('id').eq('setor', 'dev').eq('ativo', true);
-  if (error || !devs || !devs.length) return;
+  const gente = await usuariosDeAviso();
+  if (!gente.length) return;
+  // O título dizia "Novo especial" para qualquer produto, inclusive E/ comum.
+  const rotulo = ehEspecial(prod.tipo) ? 'Novo especial' : 'Novo produto';
   const corpo = `Pedido ${prod.n_pedido || '—'} · lançado por ${sessao.nome}`;
-  for (const u of devs) {
+  for (const u of gente) {
     if (u.id === sessao.id) continue;                       // não notifica quem lançou
     const { data: notif } = await supabaseClient.from('notificacoes').insert({
-      para_usuario_id: u.id, titulo: `🆕 Novo especial: ${prod.produto}`,
+      para_usuario_id: u.id, titulo: `🆕 ${rotulo}: ${prod.produto}`,
       corpo, origem: 'checklist', ref: prod.id
     }).select().single();
     if (notif) supabaseClient.functions.invoke('quick-endpoint', { body: { record: notif } }).catch(e => console.error('push:', e));
