@@ -716,7 +716,7 @@ function renderConferencia() {
   }).join('');
 
   const medidas = CONF_MEDIDAS.map(([k, rotulo]) => `<div class="conf-campo">
-      <label for="conf-${k}">${rotulo} (cm)</label>
+      <label for="conf-${k}">${rotulo} (m)</label>
       <input id="conf-${k}" value="${esc(c[k] || '')}" ${editar ? '' : 'disabled'} placeholder="—">
     </div>`).join('');
 
@@ -900,7 +900,7 @@ async function encaminharMedidasDivergentes(pai) {
       linha('Quantidade de tecido', prod && prod.qtd_tecido),
       linha('Data de entrega', prod && prod.data_entrega),
       '',
-      'O QUE FOI MEDIDO NA PEÇA (cm)',
+      'O QUE FOI MEDIDO NA PEÇA (em metros)',
       ...CONF_MEDIDAS.map(([k, rot]) => linha(rot, detConf[k])),
       '',
       'RESTO DA CONFERÊNCIA',
