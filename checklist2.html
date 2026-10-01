@@ -330,8 +330,8 @@
       <option value="comficha">📄 Ficha recebida, sem iniciar</option>
       <option value="green">🟢 Finalizados (100%)</option>
       <optgroup label="Esperando alguém">
-        <option value="semenvio">📅 Sem data de envio ao PCP</option>
-        <option value="bloqueado">🔒 Bloqueado — PCP não liberou</option>
+        <option value="semenvio">🔒 Comercial — sem data de envio ao PCP</option>
+        <option value="bloqueado">🔒 PCP — ainda não liberou</option>
         <option value="semcusto">💰 Aguardando ficha de custo</option>
         <option value="entrega7">⏳ Entrega nos próximos 7 dias</option>
       </optgroup>
@@ -1986,7 +1986,16 @@ function bloqueadoPeloPcp(item) {
    Diferente do cadeado do PCP, este NÃO trava a edição: é um aviso de quem
    está com a bola, não uma proibição. */
 function esperandoOComercial(item) {
-  return !item.dataEnvioPcp && aptoParaAlerta(item);
+  if (item.dataEnvioPcp) return false;
+  if (aptoParaAlerta(item)) return true;
+  /* Pedido antigo que voltou a ter movimento. Existe solicitação de liberação
+     ABERTA para o produto, mas a Data de Envio ao PCP sumiu do cadastro: a
+     solicitação diz que foi mandado, o cadastro diz que não. Alguém tem de
+     resolver, e quem preenche a data é o comercial.
+     É o caso do 116707 — a data valia 05/06 quando a solicitação nasceu e foi
+     apagada depois. Sem isto, ele ficaria invisível por ser de 2025. */
+  const st = liberacaoPcp[item.produto];
+  return st === 'aberta' || st === 'em_andamento';
 }
 
 /* Travado é travado, venha de onde vier. O produto não anda enquanto o
@@ -2737,12 +2746,9 @@ function renderTable() {
        produto. É o que o Comercial, o PCP, o Custo e o Cadastro perguntam —
        "o que está parado esperando mim?" — e que a tela só respondia em
        linguagem de etapa. */
-    /* Só produto nascido depois que o sistema abriu para todos os setores.
-       Dos 211 sem data de envio, 210 são herança da planilha: cobrar o
-       comercial por eles seria cobrar por coisa que ninguém deixou de fazer.
-       Usa o mesmo corte das cobranças automáticas — uma data só no sistema,
-       editável em Admin → Configurações. */
-    else if (stFilt === 'semenvio')  ok3 = !item.dataEnvioPcp && aptoParaAlerta(item);
+    // mesma regra do selo 🔒 Comercial: produto novo, ou antigo que voltou a
+    // ter movimento. Os 210 da planilha que ninguém mexeu ficam de fora.
+    else if (stFilt === 'semenvio')  ok3 = esperandoOComercial(item);
     // mesma precedência do selo: produto que o PCP nunca recebeu é do
     // comercial, e aparece no filtro de cima, não neste
     else if (stFilt === 'bloqueado') ok3 = bloqueadoPeloPcp(item) && !esperandoOComercial(item);
