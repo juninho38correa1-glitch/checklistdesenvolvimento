@@ -110,6 +110,9 @@
      de alerta (--orange-soft, #FAE9D3) é quase a mesma cor e as duas juntas
      na tabela não se distinguem. A tarja grossa à esquerda fecha a dúvida. */
   tr.s-semcusto { background: #FBF1C0; box-shadow: inset 4px 0 0 #B8860B; }
+  /* Travado pelo comercial ou pelo PCP: parado esperando outro setor. */
+  tr.s-travado { background: #EDEAE4; color: #6B6055; box-shadow: inset 4px 0 0 #9A9186; }
+  tr.s-travado .prog-fill { opacity: .5; }
   tr.s-semcusto td { border-bottom-color: #E8D98A; }
 
   /* BADGES */
@@ -1227,8 +1230,8 @@ async function alternarFicha(rowIndex) {
   if (!podeTicarFicha) return;
   const item = allData.find(d => d.rowIndex === rowIndex);
   if (!item) return;
-  if (bloqueadoPeloPcp(item)) {
-    alert('Este produto ainda não foi liberado pelo PCP — a ficha não pode ser ticada.');
+  if (produtoTravado(item)) {
+    alert(motivoDaTrava(item) + '\n\nA ficha n\u00e3o pode ser ticada enquanto isso.');
     return;
   }
   const key = itemKey(item);
@@ -1986,6 +1989,26 @@ function esperandoOComercial(item) {
   return !item.dataEnvioPcp && aptoParaAlerta(item);
 }
 
+/* Travado é travado, venha de onde vier. O produto não anda enquanto o
+   comercial não mandar ao PCP, nem enquanto o PCP não liberar — ticar etapa
+   nesses dois estados é registrar trabalho num pedido que ainda não existe
+   para a fábrica. Quem está com a bola muda; a trava, não. */
+function produtoTravado(item) {
+  return esperandoOComercial(item) || bloqueadoPeloPcp(item);
+}
+
+/* O motivo, para a mensagem dizer a quem cobrar. */
+function motivoDaTrava(item) {
+  if (esperandoOComercial(item)) {
+    return 'Este produto ainda n\u00e3o foi enviado ao PCP.\n\n'
+      + 'Falta a Data de Envio ao PCP, que \u00e9 do comercial e \u00e9 ela que abre a\n'
+      + 'solicita\u00e7\u00e3o de libera\u00e7\u00e3o. At\u00e9 l\u00e1 as etapas ficam travadas.';
+  }
+  return 'Este produto ainda n\u00e3o foi liberado pelo PCP.\n\n'
+    + 'As etapas ficam travadas at\u00e9 o PCP concluir a solicita\u00e7\u00e3o de libera\u00e7\u00e3o\n'
+    + 'da ficha.';
+}
+
 function cadeadoHtml(item) {
   /* O comercial vem PRIMEIRO de propósito. Produto sem Data de Envio ao PCP
      também aparece como "bloqueado pelo PCP", porque o bloqueio é por omissão
@@ -2720,7 +2743,9 @@ function renderTable() {
        Usa o mesmo corte das cobranças automáticas — uma data só no sistema,
        editável em Admin → Configurações. */
     else if (stFilt === 'semenvio')  ok3 = !item.dataEnvioPcp && aptoParaAlerta(item);
-    else if (stFilt === 'bloqueado') ok3 = bloqueadoPeloPcp(item);
+    // mesma precedência do selo: produto que o PCP nunca recebeu é do
+    // comercial, e aparece no filtro de cima, não neste
+    else if (stFilt === 'bloqueado') ok3 = bloqueadoPeloPcp(item) && !esperandoOComercial(item);
     else if (stFilt === 'semcusto')  ok3 = faltaSoOCusto(item);
     else if (stFilt === 'entrega7')  ok3 = venceEmAte(item.dataEntrega, 7);
 
@@ -2786,8 +2811,16 @@ function renderTable() {
     // que falta. A barra continua 100% — ela mede fábrica, não papelada.
     const semCusto = faltaSoOCusto(item);
     if (semCusto) { currentBadge = 'Aguardando custo'; badgeClass = 'b-orange'; }
+    /* Produto travado é um estado à parte: ele não está atrasado nem em
+       andamento, está PARADO esperando outro setor. Cinza porque é ausência de
+       movimento, não alarme — e porque alarme já tem cor demais nesta tela. */
+    const travado = produtoTravado(item);
+    if (travado) {
+      currentBadge = esperandoOComercial(item) ? 'Aguardando comercial' : 'Aguardando PCP';
+      badgeClass = 'b-gray';
+    }
     const tr = document.createElement('tr');
-    tr.className = semCusto ? 's-semcusto' : `s-${status}`;
+    tr.className = travado ? 's-travado' : (semCusto ? 's-semcusto' : `s-${status}`);
     // A régua da rolagem é o último encerrado DE VERDADE, para o bloco sem
     // custo cair na primeira linha visível.
     if (item.progresso >= 100 && !semCusto) lastDoneRow = tr;
@@ -2823,13 +2856,14 @@ function renderTable() {
 function openStagesModal(rowIndex) {
   currentItem = allData.find(d => d.rowIndex === rowIndex);
   if (!currentItem) return;
-  /* Produto ainda não liberado pelo PCP: visível para todos, sem edição.
-     Avisa em vez de abrir a tela e deixar a pessoa ticar à toa. */
-  if (bloqueadoPeloPcp(currentItem)) {
-    alert('Este produto ainda não foi liberado pelo PCP.\n\n'
-        + 'As etapas ficam travadas até o PCP concluir a solicitação de liberação da ficha.\n'
-        + 'Se a Data de Envio ao PCP ainda não foi preenchida, preencha no cadastro (✏️) — '
-        + 'é ela que abre a solicitação para o PCP.');
+  /* Produto travado: visível para todos, sem edição. Avisa em vez de abrir a
+     tela e deixar a pessoa ticar à toa. */
+  if (produtoTravado(currentItem)) {
+    // a dica do cadastro só serve quando é a data que falta; com o PCP já
+    // acionado ela só confundiria quem lê
+    alert(motivoDaTrava(currentItem)
+      + (esperandoOComercial(currentItem)
+          ? '\n\nEla se preenche no cadastro (\u270F\uFE0F).' : ''));
     return;
   }
   document.getElementById('modalStagesTitle').textContent = currentItem.produto;
