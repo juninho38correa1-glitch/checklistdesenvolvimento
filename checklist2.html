@@ -2032,14 +2032,14 @@ function bloqueadoPeloPcp(item) {
 function esperandoOComercial(item) {
   if (item.dataEnvioPcp) return false;
   if (aptoParaAlerta(item)) return true;
-  /* Pedido antigo que voltou a ter movimento. Existe solicitação de liberação
-     ABERTA para o produto, mas a Data de Envio ao PCP sumiu do cadastro: a
-     solicitação diz que foi mandado, o cadastro diz que não. Alguém tem de
-     resolver, e quem preenche a data é o comercial.
-     É o caso do 116707 — a data valia 05/06 quando a solicitação nasceu e foi
-     apagada depois. Sem isto, ele ficaria invisível por ser de 2025. */
-  const st = liberacaoPcp[item.produto];
-  return st === 'aberta' || st === 'em_andamento';
+  /* Pedido antigo que já foi mandado ao PCP alguma vez e hoje está sem a data.
+     O que importa é a liberação EXISTIR, não estar aberta: cancelar ou
+     concluir a solicitação não devolve a data ao cadastro, então o produto
+     continua esperando o comercial.
+     A primeira versão olhava só as abertas — e o 116707 sumiu do radar no
+     instante em que cancelei as solicitações dele, que é justamente quando ele
+     mais precisava aparecer. Só preencher a data tira o produto daqui. */
+  return liberacaoPcp[item.produto] !== undefined;
 }
 
 /* Travado é travado, venha de onde vier. O produto não anda enquanto o
