@@ -411,6 +411,28 @@
         <div><label class="section-label" style="font-size:10px">Quantidade de tecido</label>
           <input type="text" id="editTecido" class="edit-input" placeholder="ex: 12,5 m"></div>
       </div>
+      <div id="blocoDivergencia" style="display:none;margin-top:12px;padding-top:10px;border-top:1px dashed var(--border)">
+        <label class="section-label" style="font-size:10px">Houve divergência de medidas?</label>
+        <div style="display:flex;gap:16px;align-items:center;padding-top:4px">
+          <label style="display:flex;gap:6px;align-items:center;cursor:pointer;font-size:13px">
+            <input type="radio" name="editDiv" value="sim" onchange="atualizarCamposDivergencia()"> Sim</label>
+          <label style="display:flex;gap:6px;align-items:center;cursor:pointer;font-size:13px">
+            <input type="radio" name="editDiv" value="nao" checked onchange="atualizarCamposDivergencia()"> Não</label>
+        </div>
+        <div id="medidasDivergencia" style="display:none;margin-top:8px">
+          <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px">
+            <div><label class="section-label" style="font-size:10px">Largura (m)</label>
+              <input type="text" id="divLargura" class="edit-input" placeholder="2,70"></div>
+            <div><label class="section-label" style="font-size:10px">Profundidade (m)</label>
+              <input type="text" id="divProfundidade" class="edit-input" placeholder="2,25"></div>
+            <div><label class="section-label" style="font-size:10px">Altura (m)</label>
+              <input type="text" id="divAltura" class="edit-input" placeholder="0,97"></div>
+          </div>
+          <div style="font-size:11px;color:var(--text-muted);margin-top:4px">
+            As medidas da peça como ela ficou. Vão junto na solicitação para o Cadastro.
+          </div>
+        </div>
+      </div>
       <div id="avisoFinalizacao" style="font-size:11px;color:var(--orange);margin-top:5px"></div>
     </div>
     <div class="edit-section">
@@ -1059,6 +1081,41 @@ function custoMarcado() {
 function ehDoSistemaAntigo(item) {
   return !!BLOQUEIO_A_PARTIR_DE && !!item.criadoEm
       && new Date(item.criadoEm) < BLOQUEIO_A_PARTIR_DE;
+}
+
+/* ── DIVERGÊNCIA DE MEDIDAS (E/) ────────────────────────
+   O ESP/ já tem a conferência completa do Lucas, com seis medidas. O E/ não
+   tem ninguém conferindo, e e' nele que a peça sai diferente do projeto sem
+   ninguém registrar. Então a pergunta aparece no fechamento, junto dos pés e
+   do tecido — que e' quando quem montou ainda está com a peça na frente.
+
+   As medidas vão para `produto_conferencia`, a mesma tabela do Lucas: e' o
+   mesmo dado (medida da peça física) e `medicoes_ok = false` já quer dizer
+   exatamente “divergiu”. Não precisa de tabela nova. */
+function prepararDivergencia(item) {
+  const bloco = document.getElementById('blocoDivergencia');
+  if (!bloco) return;
+  // Só E/: no ESP/ a conferência de medidas e' trabalho do Lucas, com formulário
+  // próprio. Perguntar duas vezes daria duas respostas para a mesma coisa.
+  bloco.style.display = ehEspecial(item.tipo) ? 'none' : '';
+  const nao = document.querySelector('input[name="editDiv"][value="nao"]');
+  if (nao) nao.checked = true;
+  ['divLargura','divProfundidade','divAltura'].forEach(i => {
+    const el = document.getElementById(i);
+    if (el) { el.value = ''; el.disabled = !podeEditarChecklist; }
+  });
+  document.querySelectorAll('input[name="editDiv"]').forEach(r => r.disabled = !podeEditarChecklist);
+  atualizarCamposDivergencia();
+}
+
+function divergiu() {
+  const m = document.querySelector('input[name="editDiv"]:checked');
+  return !!m && m.value === 'sim';
+}
+
+function atualizarCamposDivergencia() {
+  const campos = document.getElementById('medidasDivergencia');
+  if (campos) campos.style.display = divergiu() ? '' : 'none';
 }
 
 /* Situação da ficha de custo, para a coluna e para as regras. */
@@ -1756,7 +1813,7 @@ function cadeadoHtml(item) {
 
    Só para produto nascido a partir do corte: 514 já estão 100% e disparariam
    todos juntos. */
-async function avisarFechamentoEsp(item) {
+async function avisarFechamentoEsp(item, divergencia) {
   if (!item) return;
   if (item.progresso < 100) return;
   if (!BLOQUEIO_A_PARTIR_DE || !item.criadoEm) return;
@@ -1778,9 +1835,13 @@ async function avisarFechamentoEsp(item) {
      não é privilégio do especial. O que o E/ não tem é ficha de custo nem
      conferência de medidas: aquilo nasce do ESP/. */
   if (!ehEspecial(item.tipo)) {
+    const medidas = divergencia
+      ? '\n\n⚠ HOUVE DIVERGÊNCIA DE MEDIDAS. A peça ficou:\n' + divergencia
+        + '\n\nCorrija também a medida no cadastro do Seven.'
+      : '';
     await abrirSolicitacaoServico('cadastro', item,
       cabecalho + '\n\nProduto fechou as 10 etapas. Confira o cadastro no Seven com os\n'
-      + 'pés e a quantidade de tecido acima.', true);
+      + 'pés e a quantidade de tecido acima.' + medidas, true);
     return;
   }
 
@@ -1811,6 +1872,33 @@ async function avisarFechamentoEsp(item) {
     + '  • Bloco 3D: sim / não\n'
     + '  • Ficha técnica: sim / não', true);
   if (solDoc) await abrirConferencia(item, solDoc);
+}
+
+/* Guarda o que foi respondido sobre as medidas e devolve o resumo, para a
+   solicitação do Cadastro levar junto. Vai para `produto_conferencia`, a
+   mesma tabela da conferência do Lucas — é o mesmo dado, medida da peça
+   física, e `medicoes_ok` já significa exatamente isto.
+   Devolve null quando não divergiu: o Cadastro só precisa ouvir falar de
+   medida quando ela mudou. */
+async function gravarDivergencia(item, divergiu, med) {
+  if (!item || ehEspecial(item.tipo)) return null;
+  try {
+    const { error } = await supabaseClient.from('produto_conferencia').upsert({
+      produto_id: item.id,
+      medicoes_ok: !divergiu,
+      largura:      divergiu ? (med.largura      || null) : null,
+      profundidade: divergiu ? (med.profundidade || null) : null,
+      altura:       divergiu ? (med.altura       || null) : null,
+      conferido_por: sessao ? sessao.id : null,
+      atualizado_em: new Date().toISOString()
+    }, { onConflict: 'produto_id' });
+    if (error) throw error;
+  } catch (e) {
+    console.error('divergência de medidas:', e);
+    alert('As etapas foram salvas, mas não consegui gravar a divergência de medidas: ' + e.message);
+  }
+  if (!divergiu) return null;
+  return `Largura: ${med.largura} m\nProfundidade: ${med.profundidade} m\nAltura: ${med.altura} m`;
 }
 
 /* A linha da conferência nasce JUNTO com a solicitação, e não quando ele
@@ -2549,6 +2637,7 @@ function openStagesModal(rowIndex) {
   document.getElementById('modalStagesSubtitle').textContent = `Pedido: ${currentItem.nPedido || '—'}`;
   document.getElementById('editResponsavel').value = currentItem.responsavel || '';
   document.getElementById('editPes').value = currentItem.pes || '';
+  prepararDivergencia(currentItem);
   document.getElementById('editTecido').value = currentItem.qtdTecido || '';
   document.getElementById('editPes').disabled = !podeEditarChecklist;
   document.getElementById('editTecido').disabled = !podeEditarChecklist;
@@ -3082,6 +3171,22 @@ async function saveStagesChanges() {
       btn.disabled = false;
       return;
     }
+    /* Dizer que divergiu sem dizer quanto não ajuda ninguém: o Cadastro
+       receberia um alarme sem o número para corrigir no Seven. */
+    const temDivergencia = !ehEspecial(item.tipo) && divergiu();
+    const med = {
+      largura:      (document.getElementById('divLargura')      || {}).value || '',
+      profundidade: (document.getElementById('divProfundidade') || {}).value || '',
+      altura:       (document.getElementById('divAltura')       || {}).value || ''
+    };
+    Object.keys(med).forEach(k => med[k] = med[k].trim());
+    if (vaiFechar && temDivergencia && (!med.largura || !med.profundidade || !med.altura)) {
+      document.getElementById('avisoFinalizacao').textContent =
+        'Marcou que houve divergência: informe largura, profundidade e altura.';
+      document.getElementById(!med.largura ? 'divLargura' : !med.profundidade ? 'divProfundidade' : 'divAltura').focus();
+      btn.disabled = false;
+      return;
+    }
     let updatedResp = document.getElementById('editResponsavel').value;
     /* Quem tica a Modelagem 3D é quem assume o produto, então o responsável
        entra sozinho — ninguém precisa digitar o próprio nome. Preenche apenas
@@ -3118,7 +3223,8 @@ async function saveStagesChanges() {
     closeModal('modalStagesOverlay');
     // fechou as 10 etapas: cobra o custo, ou libera Cadastro e conferência
     const depois = allData.find(d => d.id === item.id) || item;
-    await avisarFechamentoEsp(depois);
+    const divergencia = vaiFechar ? await gravarDivergencia(depois, temDivergencia, med) : null;
+    await avisarFechamentoEsp(depois, divergencia);
   } finally {
     btn.disabled = false;
   }
