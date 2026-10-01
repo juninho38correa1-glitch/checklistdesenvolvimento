@@ -408,6 +408,8 @@ async function criarSolicitacao() {
     }).select().single();
     if (error) throw error;
     await notificar(respId, 'Nova solicitação para você', titulo, data.id);
+    await avisarAdmins('Solicitação aberta',
+      `${titulo} → ${nomeDe(respId)}`, data.id, [respId]);
     ['nvTitulo','nvDescricao','nvPedido','nvProduto'].forEach(i => document.getElementById(i).value = '');
     toggleNova();
     await carregarSolicitacoes();
@@ -1011,6 +1013,8 @@ async function registrarEvento(tipo) {
   await sb.from('solicitacoes').update({ status:novoStatus, updated_at:new Date().toISOString() }).eq('id', s.id);
   // avisa o criador que a solicitação dele andou
   await notificar(s.criador_id, 'Sua solicitação teve movimento', `${s.titulo}: ${texto.slice(0,80)}`, s.id);
+  await avisarAdmins(`${nomeDe(sessao.id)} registrou em uma solicitação`,
+    `${s.titulo}: ${texto.slice(0,80)}`, s.id, [s.criador_id]);
   await carregarSolicitacoes();
   abrirDetalhe(s.id);
 }
@@ -1099,6 +1103,20 @@ async function encaminharMedidasDivergentes(pai) {
 
 /* Avisa quem acompanha o Dev que o PCP liberou o produto. A lista é a mesma
    do aviso de produto novo, em Admin → Configurações. */
+/* Os administradores acompanham o que acontece nas solicitações: abertura,
+   movimento e conclusão. A ticagem de etapa, que é o volume alto, não passa
+   por aqui — ela vive no checklist e vai só para quem está na configuração. */
+async function avisarAdmins(titulo, corpo, ref, excluir) {
+  try {
+    const { data } = await sb.from('usuarios').select('id,nome').eq('admin', true).eq('ativo', true);
+    const fora = new Set([sessao.id, ...(excluir || [])]);
+    for (const u of (data || [])) {
+      if (fora.has(u.id)) continue;      // quem fez, e quem já foi avisado por outro caminho
+      await notificar(u.id, titulo, corpo, ref, 'solicitacao');
+    }
+  } catch (e) { console.error('aviso aos admins:', e); }
+}
+
 async function avisarDevLiberacaoPcp(s) {
   try {
     const { data: cfg } = await sb.from('configuracoes')
@@ -1128,6 +1146,8 @@ async function concluir() {
     solicitacao_id:s.id, autor_id:sessao.id, tipo:'status', texto:'Solicitação concluída'
   });
   await notificar(s.criador_id, 'Solicitação concluída', s.titulo, s.id);
+  await avisarAdmins('✓ Solicitação concluída',
+    `${s.titulo} — por ${nomeDe(sessao.id)}`, s.id, [s.criador_id]);
   /* O PCP concluir a liberação é o que destrava o produto para o Dev começar.
      Antes só quem abriu a solicitação sabia — normalmente o comercial — e o
      Dev descobria por acaso, olhando a lista. */
