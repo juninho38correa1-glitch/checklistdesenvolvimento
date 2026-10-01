@@ -624,6 +624,9 @@
       <button type="button" class="btn btn-cancel" onclick="document.getElementById('cadAnexoInput').click()">📎 Anexar arquivo</button>
     </div>
     <div class="modal-footer">
+      <button class="btn" id="btnExcluirProduto" onclick="excluirProduto()" style="display:none;
+              background:transparent;color:var(--red);border:1px solid var(--red);margin-right:auto">
+        Excluir produto</button>
       <button class="btn btn-cancel" onclick="closeModal('modalNovoProduto')">Cancelar</button>
       <button class="btn btn-save" id="btnSalvarProduto" onclick="salvarProduto()">Salvar produto</button>
     </div>
@@ -3264,6 +3267,7 @@ function novoProduto() {
   ['fCod','fPedido','fTipo','fProduto','fEnvioPcp','fEntrega','fObs'].forEach(i => document.getElementById(i).value = '');
   document.getElementById('rotuloObsCad').textContent = 'Observação do pedido';
   document.getElementById('obsCadExistentes').innerHTML = '';
+  document.getElementById('btnExcluirProduto').style.display = 'none';   // não há o que excluir ainda
   const naoCusto = document.querySelector('input[name="fCusto"][value="nao"]');
   if (naoCusto) naoCusto.checked = true;
   atualizarCampoCusto();
@@ -3297,6 +3301,7 @@ function editarProduto(rowIndex) {
   // Observação é registro, não campo editável: aqui se ACRESCENTA uma nova, e
   // as que já existem ficam à vista para ninguém repetir o que já está dito.
   document.getElementById('fObs').value = '';
+  document.getElementById('btnExcluirProduto').style.display = podeCadastrar ? '' : 'none';
   document.getElementById('rotuloObsCad').textContent = 'Acrescentar observação';
   document.getElementById('obsCadExistentes').innerHTML = '';
   carregarObsCadastro(item.id);
@@ -3348,6 +3353,77 @@ async function carregarObsCadastro(produtoId) {
         ${new Date(o.created_at).toLocaleDateString('pt-BR')}</span></div>`).join('')}
     </div>`;
   } catch (e) { console.error('observações do cadastro:', e); }
+}
+
+/* ── EXCLUIR PRODUTO ──────────────────────────────────
+   Quem pode cadastrar pode excluir: é a mesma permissão, e quem lança errado
+   precisa poder desfazer sem caçar um administrador. Hoje isso vale para o
+   Comercial, o RH e os administradores, e se ajusta nos setores do admin.
+
+   O produto sai de TODAS as telas, mas a linha continua no banco com status
+   'arquivado'. Não é meia exclusão por covardia: o histórico de etapas, as
+   observações e as solicitações apontam para ele, e apagar a linha deixaria
+   todo esse registro órfão — inclusive o registro de que ele foi excluído.
+
+   O motivo é obrigatório e vai para `pedido_observacoes`, que é o que o painel
+   de atividades lê. Mesmo caminho que a retransmissão já usa. */
+async function excluirProduto() {
+  if (!podeCadastrar || !editandoProdutoId) return;
+  const item = allData.find(d => d.id === editandoProdutoId);
+  if (!item) return;
+
+  // Solicitação aberta de um produto que deixou de existir vira trabalho
+  // fantasma na fila de alguem: entra no aviso e e' cancelada junto.
+  const { data: abertas } = await supabaseClient.from('solicitacoes')
+    .select('id,titulo,responsavel_id').eq('produto_ref', item.produto)
+    .in('status', ['aberta', 'em_andamento']);
+
+  const avisos = [];
+  if (item.progresso > 0) avisos.push(`• já tem ${item.progresso}% das etapas feitas`);
+  if (abertas && abertas.length) avisos.push(`• ${abertas.length} solicitação(ões) em aberto serão canceladas`);
+
+  if (!confirm(`Excluir "${item.produto}"?\n\nPedido ${item.nPedido || '—'}\n`
+      + (avisos.length ? avisos.join('\n') + '\n\n' : '\n')
+      + 'Ele sai de todas as telas. O histórico e o motivo ficam gravados no painel de atividades.')) return;
+
+  const motivo = (prompt('Por que este produto está sendo excluído?\n(fica registrado no painel de atividades)') || '').trim();
+  if (!motivo) { alert('Sem o motivo, nada foi excluído.'); return; }
+
+  const btn = document.getElementById('btnExcluirProduto');
+  btn.disabled = true; btn.textContent = 'Excluindo...';
+  try {
+    // 1) o registro ANTES de arquivar: se algo falhar depois, o motivo ja esta
+    //    gravado e ninguem fica sem saber o que aconteceu
+    await supabaseClient.from('pedido_observacoes').insert({
+      produto_id: item.id, n_pedido: item.nPedido || null, produto: item.produto,
+      texto: `🗑️ Produto excluído por ${getOperador() || '—'} — ${motivo}`,
+      autor: getOperador() || null
+    });
+    await logEdicao(item.id, item.produto, { status: { de: 'ativo', para: 'arquivado' } });
+
+    // 2) cancela o que estava pendente em nome dele
+    for (const sol of (abertas || [])) {
+      await supabaseClient.from('solicitacoes')
+        .update({ status: 'cancelada', updated_at: new Date().toISOString() }).eq('id', sol.id);
+      await supabaseClient.from('solicitacao_eventos').insert({
+        solicitacao_id: sol.id, autor_id: sessao ? sessao.id : null, tipo: 'status',
+        texto: `Cancelada: o produto foi excluído por ${getOperador() || '—'} — ${motivo}`
+      });
+    }
+
+    // 3) so' entao tira da vista
+    const { error } = await supabaseClient.from('produtos')
+      .update({ status: 'arquivado', updated_at: new Date().toISOString() }).eq('id', item.id);
+    if (error) throw error;
+
+    closeModal('modalNovoProduto');
+    showToast('Produto excluído. O registro ficou no painel de atividades.');
+    await loadCSV();
+  } catch (e) {
+    alert('Erro ao excluir: ' + e.message);
+  } finally {
+    btn.disabled = false; btn.textContent = 'Excluir produto';
+  }
 }
 
 async function salvarProduto() {
