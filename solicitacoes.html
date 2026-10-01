@@ -936,6 +936,23 @@ async function encaminharMedidasDivergentes(pai) {
   }
 }
 
+/* Avisa quem acompanha o Dev que o PCP liberou o produto. A lista é a mesma
+   do aviso de produto novo, em Admin → Configurações. */
+async function avisarDevLiberacaoPcp(s) {
+  try {
+    const { data: cfg } = await sb.from('configuracoes')
+      .select('valor').eq('chave', 'usuarios_avisos_dev').maybeSingle();
+    const nomes = String((cfg && cfg.valor) || '').split(',').map(x => x.trim()).filter(Boolean);
+    if (!nomes.length) return;
+    const { data: gente } = await sb.from('usuarios')
+      .select('id,nome').in('nome', nomes).eq('ativo', true);
+    for (const u of (gente || [])) {
+      await notificar(u.id, '🏭 PCP liberou',
+        `${s.produto_ref || s.titulo}${s.pedido_ref ? ' · pedido ' + s.pedido_ref : ''}`, s.id, 'checklist');
+    }
+  } catch (e) { console.error('aviso de liberação do PCP:', e); }
+}
+
 async function concluir() {
   const s = detAtual;
   const vaiAbrirCadastro = ehConferencia(s) && detConf && detConf.medicoes_ok === false;
@@ -950,6 +967,12 @@ async function concluir() {
     solicitacao_id:s.id, autor_id:sessao.id, tipo:'status', texto:'Solicitação concluída'
   });
   await notificar(s.criador_id, 'Solicitação concluída', s.titulo, s.id);
+  /* O PCP concluir a liberação é o que destrava o produto para o Dev começar.
+     Antes só quem abriu a solicitação sabia — normalmente o comercial — e o
+     Dev descobria por acaso, olhando a lista. */
+  if ((s.titulo || '').startsWith('Liberado para inclusão em lote')) {
+    await avisarDevLiberacaoPcp(s);
+  }
   // medida que não confere vira trabalho para o Cadastro, não fica no aviso
   await encaminharMedidasDivergentes(s);
   fecharOverlay('detOverlay');
