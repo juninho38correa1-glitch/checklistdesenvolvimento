@@ -163,6 +163,8 @@
     <div class="tab active" id="tab-minhas"   onclick="setFiltro('minhas',this)">Minhas tarefas</div>
     <div class="tab"        id="tab-criadas"  onclick="setFiltro('criadas',this)">Criadas por mim</div>
     <div class="tab"        id="tab-todas"    onclick="setFiltro('todas',this)">Todas</div>
+    <input type="text" id="buscaSolic" placeholder="Buscar pedido, produto ou título..."
+           oninput="renderLista()" style="width:230px;padding:7px 10px;font-size:13px">
     <select id="filtroStatus" onchange="renderLista()">
       <option value="abertas">Em aberto</option>
       <option value="">Todos os status</option>
@@ -346,14 +348,26 @@ function diasParados(s) {
 
 function renderLista() {
   const st = document.getElementById('filtroStatus').value;
+  const busca = (document.getElementById('buscaSolic').value || '').trim().toLowerCase();
+  /* A busca passa por cima da aba escolhida. Quem digita um número de pedido
+     quer achar AQUELE pedido — não quer descobrir depois que ele existia, mas
+     estava em "Todas" enquanto a tela mostrava "Minhas tarefas". */
   let lista = solicitacoes.filter(s => {
-    if (filtro === 'minhas'  && s.responsavel_id !== sessao.id) return false;
-    if (filtro === 'criadas' && s.criador_id     !== sessao.id) return false;
+    if (!busca) {
+      if (filtro === 'minhas'  && s.responsavel_id !== sessao.id) return false;
+      if (filtro === 'criadas' && s.criador_id     !== sessao.id) return false;
+    } else {
+      const alvo = [s.pedido_ref, s.produto_ref, s.titulo, s.descricao,
+                    nomeDe(s.responsavel_id), nomeDe(s.criador_id)]
+                   .map(x => String(x || '').toLowerCase()).join(' | ');
+      if (!alvo.includes(busca)) return false;
+    }
     if (st === 'abertas') return s.status === 'aberta' || s.status === 'em_andamento';
     if (st) return s.status === st;
     return true;
   });
-  document.getElementById('contador').textContent = `${lista.length} solicitação(ões)`;
+  document.getElementById('contador').textContent =
+    `${lista.length} solicitação(ões)` + (busca ? ' — buscando em todas' : '');
   const el = document.getElementById('lista');
   if (!lista.length) { el.innerHTML = '<div class="empty">Nenhuma solicitação por aqui.</div>'; return; }
 
