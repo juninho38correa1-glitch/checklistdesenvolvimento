@@ -525,6 +525,10 @@
     <div class="edit-section" id="secAnexos">
       <label class="section-label">Anexos do pedido</label>
       <div id="listaAnexos" style="margin-bottom:8px"><div class="timeline-empty">Carregando anexos...</div></div>
+      <div id="anexoPedirArea" style="display:none">
+        <button class="btn btn-cancel" id="btnPedirAnexo" onclick="pedirAnexoAoComercial()">📎 Solicitar anexo ao comercial</button>
+        <span id="anexoPedirStatus" style="font-size:12px;color:var(--text-muted);margin-left:8px"></span>
+      </div>
       <div id="anexoUploadArea" style="display:none">
         <input type="file" id="anexoInput" accept="image/*,application/pdf" multiple style="display:none" onchange="enviarAnexos(event)">
         <button class="btn btn-save" id="btnAnexar" onclick="document.getElementById('anexoInput').click()">📎 Anexar arquivo</button>
@@ -1273,6 +1277,9 @@ async function loadExtraTicks() {
 const SERVICOS = {
   documentacao: { chave:'responsavel_documentacao', titulo:'3D e Documentação', desc:'Medições, ficha técnica, ficha comercial e bloco 3D', ic:'📐' },
   compras:      { chave:'responsavel_compras',      titulo:'Compras',           desc:'Itens repassados para compras', ic:'🛒' },
+  // O Dev não anexa no produto (só quem cadastra), então quando falta o
+  // desenho ele pede. Fecha sozinha quando o anexo entra.
+  anexoProduto: { chave:'responsavel_comercial',    titulo:'Falta anexo no produto', desc:'Produto sem nenhum anexo', ic:'📎', descLivre: true },
   // Aberta sozinha quando a Data de Envio ao PCP é preenchida: é o aviso
   // de que o produto saiu do comercial e o PCP já pode incluir em lote.
   // descLivre: a descrição vai pronta, em bloco, sem prefixo de serviço
@@ -1962,9 +1969,28 @@ function bloqueadoPeloPcp(item) {
    ninguém conseguindo dar o passo que o destrava. O que fica travado é o
    trabalho: etapas e ficha. */
 
+/* Produto que entrou mas ainda não foi mandado ao PCP: quem segura é o
+   comercial. Vale só para produto nascido depois da abertura do sistema —
+   dos 211 sem data de envio, 210 são herança da planilha e marcá-los seria
+   acusar o comercial por algo que ninguém deixou de fazer.
+   Diferente do cadeado do PCP, este NÃO trava a edição: é um aviso de quem
+   está com a bola, não uma proibição. */
+function esperandoOComercial(item) {
+  return !item.dataEnvioPcp && aptoParaAlerta(item);
+}
+
 function cadeadoHtml(item) {
-  if (!bloqueadoPeloPcp(item)) return '';
-  return ` <span class="dias-badge" style="background:#6B5A4E;color:#fff;margin-left:4px" title="Aguardando o PCP concluir a liberação da ficha — sem edição até lá">🔒 PCP</span>`;
+  /* O comercial vem PRIMEIRO de propósito. Produto sem Data de Envio ao PCP
+     também aparece como "bloqueado pelo PCP", porque o bloqueio é por omissão
+     e o PCP nunca recebeu nada para liberar. Mostrar 🔒 PCP ali culparia quem
+     não tem a bola: quem segura é o comercial, que ainda não mandou. */
+  if (esperandoOComercial(item)) {
+    return ` <span class="dias-badge" style="background:#2A6F99;color:#fff;margin-left:4px" title="Cadastrado, mas ainda sem a Data de Envio ao PCP — o processo não começou">🔒 Comercial</span>`;
+  }
+  if (bloqueadoPeloPcp(item)) {
+    return ` <span class="dias-badge" style="background:#6B5A4E;color:#fff;margin-left:4px" title="Aguardando o PCP concluir a liberação da ficha — sem edição até lá">🔒 PCP</span>`;
+  }
+  return '';
 }
 
 /* ── FECHAMENTO DE UM ESP/ ──────────────────────
@@ -2885,6 +2911,9 @@ async function openReportModal(rowIndex) {
 
   // Anexos do pedido (upload/exclusão só p/ comercial e admin)
   document.getElementById('anexoUploadArea').style.display = podeCadastrar ? '' : 'none';
+  // quem não anexa, pede. O botão some quando já existe anexo (carregarAnexos ajusta)
+  document.getElementById('anexoPedirArea').style.display = (!podeCadastrar && podeEditarChecklist) ? '' : 'none';
+  document.getElementById('anexoPedirStatus').textContent = '';
   document.getElementById('anexoStatus').textContent = '';
   document.getElementById('listaAnexos').innerHTML = '<div class="timeline-empty">Carregando anexos...</div>';
   carregarAnexos(item);
@@ -3932,6 +3961,65 @@ async function subirAnexo(produtoId, file, categoria) {
   if (metaErr) throw metaErr;
 }
 
+/* ── PEDIR ANEXO AO COMERCIAL ─────────────────────────
+   Anexar no produto é de quem cadastra. O Dev, que é quem sente a falta do
+   desenho, só podia pedir por fora do sistema — no WhatsApp, e some.
+   A solicitação fecha sozinha quando o anexo entra, do mesmo jeito que a
+   cobrança da ficha de custo. */
+async function pedirAnexoAoComercial() {
+  if (!currentItem) return;
+  const item = currentItem;
+  const st = document.getElementById('anexoPedirStatus');
+  const btn = document.getElementById('btnPedirAnexo');
+  btn.disabled = true; st.textContent = 'Abrindo solicita\u00e7\u00e3o...';
+  try {
+    if (!respServico.anexoProduto) await carregarRespServicos();
+    const corpo = [
+      ['Nº pedido', item.nPedido], ['Produto', item.produto],
+      ['Cód. cadastro', item.codCadastro], ['Tipo', item.tipo]
+    ].map(([r, v]) => `${r}: ${v || '—'}`).join('\n')
+      + '\n\nEste produto não tem nenhum anexo. O Dev precisa do desenho ou da foto\n'
+      + 'para tocar o protótipo.\n\nAnexe no produto, pelo Controle de Protótipos — a solicitação\n'
+      + 'se fecha sozinha quando o arquivo entrar.';
+    const id = await abrirSolicitacaoServico('anexoProduto', item, corpo, true);
+    st.textContent = id ? 'Pedido enviado ao comercial.' : 'Já existe um pedido em aberto para este produto.';
+  } catch (e) {
+    st.textContent = 'Erro: ' + e.message;
+  } finally { btn.disabled = false; }
+}
+
+/* Anexo entrou: o pedido perdeu a razão de existir. Fecha independentemente de
+   quem anexou e registra na linha do tempo quem resolveu. */
+async function concluirPedidoDeAnexo(item) {
+  if (!item) return;
+  const def = SERVICOS.anexoProduto;
+  try {
+    let q = supabaseClient.from('solicitacoes').select('id,criador_id')
+      .eq('produto_ref', item.produto).ilike('titulo', def.titulo + '%')
+      .in('status', ['aberta', 'em_andamento']);
+    q = item.nPedido ? q.eq('pedido_ref', item.nPedido) : q.is('pedido_ref', null);
+    const { data: abertas } = await q;
+    if (!abertas || !abertas.length) return;
+    const agora = new Date().toISOString();
+    for (const sol of abertas) {
+      await supabaseClient.from('solicitacoes')
+        .update({ status: 'concluida', concluida_em: agora, updated_at: agora }).eq('id', sol.id);
+      await supabaseClient.from('solicitacao_eventos').insert({
+        solicitacao_id: sol.id, autor_id: sessao ? sessao.id : null, tipo: 'status',
+        texto: `Concluída automaticamente: o anexo foi inserido por ${getOperador() || '—'}.`
+      });
+      if (sol.criador_id && sessao && sol.criador_id !== sessao.id) {
+        const { data: n } = await supabaseClient.from('notificacoes').insert({
+          para_usuario_id: sol.criador_id, titulo: 'Solicitação concluída',
+          corpo: `${def.titulo} — ${item.produto}`, origem: 'checklist', ref: sol.id
+        }).select().single();
+        if (n) supabaseClient.functions.invoke('quick-endpoint', { body: { record: n } })
+          .catch(e => console.error('push:', e));
+      }
+    }
+  } catch (e) { console.error('conclusão do pedido de anexo:', e); }
+}
+
 async function enviarAnexos(ev) {
   const files = Array.from(ev.target.files || []);
   ev.target.value = '';
@@ -3947,6 +4035,7 @@ async function enviarAnexos(ev) {
     } catch (e) { console.error('Falha no anexo:', e); alert('Erro ao anexar ' + file.name + ': ' + e.message); }
   }
   statusEl.textContent = ok ? `${ok} arquivo(s) anexado(s).` : '';
+  if (ok) await concluirPedidoDeAnexo(currentItem);
   btn.disabled = false;
   carregarAnexos(currentItem);
 }
@@ -3958,6 +4047,11 @@ async function carregarAnexos(item) {
       .select('id, url, caminho, nome, tipo, tamanho, enviado_por, created_at')
       .eq('produto_id', item.id).order('created_at', { ascending: false });
     if (error) throw error;
+    /* O botão de pedir anexo só faz sentido quando não há nenhum: com arquivo
+       no produto, pedir viraria ruído para o comercial. */
+    const pedir = document.getElementById('anexoPedirArea');
+    if (pedir && !podeCadastrar && podeEditarChecklist)
+      pedir.style.display = (data && data.length) ? 'none' : '';
     if (!data || !data.length) { el.innerHTML = '<div class="timeline-empty">Nenhum anexo.</div>'; return; }
     const podeExcluir = podeCadastrar;
     el.innerHTML = data.map(a => {
