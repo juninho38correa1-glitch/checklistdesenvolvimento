@@ -326,6 +326,12 @@
       <option value="semficha">⏳ Aguardando ficha</option>
       <option value="comficha">📄 Ficha recebida, sem iniciar</option>
       <option value="green">🟢 Finalizados (100%)</option>
+      <optgroup label="Esperando alguém">
+        <option value="semenvio">📅 Sem data de envio ao PCP</option>
+        <option value="bloqueado">🔒 Bloqueado — PCP não liberou</option>
+        <option value="semcusto">💰 Aguardando ficha de custo</option>
+        <option value="entrega7">⏳ Entrega nos próximos 7 dias</option>
+      </optgroup>
     </select>
     <div class="date-filter">
       <select id="filterDateField" onchange="renderTable()" title="Escolhe qual data o intervalo ao lado usa. Sozinho não filtra nada.">
@@ -740,6 +746,17 @@ function diasDesde(iso) {
   const d = parseDate(iso);
   return d ? Math.floor((new Date().setHours(0,0,0,0) - d.setHours(0,0,0,0)) / 86400000) : null;
 }
+/* Entrega que cai de hoje até daqui a N dias. Vencida fica de fora de
+   propósito: 495 dos 542 produtos já passaram da data, quase sempre por
+   herança da planilha, e um filtro que devolve tudo não filtra nada. */
+function venceEmAte(dataEntrega, dias) {
+  const d = parseDate(dataEntrega);
+  if (!d) return false;
+  const hoje = new Date().setHours(0, 0, 0, 0);
+  const alvo = d.setHours(0, 0, 0, 0);
+  return alvo >= hoje && alvo <= hoje + dias * 86400000;
+}
+
 function corDaEspera(dias) {
   return dias >= ALERTA_VERMELHO_DIAS ? 'red' : dias >= ALERTA_LARANJA_DIAS ? 'orange' : 'gray';
 }
@@ -2367,6 +2384,14 @@ function renderTable() {
     else if (stFilt === 'semficha') ok3 = !temFicha && item.progresso === 0;
     else if (stFilt === 'comficha') ok3 = temFicha && item.progresso === 0;
     else if (stFilt === 'white') ok3 = item.progresso > 0 && item.progresso < 100;
+    /* As quatro de baixo não olham o progresso: olham quem está segurando o
+       produto. É o que o Comercial, o PCP, o Custo e o Cadastro perguntam —
+       "o que está parado esperando mim?" — e que a tela só respondia em
+       linguagem de etapa. */
+    else if (stFilt === 'semenvio')  ok3 = !item.dataEnvioPcp;
+    else if (stFilt === 'bloqueado') ok3 = bloqueadoPeloPcp(item);
+    else if (stFilt === 'semcusto')  ok3 = faltaSoOCusto(item);
+    else if (stFilt === 'entrega7')  ok3 = venceEmAte(item.dataEntrega, 7);
 
     const inRange = (t) => {
       if (dFrom && dTo) return t >= dFrom.getTime() && t <= dTo.getTime();
