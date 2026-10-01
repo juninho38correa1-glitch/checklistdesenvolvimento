@@ -253,6 +253,9 @@
   .btn-cancel { background: #eee; color: #666; }
   .btn-save { background: var(--dark); color: var(--cream); display: flex; align-items: center; gap: 8px; }
   .btn:disabled { opacity: 0.45; cursor: not-allowed; pointer-events: none; }
+  /* Recebe o hover no lugar do botão desabilitado, que não dispara evento
+     nenhum. É só assim que a dica com a data da solicitação aparece. */
+  .envolve-btn { display: block; width: fit-content; }
 
   #toast { position: fixed; bottom: 20px; right: 20px; padding: 12px 24px; border-radius: 8px; background: var(--dark); color: white; font-size: 13px; z-index: 200; transform: translateY(100px); transition: transform 0.3s; box-shadow: 0 5px 15px rgba(0,0,0,0.3); }
   #toast.show { transform: translateY(0); }
@@ -521,9 +524,9 @@
     <div class="edit-section" id="secServicos">
       <label class="section-label">Solicitações</label>
       <div id="status-documentacao" style="font-size:12px;color:var(--text-muted);margin-bottom:6px">—</div>
-      <button class="btn btn-save" id="btn-documentacao" onclick="solicitarServico('documentacao')" style="margin-bottom:12px">📐 Solicitar 3D e Documentação</button>
+      <span class="envolve-btn" id="wrap-documentacao" style="margin-bottom:12px"><button class="btn btn-save" id="btn-documentacao" onclick="solicitarServico('documentacao')">📐 Solicitar 3D e Documentação</button></span>
       <div id="status-compras" style="font-size:12px;color:var(--text-muted);margin-bottom:6px">—</div>
-      <button class="btn btn-save" id="btn-compras" onclick="solicitarServico('compras')">🛒 Solicitar Compras</button>
+      <span class="envolve-btn" id="wrap-compras"><button class="btn btn-save" id="btn-compras" onclick="solicitarServico('compras')">🛒 Solicitar Compras</button></span>
     </div>
     <div class="edit-section" id="secAnexos">
       <label class="section-label">Anexos do pedido</label>
@@ -1470,15 +1473,27 @@ async function atualizarStatusServico(tipo, item) {
     const aberta = (data||[]).find(s => s.status==='aberta' || s.status==='em_andamento');
     const concl  = (data||[]).find(s => s.status==='concluida');
     const liberado = podeEditarChecklist;
+    const dica = document.getElementById('wrap-' + tipo);
+    const porDica = t => { if (dica) dica.title = t; btn.title = t; };
+    const semDica = () => { if (dica) dica.removeAttribute('title'); btn.removeAttribute('title'); };
     if (aberta) {
-      statusEl.innerHTML = `<span style="color:var(--orange)">● Em aberto</span> desde ${new Date(aberta.created_at).toLocaleDateString('pt-BR')} · resp. ${resp?resp.nome:'—'}`;
+      const quando = new Date(aberta.created_at);
+      const dias = Math.floor((Date.now() - quando.getTime()) / 86400000);
+      statusEl.innerHTML = `<span style="color:var(--orange)">● Em aberto</span> desde ${quando.toLocaleDateString('pt-BR')} · resp. ${resp?resp.nome:'—'}`;
       btn.textContent = `${def.ic} Já solicitado`; btn.disabled = true;
+      porDica(`Solicitado em ${quando.toLocaleString('pt-BR')}`
+        + ` — há ${dias === 0 ? 'menos de um dia' : dias + (dias === 1 ? ' dia' : ' dias')}`
+        + `\nResponsável: ${resp ? resp.nome : '—'}`
+        + `\nEnquanto estiver em aberto, não dá para solicitar de novo.`);
     } else if (concl) {
+      const quando = new Date(concl.created_at);
       statusEl.innerHTML = `<span style="color:var(--green)">✓ ${def.titulo} concluída</span>`;
       btn.textContent = `${def.ic} Solicitar novamente`; btn.disabled = !liberado;
+      porDica(`A última foi solicitada em ${quando.toLocaleString('pt-BR')} e já está concluída.`);
     } else {
       statusEl.innerHTML = `Nenhuma solicitação ainda. Envie para <b>${resp?resp.nome:'o responsável'}</b>.`;
       btn.textContent = `${def.ic} Solicitar ${def.titulo}`; btn.disabled = !liberado;
+      semDica();
     }
   } catch (e) { console.error(e); statusEl.textContent = 'Não foi possível verificar.'; btn.disabled = false; }
 }
@@ -1490,6 +1505,11 @@ function marcarSolicitadoInstantaneo(tipo) {
   const resp = respServico[tipo];
   if (b) { b.textContent = `${SERVICOS[tipo].ic} Já solicitado`; b.disabled = true; }
   if (s) s.innerHTML = `<span style="color:var(--orange)">● Em aberto</span> · resp. ${resp ? resp.nome : '—'}`;
+  const w = document.getElementById('wrap-' + tipo);
+  const dica = `Solicitado agora, em ${new Date().toLocaleString('pt-BR')}`
+    + `\nResponsável: ${resp ? resp.nome : '—'}`;
+  if (w) w.title = dica;
+  if (b) b.title = dica;
 }
 
 async function solicitarServico(tipo) {
