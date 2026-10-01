@@ -322,7 +322,7 @@
   </div>
 </div>
 
-<div class="filter-bar">
+<div class="filter-bar" id="barraFiltros">
   <span class="filter-label">Período</span>
   <div class="filter-pills">
     <div class="pill active" data-range="1" onclick="setRange(1,this)">Hoje</div>
@@ -565,8 +565,18 @@ function setRange(days, el) {
   loadAll();
 }
 
-function populateUserFilter() {
-  const users = [...new Set(combined.map(r => r.usuario).filter(Boolean))].sort();
+/* Antes a lista saia so' de `combined`, que e' o que o PERIODO escolhido
+   trouxe: com "Hoje" aparecia so' quem agiu hoje, e quem nao agiu ficava
+   invisivel em vez de aparecer com zero. Agora e' a uniao de todo mundo ativo
+   com os nomes que constam nos registros — inclusive gente antiga, como o
+   Izaias, que nao e' usuario do sistema mas assina registro. */
+async function populateUserFilter() {
+  let ativos = [];
+  try {
+    const { data } = await sb.from('usuarios').select('nome').eq('ativo', true);
+    ativos = (data || []).map(u => u.nome);
+  } catch (e) { console.error('usuarios do filtro:', e); }
+  const users = [...new Set([...ativos, ...combined.map(r => r.usuario).filter(Boolean)])].sort();
   const sel = document.getElementById('filterUser');
   const cur = sel.value;
   sel.innerHTML = '<option value="">Todos</option>';
@@ -786,6 +796,11 @@ function switchTab(tab, btn) {
   document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
   btn.classList.add('active');
   document.getElementById('tab-' + tab).classList.add('active');
+  /* A barra de PERÍODO / USUÁRIO / TIPO só comanda o feed de Etapas & Ações.
+     Na aba Solicitações ela não fazia nada — e ainda mostrava uma lista de
+     gente vinda da outra aba, o que fazia parecer defeito. Some. */
+  const barra = document.getElementById('barraFiltros');
+  if (barra) barra.style.display = tab === 'solic' ? 'none' : '';
   if (tab === 'solic' && !solCarregado) { loadSolicitacoes(); }
 }
 
