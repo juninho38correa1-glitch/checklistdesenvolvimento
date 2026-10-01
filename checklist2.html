@@ -924,7 +924,9 @@ async function loadProductionTimes() {
       // traz também as desmarcações: sem elas, um clique errado contaria para
       // sempre como se a etapa tivesse sido concluída naquele dia
       .select('produto_id, row_index, n_pedido, produto, etapa, status, created_at')
-      .in('etapa', [ETAPA_INI, ETAPA_FIM])
+      // montFinal entra junto porque o prazo do Dev termina nela, e nao no
+      // fim do lead time de producao (que hoje e' a Espumacao)
+      .in('etapa', [...new Set([ETAPA_INI, ETAPA_FIM, 'montFinal'])])
       .order('created_at', { ascending: true }));
     const porProduto = {};
     data.forEach(row => {
@@ -934,10 +936,15 @@ async function loadProductionTimes() {
     Object.keys(porProduto).forEach(key => {
       const inicio = dataEtapaAtual(porProduto[key], ETAPA_INI);
       const fim    = dataEtapaAtual(porProduto[key], ETAPA_FIM);
+      const final  = dataEtapaAtual(porProduto[key], 'montFinal');
       map[key] = {
         start: inicio ? inicio.toISOString() : null,
         // fim antes do início seria marcação fora de ordem: ignora
-        end: (inicio && fim && fim >= inicio) ? fim.toISOString() : null
+        end: (inicio && fim && fim >= inicio) ? fim.toISOString() : null,
+        // quando a Montagem Final está ticada AGORA. `dataEtapaAtual` já
+        // resolve desmarcação: produto que foi desmarcado e refeito conta a
+        // marcação que vale hoje, não a primeira de todas.
+        montFinal: final ? final.toISOString() : null
       };
     });
   } catch (e) {
@@ -953,17 +960,20 @@ async function loadProductionTimes() {
 function diasNoDev(item) {
   const inicio = parseDate(item.dataRecebimento);
   if (!inicio) return null;
-  const fim = item.stages.montFinal ? ultimaDataDeEtapa(item, 'montFinal') : new Date();
+  const fim = item.stages.montFinal ? dataDaMontagemFinal(item) : new Date();
   if (!fim) return null;
   const d = Math.floor((fim.setHours(0,0,0,0) - inicio.setHours(0,0,0,0)) / 86400000);
   return d >= 0 ? d : null;
 }
 
-/* A data em que uma etapa foi concluída, pelo histórico já carregado. */
-function ultimaDataDeEtapa(item, etapa) {
-  const set = activityDates[itemKey(item)];
+/* Quando a Montagem Final foi concluída, pelo histórico já carregado.
+   Antes isto lia `pt.end`, que é o fim do lead time de PRODUÇÃO — hoje a
+   Espumação. Produto fechado tinha o prazo medido até a etapa errada. */
+function dataDaMontagemFinal(item) {
   const pt = productionTimes[itemKey(item)];
-  if (etapa === 'montFinal' && pt && pt.end) return new Date(pt.end);
+  if (pt && pt.montFinal) return new Date(pt.montFinal);
+  // sem log (produto migrado da planilha): cai no último dia com atividade
+  const set = activityDates[itemKey(item)];
   if (!set || !set.size) return null;
   const dias = [...set].sort();
   return new Date(dias[dias.length - 1] + 'T00:00:00');
@@ -971,15 +981,21 @@ function ultimaDataDeEtapa(item, etapa) {
 
 /* Selo do prazo do Dev. Só aparece quando há o que dizer: produto que ainda
    está no Dev e já passou do prazo, ou que fechou estourando. Produto dentro
-   do prazo não ganha selo — a tela já tem informação demais. */
+   do prazo não ganha selo — a tela já tem informação demais.
+
+   O texto diz DE ONDE a conta sai. "44d no Dev" foi lido como "parado há 44
+   dias sem ninguém mexer", quando o produto tinha trabalho em quase todos
+   esses dias — inclusive um retrabalho no meio. É o tempo de travessia, não
+   de ociosidade. */
 function prazoDevHtml(item) {
   const dias = diasNoDev(item);
   if (dias === null || dias <= PRAZO_DEV_DIAS) return '';
   const excesso = dias - PRAZO_DEV_DIAS;
+  const desde = fmtDate(item.dataRecebimento);
   if (item.stages.montFinal) {
-    return ` <span class="dias-badge d-gray" style="opacity:.8" title="Levou ${dias} dias no desenvolvimento, ${excesso} além do prazo de ${PRAZO_DEV_DIAS}">fechou em ${dias}d</span>`;
+    return ` <span class="dias-badge d-gray" style="opacity:.8" title="Da ficha recebida em ${desde} até a Montagem Final: ${dias} dias corridos, ${excesso} além do prazo de ${PRAZO_DEV_DIAS}. Conta o caminho inteiro, com esperas e retrabalho.">fechou em ${dias}d</span>`;
   }
-  return ` <span class="dias-badge d-red" title="No desenvolvimento há ${dias} dias — ${excesso} além do prazo de ${PRAZO_DEV_DIAS} dias, contado da data de recebimento da ficha">⚠ ${dias}d no Dev</span>`;
+  return ` <span class="dias-badge d-red" title="Da ficha recebida em ${desde} até hoje: ${dias} dias corridos, ${excesso} além do prazo de ${PRAZO_DEV_DIAS}. Conta o caminho inteiro até a Montagem Final — não quer dizer que esteja parado.">⚠ ${dias}d desde a ficha</span>`;
 }
 
 function productionTimeHtml(item) {
@@ -2388,7 +2404,12 @@ function renderTable() {
        produto. É o que o Comercial, o PCP, o Custo e o Cadastro perguntam —
        "o que está parado esperando mim?" — e que a tela só respondia em
        linguagem de etapa. */
-    else if (stFilt === 'semenvio')  ok3 = !item.dataEnvioPcp;
+    /* Só produto nascido depois que o sistema abriu para todos os setores.
+       Dos 211 sem data de envio, 210 são herança da planilha: cobrar o
+       comercial por eles seria cobrar por coisa que ninguém deixou de fazer.
+       Usa o mesmo corte das cobranças automáticas — uma data só no sistema,
+       editável em Admin → Configurações. */
+    else if (stFilt === 'semenvio')  ok3 = !item.dataEnvioPcp && aptoParaAlerta(item);
     else if (stFilt === 'bloqueado') ok3 = bloqueadoPeloPcp(item);
     else if (stFilt === 'semcusto')  ok3 = faltaSoOCusto(item);
     else if (stFilt === 'entrega7')  ok3 = venceEmAte(item.dataEntrega, 7);
