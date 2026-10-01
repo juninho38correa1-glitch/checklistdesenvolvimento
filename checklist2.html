@@ -1463,17 +1463,19 @@ async function atualizarStatusServico(tipo, item) {
   const def = SERVICOS[tipo], resp = respServico[tipo];
   const statusEl = document.getElementById('status-' + tipo);
   const btn = document.getElementById('btn-' + tipo);
+  const dica = document.getElementById('wrap-' + tipo);
   if (!statusEl || !btn) return;
   statusEl.textContent = 'Verificando...'; btn.disabled = true;
+  statusEl.removeAttribute('title');
+  if (dica) dica.style.display = '';
   try {
-    let q = supabaseClient.from('solicitacoes').select('status,created_at')
+    let q = supabaseClient.from('solicitacoes').select('status,created_at,updated_at')
       .eq('produto_ref', item.produto).ilike('titulo', def.titulo + '%').order('created_at', { ascending:false });
     q = item.nPedido ? q.eq('pedido_ref', item.nPedido) : q.is('pedido_ref', null);
     const { data } = await q;
     const aberta = (data||[]).find(s => s.status==='aberta' || s.status==='em_andamento');
     const concl  = (data||[]).find(s => s.status==='concluida');
     const liberado = podeEditarChecklist;
-    const dica = document.getElementById('wrap-' + tipo);
     const porDica = t => { if (dica) dica.title = t; btn.title = t; };
     const semDica = () => { if (dica) dica.removeAttribute('title'); btn.removeAttribute('title'); };
     if (aberta) {
@@ -1486,10 +1488,19 @@ async function atualizarStatusServico(tipo, item) {
         + `\nResponsável: ${resp ? resp.nome : '—'}`
         + `\nEnquanto estiver em aberto, não dá para solicitar de novo.`);
     } else if (concl) {
-      const quando = new Date(concl.created_at);
+      /* Concluída não oferece "solicitar novamente". Uma solicitação criada já
+         cumpre o papel, e as que ficam paradas são cobradas pelo alerta por
+         dias — o botão só serviria para gerar solicitação repetida da mesma
+         coisa. A linha de status já diz que concluiu; o botão escondido evita
+         um botão morto que nunca mais volta a funcionar. */
+      const pedida = new Date(concl.created_at);
+      const fim = concl.updated_at ? new Date(concl.updated_at) : null;
       statusEl.innerHTML = `<span style="color:var(--green)">✓ ${def.titulo} concluída</span>`;
-      btn.textContent = `${def.ic} Solicitar novamente`; btn.disabled = !liberado;
-      porDica(`A última foi solicitada em ${quando.toLocaleString('pt-BR')} e já está concluída.`);
+      if (dica) dica.style.display = 'none';
+      semDica();
+      statusEl.title = `Solicitada em ${pedida.toLocaleString('pt-BR')}`
+        + (fim && fim > pedida ? ` · concluída em ${fim.toLocaleString('pt-BR')}` : '')
+        + `\nJá concluída — não se abre outra pelo mesmo botão.`;
     } else {
       statusEl.innerHTML = `Nenhuma solicitação ainda. Envie para <b>${resp?resp.nome:'o responsável'}</b>.`;
       btn.textContent = `${def.ic} Solicitar ${def.titulo}`; btn.disabled = !liberado;
