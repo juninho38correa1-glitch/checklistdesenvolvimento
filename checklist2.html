@@ -2148,8 +2148,15 @@ function cadeadoHtml(item) {
 async function avisarFechamentoEsp(item, divergencia) {
   if (!item) return;
   if (item.progresso < 100) return;
-  if (!BLOQUEIO_A_PARTIR_DE || !item.criadoEm) return;
-  if (new Date(item.criadoEm) < BLOQUEIO_A_PARTIR_DE) return;
+  /* Sem corte pela data de cadastro do produto. O corte existia para que os
+     alertas em lote não disparassem sobre a herança da planilha — mas esta
+     função não varre nada: só roda quando alguém tica a última etapa ou anexa
+     a ficha de custo, e cadastro/custo/docFinal são `umaVezSo`, então nunca
+     sai duas vezes para o mesmo produto. O portão conseguia uma coisa só:
+     deixar o Cadastro sem saber de produto migrado que fechou AGORA. Foi o que
+     houve com os três ST26 - 110 do pedido 118574 — a Erika anexou as fichas
+     de custo em 01/10 e a Fernanda nunca foi avisada, porque os produtos
+     tinham sido cadastrados em 13/08. */
   if (!respServico.cadastro || !respServico.docFinal || !respServico.custo) await carregarRespServicos();
 
   const f = fichasCusto[item.id];
