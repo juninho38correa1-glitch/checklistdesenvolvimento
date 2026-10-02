@@ -848,10 +848,21 @@ const RESP_POR_SETOR = {
    acha quando precisa mexer no banco. */
 
 const CFG_PRAZOS = [
-  { chave:'alerta_dias_laranja', rotulo:'Cobrar o Comercial e o PCP depois de', un:'dias', min:1, max:90,
-    ajuda:'Abre a cobrança automática <b>e</b> é quando o selo de espera fica laranja — um número só para as duas coisas. ' +
-          '<b>Comercial:</b> pedido parado sem Data de Envio ao PCP. <b>PCP:</b> ficha do especial que ainda não chegou ao Dev.' },
-  { chave:'alerta_dias_vermelho', rotulo:'Virar vermelho depois de', un:'dias', min:1, max:120,
+  /* Prazo de cada setor: é o que decide se a cobrança automática sai. Antes
+     existia UM número só (alerta_dias_laranja) valendo para o Comercial, para
+     o PCP e ainda para a cor do selo — então cobrar mais tarde significava
+     deixar a tela inteira sem aviso. Agora cada setor tem o seu, e a cor é
+     assunto à parte. */
+  { chave:'prazo_comercial_dias', rotulo:'Prazo do Comercial para mandar ao PCP', un:'dias', min:1, max:180,
+    ajuda:'Conta da <b>Data de solicitação</b> até a <b>Data de Envio ao PCP</b>. Estourou e a data ainda está vazia, ' +
+          'o sistema abre a cobrança <b>Falta a Data de Envio ao PCP</b> para o responsável do Comercial. ' +
+          'Enquanto não estourar, ninguém é incomodado.' },
+  { chave:'prazo_pcp_dias', rotulo:'Prazo do PCP para o pedido chegar ao Dev', un:'dias', min:1, max:180,
+    ajuda:'Conta da <b>Data de Envio ao PCP</b> até o Dev marcar o <b>Pedido recebido</b>. Estourou e a marcação não veio, ' +
+          'o sistema abre a cobrança <b>Pedido atrasado no PCP</b> para o responsável do PCP.' },
+  { chave:'alerta_dias_laranja', rotulo:'Selo de espera fica laranja depois de', un:'dias', min:1, max:90,
+    ajuda:'Só a <b>cor</b> do selo de espera na lista. Não abre cobrança nenhuma — quem decide isso são os dois prazos acima.' },
+  { chave:'alerta_dias_vermelho', rotulo:'Selo de espera vira vermelho depois de', un:'dias', min:1, max:120,
     ajuda:'Só muda a cor do selo de espera, para separar o que está atrasado do que está muito atrasado. Não abre solicitação nova.' },
   { chave:'dias_alerta_solicitacao', rotulo:'Considerar uma solicitação parada após', un:'dias', min:1, max:60,
     ajuda:'Sem movimento nenhum por esse tempo, ela ganha o selo <b>parada</b> na lista e no painel de atividade. ' +
