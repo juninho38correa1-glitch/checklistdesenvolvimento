@@ -930,13 +930,21 @@ function popularSolFiltros() {
 function renderSolPessoas() {
   const el = document.getElementById('solPessoas');
   const stats = solUsuarios.map(u => {
-    const minhas  = solLista.filter(s => s.responsavel_id === u.id);
+    /* Cancelada fica FORA da conta do cartão. Entrando no total, ele deixava
+       de fechar: a Nayara aparecia com "36 total · 14 em aberto · 17
+       concluídas" — e 14 + 17 dá 31, não 36. Quem olha lê a diferença como
+       trabalho que falta, quando na verdade são solicitações que morreram.
+       A lista à direita continua mostrando as canceladas; o que muda é só a
+       contagem do cartão. */
+    const todas   = solLista.filter(s => s.responsavel_id === u.id);
+    const minhas  = todas.filter(s => s.status !== 'cancelada');
+    const canceladas = todas.length - minhas.length;
     const abertas = minhas.filter(s => s.status === 'aberta' || s.status === 'em_andamento').length;
     const paradas = minhas.filter(solEstaParada).length;
     const concl   = minhas.filter(s => s.status === 'concluida').length;
     const durs    = minhas.map(solDuracaoMs).filter(v => v != null);
     return { id:u.id, nome:u.nome, total:minhas.length, abertas, paradas, concl,
-             med: solMediana(durs) };
+             canceladas, med: solMediana(durs) };
   }).filter(x => x.total > 0).sort((a,b) => b.abertas - a.abertas || b.total - a.total);
 
   if (!stats.length) {
@@ -947,7 +955,9 @@ function renderSolPessoas() {
   el.innerHTML = stats.map(x => {
     const iniciais = x.nome.split(' ').map(w => w[0]).join('').substring(0,2).toUpperCase();
     const pct = Math.round((x.abertas / maxAb) * 100);
-    return `<div class="user-card" onclick="filtrarPorPessoa('${x.id}', this)">
+    const dica = x.canceladas
+      ? ` title="${x.canceladas} cancelada(s) fora da conta — a lista ao lado ainda mostra"` : '';
+    return `<div class="user-card"${dica} onclick="filtrarPorPessoa('${x.id}', this)">
       <div class="user-card-top">
         <div class="user-avatar">${iniciais}</div>
         <div>
