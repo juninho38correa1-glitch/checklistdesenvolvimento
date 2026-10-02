@@ -342,18 +342,28 @@
         <option value="semenvio">🔒 Comercial — sem data de envio ao PCP</option>
         <option value="bloqueado">🔒 PCP — ainda não liberou</option>
         <option value="semcusto">💰 Aguardando ficha de custo</option>
+        <option value="filaextracao">🛠 3D pronto — falta extrair e programar</option>
         <option value="entrega7">⏳ Entrega nos próximos 7 dias</option>
       </optgroup>
     </select>
     <div class="date-filter">
-      <select id="filterDateField" onchange="renderTable()" title="Escolhe qual data o intervalo ao lado usa. Sozinho não filtra nada.">
-        <option value="dataRecebimento">Data: Recebimento</option>
-        <option value="dataSolicitacao">Data: Solicitação</option>
-        <option value="dataEntrega">Data: Entrega</option>
-        <option value="frente:dev">Feito pelo Dev (3D + Téc.)</option>
-        <option value="frente:modelagem3d">Frente: Modelagem 3D</option>
-        <option value="frente:modelagemTec">Frente: Modelagem Téc.</option>
-        <option value="frente:erika">Frente: Erika (Extração + Prog. + Compras)</option>
+      <!-- Este seletor NÃO filtra: ele diz qual data o intervalo ao lado usa.
+           As opções antigas ("Frente: Erika") pareciam filtro de fila e a
+           pessoa escolhia esperando ver a lista mudar. Os rótulos agora dizem
+           o que acontece, e a opção neutra no topo deixa claro que, sem
+           preencher as datas, nada é filtrado. -->
+      <select id="filterDateField" onchange="renderTable()" title="Só escolhe QUAL data o intervalo ao lado usa. Sem preencher de/até, não filtra nada. Para ver filas de trabalho, use o seletor de status.">
+        <optgroup label="Período por data do produto">
+          <option value="dataRecebimento">Data: Recebimento</option>
+          <option value="dataSolicitacao">Data: Solicitação</option>
+          <option value="dataEntrega">Data: Entrega</option>
+        </optgroup>
+        <optgroup label="Período por etapa ticada">
+          <option value="frente:dev">Ticou 3D ou Mod. Téc. no período</option>
+          <option value="frente:modelagem3d">Ticou Modelagem 3D no período</option>
+          <option value="frente:modelagemTec">Ticou Modelagem Téc. no período</option>
+          <option value="frente:erika">Ticou Extração, Prog. ou Compras no período</option>
+        </optgroup>
       </select>
       <span class="df-label">de</span>
       <input type="date" id="filterDateFrom" onchange="renderTable()" onkeydown="if(event.key==='Tab' && !event.shiftKey){event.preventDefault(); document.getElementById('filterDateTo').focus();}">
@@ -2924,6 +2934,13 @@ function renderTable() {
     // mesma precedência do selo: produto que o PCP nunca recebeu é do
     // comercial, e aparece no filtro de cima, não neste
     else if (stFilt === 'bloqueado') ok3 = bloqueadoPeloPcp(item) && !esperandoOComercial(item);
+    /* A fila de quem extrai e programa: a Modelagem 3D já saiu e o produto
+       está esperando a Extração de Gabarito e a Programação. Existe porque o
+       seletor de datas ao lado tem opções chamadas "Frente: ...", que PARECEM
+       filtro mas só escolhem qual data o intervalo usa — sozinhas não filtram
+       nada, e quem queria ver esta fila saía de lá de mãos vazias. */
+    else if (stFilt === 'filaextracao')
+      ok3 = !!item.stages.modelagem3d && !(item.stages.extracaoGab && item.stages.programacao);
     else if (stFilt === 'semcusto')  ok3 = faltaSoOCusto(item);
     else if (stFilt === 'entrega7')  ok3 = venceEmAte(item.dataEntrega, 7);
 
@@ -3503,7 +3520,8 @@ function describeFilters() {
   if (resp)   partes.push(`Responsável: ${resp}`);
   const tipoLabels = { esp:'ESP/ (especial)', e:'E/ (comum)', sem:'sem tipo preenchido' };
   if (tipoF)  partes.push(`Tipo: ${tipoLabels[tipoF] || tipoF}`);
-  const stLabels = { red:'Atrasados', orange:'Em Alerta', white:'Em Andamento', zero:'Sem Iniciar', green:'Finalizados', semficha:'Aguardando pedido', comficha:'Pedido recebido, sem iniciar' };
+  const stLabels = { red:'Atrasados', orange:'Em Alerta', white:'Em Andamento', zero:'Sem Iniciar', green:'Finalizados', semficha:'Aguardando pedido', comficha:'Pedido recebido, sem iniciar',
+                     filaextracao:'3D pronto — falta extrair e programar' };
   if (stFilt) partes.push(`Status: ${stLabels[stFilt] || stFilt}`);
   if (from || to) {
     const fieldLabels = { dataRecebimento:'Recebimento', dataSolicitacao:'Solicitação', dataEntrega:'Entrega' };
