@@ -343,6 +343,7 @@
         <option value="bloqueado">🔒 PCP — ainda não liberou</option>
         <option value="semcusto">💰 Aguardando ficha de custo</option>
         <option value="filaextracao">🛠 3D pronto — falta extrair e programar</option>
+        <option value="emproducao">🏭 Aguardando produção — da Programação à Espumação</option>
         <option value="entrega7">⏳ Entrega nos próximos 7 dias</option>
       </optgroup>
     </select>
@@ -2941,6 +2942,12 @@ function renderTable() {
        nada, e quem queria ver esta fila saía de lá de mãos vazias. */
     else if (stFilt === 'filaextracao')
       ok3 = !!item.stages.modelagem3d && !(item.stages.extracaoGab && item.stages.programacao);
+    /* O Dev entregou e a fábrica ainda não espumou. As pontas são as mesmas da
+       faixa Produção (Programação → Espumação), então o filtro e o gráfico de
+       tempos contam a mesma coisa — se um dia a fronteira mudar, muda nos dois
+       ou eles passam a discordar. */
+    else if (stFilt === 'emproducao')
+      ok3 = !!item.stages.programacao && !item.stages.espumacao;
     else if (stFilt === 'semcusto')  ok3 = faltaSoOCusto(item);
     else if (stFilt === 'entrega7')  ok3 = venceEmAte(item.dataEntrega, 7);
 
@@ -3521,7 +3528,8 @@ function describeFilters() {
   const tipoLabels = { esp:'ESP/ (especial)', e:'E/ (comum)', sem:'sem tipo preenchido' };
   if (tipoF)  partes.push(`Tipo: ${tipoLabels[tipoF] || tipoF}`);
   const stLabels = { red:'Atrasados', orange:'Em Alerta', white:'Em Andamento', zero:'Sem Iniciar', green:'Finalizados', semficha:'Aguardando pedido', comficha:'Pedido recebido, sem iniciar',
-                     filaextracao:'3D pronto — falta extrair e programar' };
+                     filaextracao:'3D pronto — falta extrair e programar',
+                     emproducao:'Aguardando produção (Programação → Espumação)' };
   if (stFilt) partes.push(`Status: ${stLabels[stFilt] || stFilt}`);
   if (from || to) {
     const fieldLabels = { dataRecebimento:'Recebimento', dataSolicitacao:'Solicitação', dataEntrega:'Entrega' };
