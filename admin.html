@@ -337,6 +337,13 @@
     <div class="pill" data-range="7" onclick="setRange(7,this)">7 dias</div>
     <div class="pill" data-range="30" onclick="setRange(30,this)">30 dias</div>
     <div class="pill" data-range="0" onclick="setRange(0,this)">Tudo</div>
+    <!-- Os atalhos acima só sabem contar "para trás a partir de hoje". Para
+         olhar um dia que já passou — o que aconteceu na segunda, por exemplo —
+         não havia caminho nenhum. Este campo fecha as duas pontas no mesmo
+         dia; escolher um dia desliga os atalhos, e limpar o campo devolve. -->
+    <input type="date" id="filtroDia" class="filter-sel" onchange="setDia(this.value)"
+           title="Mostra só o que aconteceu neste dia. Limpar o campo volta para os atalhos."
+           style="padding:5px 8px">
   </div>
   <div class="filter-sep"></div>
   <span class="filter-label">Usuário</span>
@@ -356,7 +363,7 @@
 <!-- BARRA DE ABAS -->
 <div class="tab-bar">
   <button class="tab-btn active" onclick="switchTab('etapas',this)">
-    📋 Etapas &amp; Ações
+    📋 Etapas e Ações
   </button>
   <button class="tab-btn" onclick="switchTab('solic',this)">
     📨 Solicitações
@@ -463,11 +470,29 @@ let allLogs  = [];   // etapa_logs
 let allObs   = [];   // pedido_observacoes
 let combined = [];   // merge dos dois
 let activeRange    = 1;
+let diaEscolhido   = null;   // 'AAAA-MM-DD' quando o filtro é de um dia só
 let activeUser     = '';
 let activeUserCard = null;
 let selectedStages = new Set();  // etapas selecionadas no filtro (vazio = todas)
 
 /* ── DATAS ────────────────────────────────────────── */
+/* Um dia só, fechado nas duas pontas. Os atalhos (Hoje / 7 / 30 / Tudo) têm
+   apenas o começo e vão até agora; para um dia do passado isso não serve, e
+   era o que faltava. */
+function setDia(valor) {
+  diaEscolhido = valor || null;
+  document.querySelectorAll('.pill').forEach(p => p.classList.remove('active'));
+  if (!diaEscolhido) {   // campo limpo: devolve o atalho padrão
+    activeRange = 1;
+    const p = document.querySelector('.pill[data-range="1"]');
+    if (p) p.classList.add('active');
+  }
+  activeUser = '';
+  document.getElementById('filterUser').value = '';
+  if (activeUserCard) { activeUserCard.classList.remove('active'); activeUserCard = null; }
+  loadAll();
+}
+
 function startOfRange(days) {
   if (!days) return null;
   const d = new Date();
@@ -506,7 +531,10 @@ async function buscarTudo(montarConsulta) {
 async function loadAll() {
   document.getElementById('lastUpd').textContent = 'Atualizando...';
 
-  const since = startOfRange(activeRange);
+  const since = diaEscolhido ? new Date(diaEscolhido + 'T00:00:00') : startOfRange(activeRange);
+  // só o dia escolhido tem fim; os atalhos correm até agora
+  const until = diaEscolhido
+    ? new Date(new Date(diaEscolhido + 'T00:00:00').getTime() + 86400000) : null;
 
   // As ticagens de ficha preenchidas de uma vez nos produtos antigos foram
   // trabalho de migração, não atividade de ninguém: no feed elas afogariam o
@@ -517,6 +545,7 @@ async function loadAll() {
       .neq('usuario', 'retroativo')
       .order('created_at', { ascending: false });
     if (since) q = q.gte('created_at', since.toISOString());
+    if (until) q = q.lt('created_at', until.toISOString());
     return q;
   };
   const montaObs = () => {
@@ -524,6 +553,7 @@ async function loadAll() {
       .select('produto, n_pedido, texto, autor, created_at')
       .order('created_at', { ascending: false });
     if (since) q = q.gte('created_at', since.toISOString());
+    if (until) q = q.lt('created_at', until.toISOString());
     return q;
   };
 
@@ -568,6 +598,9 @@ async function loadAll() {
 /* ── FILTROS ──────────────────────────────────────── */
 function setRange(days, el) {
   activeRange = days;
+  diaEscolhido = null;                       // atalho e dia são excludentes
+  const campoDia = document.getElementById('filtroDia');
+  if (campoDia) campoDia.value = '';
   document.querySelectorAll('.pill').forEach(p => p.classList.remove('active'));
   el.classList.add('active');
   // reset user filter
@@ -808,7 +841,7 @@ function switchTab(tab, btn) {
   document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
   btn.classList.add('active');
   document.getElementById('tab-' + tab).classList.add('active');
-  /* A barra de PERÍODO / USUÁRIO / TIPO só comanda o feed de Etapas & Ações.
+  /* A barra de PERÍODO / USUÁRIO / TIPO só comanda o feed de Etapas e Ações.
      Na aba Solicitações ela não fazia nada — e ainda mostrava uma lista de
      gente vinda da outra aba, o que fazia parecer defeito. Some. */
   const barra = document.getElementById('barraFiltros');
