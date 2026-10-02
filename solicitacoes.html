@@ -299,6 +299,12 @@ function carregarSessao() {
   try { sessao = JSON.parse(localStorage.getItem(SESSAO_KEY) || 'null'); } catch (e) { sessao = null; }
   if (!sessao || !sessao.id) { location.href = 'index.html'; return false; }
   document.getElementById('userChip').textContent = '👤 ' + sessao.nome;
+  // "Todas" é de admin: para os outros a aba sai da tela, e a lista nem chega
+  // do banco (ver carregarSolicitacoes).
+  if (!sessao.admin) {
+    const t = document.getElementById('tab-todas');
+    if (t) t.remove();
+  }
   return true;
 }
 const nomeDe = id => (usuarios.find(u => u.id === id) || {}).nome || '—';
@@ -319,7 +325,13 @@ async function carregarConfig() {
 }
 
 async function carregarSolicitacoes() {
-  const { data, error } = await sb.from('solicitacoes').select('*').order('created_at', { ascending:false });
+  /* Quem não é admin enxerga só o que é seu: o que lhe pediram e o que ele
+     pediu. O recorte é na CONSULTA e não na tela — peneirar só no render
+     deixaria a lista inteira carregada no navegador, e a busca desta tela
+     passa por cima da aba de propósito, então esconder a aba não bastaria. */
+  let q = sb.from('solicitacoes').select('*').order('created_at', { ascending:false });
+  if (!sessao.admin) q = q.or(`responsavel_id.eq.${sessao.id},criador_id.eq.${sessao.id}`);
+  const { data, error } = await q;
   if (error) { document.getElementById('lista').innerHTML = '<div class="empty">Erro ao carregar. Rodou o SQL da Fase 1?</div>'; return; }
   solicitacoes = data || [];
   // contagem de eventos e de anexos por solicitação
@@ -338,7 +350,7 @@ async function carregarSolicitacoes() {
 function setFiltro(f, el) {
   filtro = f;
   document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
-  el.classList.add('active');
+  if (el) el.classList.add('active');   // a aba "Todas" não existe para todo mundo
   renderLista();
 }
 
@@ -351,7 +363,9 @@ function renderLista() {
   const busca = (document.getElementById('buscaSolic').value || '').trim().toLowerCase();
   /* A busca passa por cima da aba escolhida. Quem digita um número de pedido
      quer achar AQUELE pedido — não quer descobrir depois que ele existia, mas
-     estava em "Todas" enquanto a tela mostrava "Minhas tarefas". */
+     estava em "Todas" enquanto a tela mostrava "Minhas tarefas".
+     Para quem não é admin isso continua valendo, só que dentro do que é dele:
+     a consulta já trouxe apenas as suas. */
   let lista = solicitacoes.filter(s => {
     if (!busca) {
       if (filtro === 'minhas'  && s.responsavel_id !== sessao.id) return false;
@@ -367,7 +381,8 @@ function renderLista() {
     return true;
   });
   document.getElementById('contador').textContent =
-    `${lista.length} solicitação(ões)` + (busca ? ' — buscando em todas' : '');
+    `${lista.length} solicitação(ões)`
+    + (busca ? (sessao.admin ? ' — buscando em todas' : ' — buscando em todas as suas') : '');
   const el = document.getElementById('lista');
   if (!lista.length) { el.innerHTML = '<div class="empty">Nenhuma solicitação por aqui.</div>'; return; }
 
@@ -1360,9 +1375,20 @@ function assinarTempoReal() {
 
   // abre direto uma solicitação específica quando vier de um link (?sol=<id>)
   const solId = new URLSearchParams(location.search).get('sol');
-  if (solId && solicitacoes.some(s => s.id === solId)) {
-    setFiltro('todas', document.getElementById('tab-todas'));
-    abrirDetalhe(solId);
+  if (solId) {
+    /* Link de notificação ou de menção pode apontar para uma solicitação que
+       não está na lista de quem abriu — menção alcança qualquer pessoa, não só
+       o responsável. Busca aquela, e só aquela, para o link não morrer na mão
+       de quem foi chamado de propósito. */
+    if (!solicitacoes.some(x => x.id === solId)) {
+      const { data: avulsa } = await sb.from('solicitacoes').select('*').eq('id', solId).maybeSingle();
+      if (avulsa) { avulsa._eventos = 0; avulsa._anexos = 0; solicitacoes.push(avulsa); }
+    }
+    if (solicitacoes.some(x => x.id === solId)) {
+      const t = document.getElementById('tab-todas');
+      if (t) setFiltro('todas', t);
+      abrirDetalhe(solId);
+    }
   }
 })();
 </script>
