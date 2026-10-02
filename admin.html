@@ -914,20 +914,23 @@ function renderSolLeadtime(lista) {
   const med = solMediana(dur);
   const avg = dur.reduce((a, b) => a + b, 0) / dur.length;
   const p90 = solPercentil(dur, 0.9);
-  /* Mediana primeiro, e não a média: as poucas solicitações que ficam semanas
-     paradas puxam a média para muito acima do que é o dia a dia. As duas estão
-     aqui porque a diferença entre elas é informação, não ruído. */
-  const cartoes = [
-    ['Concluídas', String(dur.length), 'com hora de abertura e de conclusão'],
-    ['Tempo típico (mediana)', fmtDuracao(med), 'metade foi respondida em menos que isso'],
-    ['Média', fmtDuracao(avg), avg > med * 1.5
-        ? 'bem acima da mediana — puxada pelas poucas muito demoradas'
-        : 'próxima da mediana'],
-    ['9 em cada 10 até', fmtDuracao(p90), 'só 10% demoram mais que isso']
-  ];
-  el.innerHTML = cartoes.map(([l, n, sub]) =>
-    `<div class="lt-card"><div class="lt-label">${l}</div>`
-    + `<div class="lt-num">${n}</div><div class="lt-sub">${sub}</div></div>`).join('');
+  /* UM número na tela: a mediana. Antes havia três (mediana, média e p90) lado
+     a lado, e eles brigavam entre si — são três respostas para a MESMA
+     pergunta, e a média fica quase 5x acima da mediana porque meia dúzia de
+     solicitações ficou semanas parada. Quem olhava tinha de decidir em qual
+     acreditar. Os outros dois continuam existindo, na dica do mouse, para
+     quando alguém quiser conferir. */
+  const dica = `${dur.length} solicitação(ões) concluídas nesta seleção`
+    + `
+Média: ${fmtDuracao(avg)}`
+    + (avg > med * 1.5 ? ' — bem acima da mediana, puxada pelas poucas muito demoradas' : '')
+    + `
+9 em cada 10 foram respondidas em até ${fmtDuracao(p90)}`;
+  el.innerHTML = `<div class="lt-card" title="${sdEsc(dica)}">`
+    + `<div class="lt-label">Tempo típico de resposta</div>`
+    + `<div class="lt-num">${fmtDuracao(med)}</div>`
+    + `<div class="lt-sub">metade das ${dur.length} concluídas foi respondida em menos que isso`
+    + ` · passe o mouse para média e extremos</div></div>`;
 }
 function solEstaParada(s) {
   return (s.status === 'aberta' || s.status === 'em_andamento') && solDiasParado(s) >= solDiasAlerta;
