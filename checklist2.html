@@ -1414,34 +1414,6 @@ async function abrirSolicitacaoServico(tipo, item, obs, silencioso) {
    no de quem por acaso abriu a tela.
    A do comercial só vale para produto que ainda não andou: se as etapas já
    rodaram, a data faltando é buraco de histórico, não coisa a resolver. */
-async function cobrarPendencias() {
-  if (!podeEditarChecklist || !sessao) return;
-  if (!Object.keys(respServico).length) await carregarRespServicos();
-  for (const item of allData) {
-    if (!aptoParaAlerta(item)) continue;   // produto antigo não entra na contagem
-    if (item.progresso === 0 && item.dataSolicitacao && !item.dataEnvioPcp) {
-      const dias = diasDesde(item.dataSolicitacao);
-      if (dias !== null && dias >= ALERTA_LARANJA_DIAS) {
-        await abrirSolicitacaoServico('comercialPcp', item,
-          `Solicitado em ${fmtDate(item.dataSolicitacao)}, há ${dias} dias, e ainda sem Data de Envio ao PCP.\n\n`
-          + `Sem essa data o PCP não recebe o pedido e o prazo começa a correr contra.\n`
-          + `Produto: ${item.produto}\n`
-          + `Nº pedido: ${item.nPedido || '—'}`, true);
-      }
-    }
-    if (item.dataEnvioPcp && !(extraTicks[itemKey(item)] || {}).fichaRecebida) {
-      const dias = diasDesde(item.dataEnvioPcp);
-      if (dias !== null && dias >= ALERTA_LARANJA_DIAS) {
-        await abrirSolicitacaoServico('pcpFicha', item,
-          `Enviado ao PCP em ${fmtDate(item.dataEnvioPcp)}, há ${dias} dias, e o pedido ainda não chegou ao Dev.\n\n`
-          + `Sem o pedido o Dev não consegue começar.\n`
-          + `Produto: ${item.produto}\n`
-          + `Nº pedido: ${item.nPedido || '—'}`, true);
-      }
-    }
-  }
-}
-
 async function avisarPcpLiberado(prod, observacao) {
   if (!prod || !prod.data_envio_pcp) return;
   if (!respServico.pcp) await carregarRespServicos();
@@ -2836,7 +2808,13 @@ async function loadCSV(isSilent = false) {
     if (!usuariosAtivos.length) await carregarUsuariosAtivos();
     if (!Object.keys(respServico).length) await carregarRespServicos();
     checkStatusAlerts();
-    cobrarPendencias().catch(e => console.error('cobrança automática:', e));
+    /* A cobrança automática saiu daqui. Rodando no navegador, quem ABRIA A
+       TELA virava o autor — e dois navegadores abertos no mesmo segundo
+       abriam a mesma cobrança duas vezes, porque a verificação de "já existe"
+       e a inserção não eram atômicas. Agora é um job no banco
+       (`cobrar_pendencias`, de segunda a sexta às 8h), com as mesmas regras e
+       lendo as mesmas configurações. Ver
+       desenvolvimento-studyo4/schema-cobranca-no-servidor.sql */
     document.getElementById('stateBox').style.display  = 'none';
     document.getElementById('tableWrap').style.display = 'block';
     populateFilters();
