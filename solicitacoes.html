@@ -160,7 +160,7 @@
 
 <div class="container">
   <div class="toolbar">
-    <div class="tab active" id="tab-minhas"   onclick="setFiltro('minhas',this)">Minhas tarefas</div>
+    <div class="tab active" id="tab-minhas"   onclick="setFiltro('minhas',this)">Solicitações recebidas</div>
     <div class="tab"        id="tab-criadas"  onclick="setFiltro('criadas',this)">Criadas por mim</div>
     <div class="tab"        id="tab-todas"    onclick="setFiltro('todas',this)">Todas</div>
     <input type="text" id="buscaSolic" placeholder="Buscar pedido, produto ou título..."
@@ -299,12 +299,15 @@ function carregarSessao() {
   try { sessao = JSON.parse(localStorage.getItem(SESSAO_KEY) || 'null'); } catch (e) { sessao = null; }
   if (!sessao || !sessao.id) { location.href = 'index.html'; return false; }
   document.getElementById('userChip').textContent = '👤 ' + sessao.nome;
-  // "Todas" é de admin: para os outros a aba sai da tela, e a lista nem chega
-  // do banco (ver carregarSolicitacoes).
-  if (!sessao.admin) {
-    const t = document.getElementById('tab-todas');
-    if (t) t.remove();
-  }
+  /* "Todas" existe para todo mundo, mas não quer dizer a mesma coisa:
+     para o admin é tudo do sistema; para os outros é tudo o que é SEU —
+     recebidas e criadas juntas, em qualquer status. Não é generosidade de
+     tela: a consulta já trouxe só as suas (ver carregarSolicitacoes), então
+     a aba não tem como mostrar o que não é dele. */
+  const tTodas = document.getElementById('tab-todas');
+  if (tTodas) tTodas.title = sessao.admin
+    ? 'Todas as solicitações do sistema, em qualquer status'
+    : 'Tudo o que é seu — recebidas e criadas, em qualquer status';
   return true;
 }
 const nomeDe = id => (usuarios.find(u => u.id === id) || {}).nome || '—';
@@ -350,7 +353,11 @@ async function carregarSolicitacoes() {
 function setFiltro(f, el) {
   filtro = f;
   document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
-  if (el) el.classList.add('active');   // a aba "Todas" não existe para todo mundo
+  if (el) el.classList.add('active');
+  /* "Todas" quer dizer todas mesmo, inclusive as já concluídas. Sem isto a aba
+     obedecia ao filtro de status, que abre em "Em aberto" — e quem só tinha
+     solicitação concluída via a tela dizer "0", como aconteceu com o Cadastro. */
+  if (f === 'todas') document.getElementById('filtroStatus').value = '';
   renderLista();
 }
 
