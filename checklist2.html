@@ -760,7 +760,7 @@ async function carregarConfigAlertas() {
     const { data } = await supabaseClient.from('configuracoes').select('chave,valor')
       .in('chave', ['alerta_dias_laranja', 'alerta_dias_vermelho', 'alertas_a_partir_de', 'leadtimes',
                     'bloqueio_a_partir_de', 'responsavel_cadastro', 'prazo_dev_dias',
-                    'pedido_a_partir_de']);
+                    'pedido_a_partir_de', 'custo_respondido']);
     const c = {}; (data || []).forEach(x => c[x.chave] = x.valor);
     const laranja  = parseInt(c.alerta_dias_laranja, 10);
     const vermelho = parseInt(c.alerta_dias_vermelho, 10);
@@ -782,6 +782,8 @@ async function carregarConfigAlertas() {
       const d = /^\d{4}-\d{2}-\d{2}$/.test(t) ? new Date(t + 'T00:00:00') : new Date(t);
       if (!isNaN(d)) BLOQUEIO_A_PARTIR_DE = d;
     }
+    CUSTO_RESPONDIDO = new Set(String(c.custo_respondido || '')
+      .split(',').map(x => x.trim()).filter(Boolean));
     if (c.pedido_a_partir_de) {
       const t = String(c.pedido_a_partir_de).trim();
       const d = /^\d{4}-\d{2}-\d{2}$/.test(t) ? new Date(t + 'T00:00:00') : new Date(t);
@@ -1111,7 +1113,17 @@ function custoMarcado() {
 /* Produto que nasceu antes de existir o sistema de custos. Ninguém respondeu
    “precisa de ficha?” porque a pergunta não existia — esses vieram da planilha.
    Marcar como “não precisa” seria mentira: não se sabe. */
+/* Produtos antigos cuja pergunta "precisa de ficha de custo?" já foi
+   respondida a mão, por id. A lista existe porque `precisa_custo` é NOT NULL:
+   `false` quer dizer ao mesmo tempo "responderam não" e "ninguém foi
+   perguntado", e sem um terceiro estado não dá para separar as duas. Enquanto
+   a coluna não aceitar nulo, quem estiver aqui sai de "sistema antigo" e passa
+   a valer o que está gravado em precisa_custo.
+   Fica em Configurações, chave `custo_respondido`, ids separados por vírgula. */
+let CUSTO_RESPONDIDO = new Set();
+
 function ehDoSistemaAntigo(item) {
+  if (item.id && CUSTO_RESPONDIDO.has(item.id)) return false;
   return !!BLOQUEIO_A_PARTIR_DE && !!item.criadoEm
       && new Date(item.criadoEm) < BLOQUEIO_A_PARTIR_DE;
 }
@@ -1172,8 +1184,11 @@ function faltaSoOCusto(item) {
 }
 
 function custoHtml(item) {
-  if (!ehEspecial(item.tipo)) return '<span style="color:var(--text-muted);font-size:11px">—</span>';
   const st = statusCusto(item);
+  /* O selo de produto velho vem ANTES do corte por tipo. Devolver "—" para
+     quem não é ESP/ escondia justamente o que se quer enxergar: dos 537
+     anteriores ao corte, 454 não são ESP/ (249 E/, 204 sem tipo preenchido e
+     1 com "esp/" minúsculo) e todos eles ficavam sem marca nenhuma. */
   if (st === 'sistema-antigo') {
     const daPlanilha = String(item.origem || '') === 'planilha';
     const titulo = 'Cadastrado antes de existir o controle de custo no checklist'
@@ -1181,6 +1196,7 @@ function custoHtml(item) {
                  + '. Não dá para dizer se precisava de ficha — ninguém foi perguntado.';
     return `<span class="dias-badge" style="background:#efe7d6;color:var(--text-muted);font-size:10px" title="${titulo}">sistema antigo</span>`;
   }
+  if (!ehEspecial(item.tipo)) return '<span style="color:var(--text-muted);font-size:11px">—</span>';
   if (st === 'nao-precisa') return '<span style="color:var(--text-muted);font-size:11px">não precisa</span>';
   if (st === 'anexada') {
     const f = fichasCusto[item.id];
@@ -2320,7 +2336,11 @@ function renderBlocoCusto(item) {
   const el = document.getElementById('blocoCusto');
   if (!el) return;
   if (!ehEspecial(item.tipo)) {
-    el.innerHTML = '<div class="timeline-empty" style="text-align:left;padding:6px 0">Só produto ESP/ tem ficha de custo.</div>';
+    // o selo da coluna diz "sistema antigo"; aqui explica por que, para não
+    // parecer que falta alguma coisa de custo num produto que nunca teve
+    el.innerHTML = '<div class="timeline-empty" style="text-align:left;padding:6px 0">Só produto ESP/ tem ficha de custo.'
+      + (ehDoSistemaAntigo(item) ? ' Este é do <b>sistema antigo</b>, cadastrado antes de o checklist controlar custo.' : '')
+      + '</div>';
     return;
   }
   if (!item.precisaCusto) {
