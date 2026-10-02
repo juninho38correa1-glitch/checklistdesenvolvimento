@@ -822,6 +822,16 @@ let solPessoaAtiva = null;
 
 const SOL_LBL = { aberta:'Aberta', em_andamento:'Em andamento', concluida:'Concluída', cancelada:'Cancelada' };
 const solNome = id => (solUsuarios.find(u => u.id === id) || {}).nome || '—';
+
+/* Mesma leitura da tela de solicitações: cobrança disparada pela varredura do
+   checklist não tem autor humano — o criador gravado é só quem tinha a tela
+   aberta. Aqui o nome real fica na dica, porque o painel é de auditoria. */
+const COBRANCAS_DA_VARREDURA = ['Falta a Data de Envio ao PCP', 'Pedido atrasado no PCP'];
+const ehCobrancaAutomatica = s =>
+  COBRANCAS_DA_VARREDURA.some(t => String(s && s.titulo || '').startsWith(t));
+const solAutor = s => ehCobrancaAutomatica(s)
+  ? `<span title="Cobrança automática do checklist — disparou no navegador de ${sdEsc(solNome(s.criador_id))}">⚙ Sistema</span>`
+  : sdEsc(solNome(s.criador_id));
 function solDiasParado(s) { return Math.floor((Date.now() - new Date(s.updated_at).getTime()) / 86400000); }
 
 /* Quanto tempo a solicitação levou da abertura até alguém concluir.
@@ -1007,7 +1017,7 @@ function renderSolFeed() {
           <span class="stage-name">${destaque}</span>${sub}${pedidoTag}${parada}${tempo}
         </div>
         <div class="feed-meta">
-          <span>${solNome(s.criador_id)} → <strong>${solNome(s.responsavel_id)}</strong></span>
+          <span>${solAutor(s)} → <strong>${sdEsc(solNome(s.responsavel_id))}</strong></span>
           <span class="feed-time">${fmtDatetime(s.created_at)}</span>
           <span class="feed-tipo ${s.status === 'concluida' ? 'tipo-etapa' : 'tipo-obs'}">${SOL_LBL[s.status]}</span>
         </div>
@@ -1030,7 +1040,7 @@ async function abrirSolDetalhe(id) {
   const pedido = s.pedido_ref ? ` · Pedido #${sdEsc(s.pedido_ref)}` : '';
   document.getElementById('sdMeta').innerHTML =
     `<span class="sd-pill ${s.status}">${SOL_LBL[s.status]}</span>
-     <span>${sdEsc(solNome(s.criador_id))} → <strong>${sdEsc(solNome(s.responsavel_id))}</strong></span>
+     <span>${solAutor(s)} → <strong>${sdEsc(solNome(s.responsavel_id))}</strong></span>
      <span>prioridade: ${sdEsc(s.prioridade)}</span>
      <span>${new Date(s.created_at).toLocaleString('pt-BR')}${pedido}</span>
      ${solEstaParada(s) ? `<span class="user-tag tag-accent">⚠ parada ${solDiasParado(s)}d</span>` : ''}
