@@ -312,6 +312,21 @@ function carregarSessao() {
 }
 const nomeDe = id => (usuarios.find(u => u.id === id) || {}).nome || '—';
 
+/* Estas duas cobranças nascem da varredura automática do checklist, que roda
+   quando ALGUÉM ABRE A TELA. O `criador_id` gravado é apenas quem estava com o
+   navegador aberto naquele segundo — não decidiu nada e muitas vezes nem é do
+   setor envolvido. Mostrar o nome dele fazia a cobrança parecer recado
+   pessoal: a mesma cobrança do pedido 119166 saiu duas vezes, assinada por
+   duas pessoas diferentes, no mesmo segundo.
+   O id continua gravado e a dica do mouse diz de quem foi o navegador — some
+   da tela o que confunde, não o que a auditoria precisa. */
+const COBRANCAS_DA_VARREDURA = ['Falta a Data de Envio ao PCP', 'Pedido atrasado no PCP'];
+const ehCobrancaAutomatica = s =>
+  COBRANCAS_DA_VARREDURA.some(t => String(s && s.titulo || '').startsWith(t));
+const autorDe = s => ehCobrancaAutomatica(s)
+  ? `<span title="Cobrança automática do checklist — disparou no navegador de ${esc(nomeDe(s.criador_id))}">⚙ Sistema</span>`
+  : esc(nomeDe(s.criador_id));
+
 /* ── CARGA ──────────────────────────────────────────── */
 async function carregarUsuarios() {
   const { data } = await sb.from('usuarios').select('id,nome,setor').eq('ativo', true).order('nome');
@@ -409,7 +424,7 @@ function renderLista() {
       </div>
       ${subtitulo ? `<div class="sol-sub">${subtitulo}</div>` : ''}
       <div class="sol-meta">
-        <span>${nomeDe(s.criador_id)} → <b>${nomeDe(s.responsavel_id)}</b></span>
+        <span>${autorDe(s)} → <b>${esc(nomeDe(s.responsavel_id))}</b></span>
         ${pedidoTag}
         <span>${s._eventos} registro(s)</span>
         ${s._anexos ? `<span>📎 ${s._anexos}</span>` : ''}
@@ -464,8 +479,8 @@ async function abrirDetalhe(id) {
   const vinc = s.pedido_ref ? ` · Pedido #${s.pedido_ref}` : '';
   document.getElementById('detMeta').innerHTML =
     `<span class="pill ${s.status}">${LBL_STATUS[s.status]}</span>
-     <span>${nomeDe(s.criador_id)} → <b>${nomeDe(s.responsavel_id)}</b></span>
-     <span>prioridade: ${s.prioridade}</span>
+     <span>${autorDe(s)} → <b>${esc(nomeDe(s.responsavel_id))}</b></span>
+     <span>prioridade: ${esc(s.prioridade)}</span>
      <span>${new Date(s.created_at).toLocaleString('pt-BR')}${vinc}</span>`;
   document.getElementById('detDescricao').textContent = s.descricao || '';
   renderOC(s);
@@ -646,7 +661,7 @@ function printSolicitacao() {
     <div class="ps-grid">
       <div><span class="k">Status</span><br>${LBL_STATUS[s.status]}</div>
       <div><span class="k">Prioridade</span><br>${esc(s.prioridade)}</div>
-      <div><span class="k">Solicitante</span><br>${esc(nomeDe(s.criador_id))}</div>
+      <div><span class="k">Solicitante</span><br>${autorDe(s)}</div>
       <div><span class="k">Responsável</span><br>${esc(nomeDe(s.responsavel_id))}</div>
       <div><span class="k">Aberta em</span><br>${new Date(s.created_at).toLocaleString('pt-BR')}</div>
       ${s.concluida_em ? `<div><span class="k">Concluída em</span><br>${new Date(s.concluida_em).toLocaleString('pt-BR')}</div>` : ''}
@@ -1048,7 +1063,8 @@ async function registrarEvento(tipo) {
   const novoStatus = s.status === 'aberta' ? 'em_andamento' : s.status;
   await sb.from('solicitacoes').update({ status:novoStatus, updated_at:new Date().toISOString() }).eq('id', s.id);
   // avisa o criador que a solicitação dele andou
-  await notificar(s.criador_id, 'Sua solicitação teve movimento', `${s.titulo}: ${texto.slice(0,80)}`, s.id);
+  if (!ehCobrancaAutomatica(s))
+    await notificar(s.criador_id, 'Sua solicitação teve movimento', `${s.titulo}: ${texto.slice(0,80)}`, s.id);
   await avisarAdmins(`${nomeDe(sessao.id)} registrou em uma solicitação`,
     `${s.titulo}: ${texto.slice(0,80)}`, s.id, [s.criador_id]);
   await carregarSolicitacoes();
@@ -1181,7 +1197,7 @@ async function concluir() {
   await sb.from('solicitacao_eventos').insert({
     solicitacao_id:s.id, autor_id:sessao.id, tipo:'status', texto:'Solicitação concluída'
   });
-  await notificar(s.criador_id, 'Solicitação concluída', s.titulo, s.id);
+  if (!ehCobrancaAutomatica(s)) await notificar(s.criador_id, 'Solicitação concluída', s.titulo, s.id);
   await avisarAdmins('✓ Solicitação concluída',
     `${s.titulo} — por ${nomeDe(sessao.id)}`, s.id, [s.criador_id]);
   /* O PCP concluir a liberação é o que destrava o produto para o Dev começar.
