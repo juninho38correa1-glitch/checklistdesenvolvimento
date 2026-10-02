@@ -875,7 +875,9 @@ const CFG_CORTES = [
   { chave:'alertas_a_partir_de',  rotulo:'Cobranças por prazo valem a partir de',
     ajuda:'Produto cadastrado <b>antes</b> desta data nunca gera cobrança. Existe porque centenas de produtos antigos disparariam alerta todos juntos no dia em que a regra entrou.' },
   { chave:'bloqueio_a_partir_de', rotulo:'Bloqueio até o PCP liberar vale a partir de',
-    ajuda:'Produto cadastrado <b>a partir</b> desta data nasce só-leitura até o PCP concluir a liberação. Recuar esta data tranca de uma vez todos os produtos que ela passar a alcançar.' }
+    ajuda:'Produto cadastrado <b>a partir</b> desta data nasce só-leitura até o PCP concluir a liberação. Recuar esta data tranca de uma vez todos os produtos que ela passar a alcançar.' },
+  { chave:'pedido_a_partir_de',   rotulo:'Dev passou a receber o pedido (e não a ficha) em',
+    ajuda:'A coluna do checklist mudou de <b>Ficha</b> para <b>Pedido</b> quando a ficha impressa saiu de uso. Marcação feita <b>antes</b> desta data continua aparecendo como "ficha", que é o que ela foi de verdade; a partir dela aparece como "pedido". Só muda a palavra na tela — nenhum registro é reescrito.' }
 ];
 
 let cfgUsuarios = [];
