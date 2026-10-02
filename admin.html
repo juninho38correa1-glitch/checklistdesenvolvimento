@@ -1038,7 +1038,19 @@ function renderSolFeed() {
   });
 
   renderSolLeadtime(lista);
-  document.getElementById('solFeedCount').textContent = `${lista.length} solicitação(ões)`;
+  /* Aberto x concluído também aqui. O cartão da pessoa à esquerda já diz isso,
+     mas ao clicar nela a atenção vai para a lista — e do lado de cá só havia o
+     total, que sozinho não responde "quanto falta". Mostra só os status que
+     existem na seleção: filtrando por "Concluída", repetir "0 em aberto" seria
+     ruído. */
+  const porStatus = [
+    ['em aberto',     lista.filter(s => s.status === 'aberta' || s.status === 'em_andamento').length],
+    ['concluída(s)',  lista.filter(s => s.status === 'concluida').length],
+    ['cancelada(s)',  lista.filter(s => s.status === 'cancelada').length]
+  ].filter(([, n]) => n > 0);
+  document.getElementById('solFeedCount').textContent =
+    `${lista.length} solicitação(ões)`
+    + (porStatus.length > 1 ? ' · ' + porStatus.map(([r, n]) => `${n} ${r}`).join(' · ') : '');
   const el = document.getElementById('solFeedList');
   if (!lista.length) {
     el.innerHTML = '<div class="empty-state"><div class="empty-icon">📭</div><div class="empty-text">Nada com esses filtros.</div></div>';
