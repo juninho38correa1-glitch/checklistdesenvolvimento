@@ -329,8 +329,8 @@
       <option value="orange">🟠 Em Alerta (+10d)</option>
       <option value="white">⚪ Em Andamento</option>
       <option value="zero">🔘 Sem Iniciar (0%)</option>
-      <option value="semficha">⏳ Aguardando ficha</option>
-      <option value="comficha">📄 Ficha recebida, sem iniciar</option>
+      <option value="semficha">⏳ Aguardando pedido</option>
+      <option value="comficha">📄 Pedido recebido, sem iniciar</option>
       <option value="green">🟢 Finalizados (100%)</option>
       <optgroup label="Esperando alguém">
         <option value="semenvio">🔒 Comercial — sem data de envio ao PCP</option>
@@ -388,7 +388,7 @@
           <th>Progresso</th>
           <th>Status</th>
           <th title="Ficha de custo do produto (só ESP/)">Custo</th>
-        <th title="Ficha do especial recebida do PCP">Ficha</th>
+        <th title="Pedido do produto recebido do PCP. Até setembro de 2026 isto era a ficha impressa do especial — por isso os registros antigos continuam dizendo &quot;ficha&quot;.">Pedido</th>
           <th id="thEditar" style="display:none"></th>
         </tr>
       </thead>
@@ -689,7 +689,7 @@ const PRODUCAO_INICIO_ETAPA = 'extracaoGab';
 const PRODUCAO_FIM_ETAPA    = 'espumacao';
 const PRODUCAO_ALERTA_DIAS  = 10;
 const PRODUCAO_ATRASO_DIAS  = 15;
-/* Prazo do desenvolvimento inteiro: da data de recebimento da ficha até a
+/* Prazo do desenvolvimento inteiro: da data de recebimento do pedido até a
    Montagem Final. Diferente do "tempo de produção" acima, que mede só o miolo
    da fábrica — este mede a volta completa, que é o que o Dev promete.
    Vem da configuração; 15 é só o valor de partida se ela não existir. */
@@ -703,12 +703,25 @@ const SESSAO_KEY = 'studyo4_sessao';   // mesma chave usada pelo portal
 // de ticagem logo após a etapa definida em "after".
 // (Compras agora é um botão "Solicitar Compras" no relatório — não é mais etapa.)
 // Autor das ticagens preenchidas de uma vez nos produtos que já tinham
-// andado: a ficha obviamente chegou, mas a data é estimada — então essas
-// não entram na conta do lead time PCP -> ficha.
+// andado: o pedido obviamente chegou, mas a data é estimada — então essas
+// não entram na conta do lead time PCP -> pedido.
 const RETRO_USUARIO = 'retroativo';
 
+/* A palavra mudou no meio do caminho: antes o Dev recebia a ficha impressa do
+   especial, agora recebe o pedido do produto. Os registros antigos continuam
+   dizendo "ficha" porque é o que eles foram — carimbar "pedido" em cima de 538
+   marcações antigas faria o histórico mentir sobre o que aconteceu.
+   A data do corte fica na configuração, junto das outras duas; a constante
+   abaixo é só o valor de partida se a linha não existir. */
+const PEDIDO_DESDE_PADRAO = '2026-10-02T00:00:00Z';
+let PEDIDO_DESDE = new Date(PEDIDO_DESDE_PADRAO);
+function palavraRecebimento(quando) {
+  if (!quando || isNaN(PEDIDO_DESDE)) return 'pedido';
+  return new Date(quando) < PEDIDO_DESDE ? 'ficha' : 'pedido';
+}
+
 // As duas esperas do início do processo (comercial mandar ao PCP, PCP
-// devolver a ficha) usam a mesma régua, e a régua vem da tabela de
+// devolver o pedido) usam a mesma régua, e a régua vem da tabela de
 // configurações — mudar de 5/7 para outra coisa é no Painel Admin, sem tocar
 // no código. Os valores abaixo são só o que vale enquanto a config não chega.
 let ALERTA_LARANJA_DIAS  = 5;
@@ -740,13 +753,14 @@ const CAMPO_DATA = { data_solicitacao: 'dataSolicitacao', data_envio_pcp: 'dataE
                      data_recebimento: 'dataRecebimento', data_entrega: 'dataEntrega' };
 const ROTULO_PONTA = { data_solicitacao: 'Data de solicitação', data_envio_pcp: 'Data de envio ao PCP',
                        data_recebimento: 'Data de recebimento', data_entrega: 'Data de entrega',
-                       'etapa:fichaRecebida': 'Ficha recebida' };
+                       'etapa:fichaRecebida': 'Pedido recebido' };
 
 async function carregarConfigAlertas() {
   try {
     const { data } = await supabaseClient.from('configuracoes').select('chave,valor')
       .in('chave', ['alerta_dias_laranja', 'alerta_dias_vermelho', 'alertas_a_partir_de', 'leadtimes',
-                    'bloqueio_a_partir_de', 'responsavel_cadastro', 'prazo_dev_dias']);
+                    'bloqueio_a_partir_de', 'responsavel_cadastro', 'prazo_dev_dias',
+                    'pedido_a_partir_de']);
     const c = {}; (data || []).forEach(x => c[x.chave] = x.valor);
     const laranja  = parseInt(c.alerta_dias_laranja, 10);
     const vermelho = parseInt(c.alerta_dias_vermelho, 10);
@@ -767,6 +781,11 @@ async function carregarConfigAlertas() {
       const t = String(c.bloqueio_a_partir_de).trim();
       const d = /^\d{4}-\d{2}-\d{2}$/.test(t) ? new Date(t + 'T00:00:00') : new Date(t);
       if (!isNaN(d)) BLOQUEIO_A_PARTIR_DE = d;
+    }
+    if (c.pedido_a_partir_de) {
+      const t = String(c.pedido_a_partir_de).trim();
+      const d = /^\d{4}-\d{2}-\d{2}$/.test(t) ? new Date(t + 'T00:00:00') : new Date(t);
+      if (!isNaN(d)) PEDIDO_DESDE = d;
     }
     if (c.leadtimes) {
       const lt = JSON.parse(c.leadtimes);
@@ -798,10 +817,14 @@ function corDaEspera(dias) {
 const ehDoDev = s => String(s || '').trim().toLowerCase() === 'dev';
 
 const EXTRA_TICKS = [
-  // Marcada pelo Dev quando a ficha do especial chega do PCP. Não é etapa de
-  // produção: é o que fecha o lead time entre "enviado ao PCP" e "ficha na mão".
-  // semModal: já tem selo de um clique na coluna Ficha; repetir aqui só polui
-  { key: 'fichaRecebida', label: 'Ficha de especial recebida', antes: true, soDev: true, semModal: true },
+  /* Marcada pelo Dev quando o pedido do produto chega do PCP. Não é etapa de
+     produção: é o que fecha o lead time entre "enviado ao PCP" e "pedido na mão".
+     A CHAVE continua `fichaRecebida` de propósito. São 538 registros gravados
+     com esse nome em etapa_logs, e a configuração de lead times aponta para
+     'etapa:fichaRecebida' — renomear a chave orfanaria os dois de uma vez. O
+     que mudou foi a palavra na tela, não o que o sistema guarda.
+     semModal: já tem selo de um clique na coluna Pedido; repetir aqui só polui */
+  { key: 'fichaRecebida', label: 'Pedido do produto recebido', antes: true, soDev: true, semModal: true },
 ];
 const DOC_ITENS = 'Medições, ficha técnica, ficha comercial e bloco 3D';
 const EXTRA_LABELS = Object.fromEntries(EXTRA_TICKS.map(e => [e.key, e.label]));
@@ -987,7 +1010,7 @@ async function loadProductionTimes() {
 }
 
 /* Quantos dias o produto está (ou ficou) no desenvolvimento.
-   Começa na ficha recebida, quando o Dev passa a ser responsável, e termina
+   Começa no pedido recebido, quando o Dev passa a ser responsável, e termina
    quando ele ENTREGA para a fábrica: Extração de Gabarito e Programação
    ticadas. O que vem depois — montagem, espumação, costura, tapeçaria,
    montagem final — é chão de fábrica, medido pelo ST4, e não é prazo do Dev.
@@ -1034,11 +1057,11 @@ function prazoDevHtml(item) {
   const excesso = dias - PRAZO_DEV_DIAS;
   const desde = fmtDate(item.dataRecebimento);
   if (saiuDoDev(item)) {
-    return ` <span class="dias-badge d-gray" style="opacity:.8" title="Da ficha recebida em ${desde} até o Dev entregar (Extração de Gabarito + Programação): ${dias} dias corridos, ${excesso} além do prazo de ${PRAZO_DEV_DIAS}.">entregue em ${dias}d</span>`;
+    return ` <span class="dias-badge d-gray" style="opacity:.8" title="Do pedido recebido em ${desde} até o Dev entregar (Extração de Gabarito + Programação): ${dias} dias corridos, ${excesso} além do prazo de ${PRAZO_DEV_DIAS}.">entregue em ${dias}d</span>`;
   }
   const falta = [!item.stages.extracaoGab && 'Extração de Gabarito',
                  !item.stages.programacao && 'Programação'].filter(Boolean).join(' e ');
-  return ` <span class="dias-badge d-red" title="Da ficha recebida em ${desde} até hoje: ${dias} dias corridos, ${excesso} além do prazo de ${PRAZO_DEV_DIAS}. Falta ${falta} para o Dev entregar à fábrica.">⚠ ${dias}d no Dev</span>`;
+  return ` <span class="dias-badge d-red" title="Do pedido recebido em ${desde} até hoje: ${dias} dias corridos, ${excesso} além do prazo de ${PRAZO_DEV_DIAS}. Falta ${falta} para o Dev entregar à fábrica.">⚠ ${dias}d no Dev</span>`;
 }
 
 function productionTimeHtml(item) {
@@ -1055,9 +1078,9 @@ function productionTimeHtml(item) {
   return `<span class="dias-badge ${cls}">${icon} ${dias}d em produção</span>`;
 }
 
-/* ── FICHA DO ESPECIAL ─────────────────────────────────────
+/* ── RECEBIMENTO DO PEDIDO PELO DEV ────────────────────────
    Um clique direto na lista: o Dev não precisa abrir o produto só para dizer
-   que a ficha chegou. O selo também responde "estou esperando há quantos
+   que o pedido chegou. O selo também responde "estou esperando há quantos
    dias", que é o que o filtro "sem iniciar" não contava. */
 function fichaRecebidaEm(item) {
   return (extraTicks[itemKey(item)] || {}).fichaRecebida ? (fichaDatas[itemKey(item)] || true) : null;
@@ -1180,20 +1203,23 @@ function fichaHtml(item) {
   const recebida = (extraTicks[itemKey(item)] || {}).fichaRecebida;
   const clicavel = podeTicarFicha
     ? `onclick="event.stopPropagation();alternarFicha(${item.rowIndex})" style="cursor:pointer"` : '';
-  const soDev = podeTicarFicha ? '' : ' · só o Dev marca a ficha';
+  const soDev = podeTicarFicha ? '' : ' · só o Dev marca o recebimento';
   if (recebida) {
     const quando = fichaDatas[itemKey(item)];
+    const pal = palavraRecebimento(quando);
     if (fichaRetro[itemKey(item)]) {
       const titulo = 'Marcada de uma vez porque o produto já tinha etapas ticadas'
                    + (quando ? ` (data estimada: ${new Date(quando).toLocaleDateString('pt-BR')})` : '')
                    + ' — não entra na conta do lead time';
-      return `<span class="dias-badge d-green" style="opacity:.62" title="${titulo}${soDev}" ${clicavel}>✓ ficha</span>`;
+      return `<span class="dias-badge d-green" style="opacity:.62" title="${titulo}${soDev}" ${clicavel}>✓ ${pal}</span>`;
     }
     const envio = parseDate(item.dataEnvioPcp);
     const dias = (envio && quando) ? Math.round((new Date(quando).setHours(0,0,0,0) - envio.setHours(0,0,0,0)) / 86400000) : null;
-    const titulo = (quando ? 'Recebida em ' + new Date(quando).toLocaleDateString('pt-BR') : 'Recebida')
-                 + (dias !== null ? ` · ${dias}d desde o envio ao PCP` : '');
-    return `<span class="dias-badge d-green" title="${titulo}${soDev}" ${clicavel}>✓ ficha</span>`;
+    const quem = pal === 'ficha' ? 'Ficha recebida' : 'Pedido recebido';
+    const titulo = (quando ? `${quem} em ` + new Date(quando).toLocaleDateString('pt-BR') : quem)
+                 + (dias !== null ? ` · ${dias}d desde o envio ao PCP` : '')
+                 + (pal === 'ficha' ? ' · era a ficha impressa, antes da troca pelo pedido' : '');
+    return `<span class="dias-badge d-green" title="${titulo}${soDev}" ${clicavel}>✓ ${pal}</span>`;
   }
   const envio = parseDate(item.dataEnvioPcp);
   // Sem data de envio ao PCP a espera é outra: quem deve agir é o comercial,
@@ -1203,14 +1229,14 @@ function fichaHtml(item) {
   const classe = dias => apto ? 'd-' + corDaEspera(dias) : 'd-gray';
   if (!envio) {
     const dias = diasDesde(item.dataSolicitacao);
-    if (dias === null) return `<span class="dias-badge d-gray" title="Sem data de solicitação nem de envio ao PCP${soDev}" ${clicavel}>— ficha</span>`;
+    if (dias === null) return `<span class="dias-badge d-gray" title="Sem data de solicitação nem de envio ao PCP${soDev}" ${clicavel}>— pedido</span>`;
     return `<span class="dias-badge ${classe(dias)}" title="Solicitado em ${fmtDate(item.dataSolicitacao)} — há ${dias}d sem Data de Envio ao PCP (comercial)${foraDaRegra}${soDev}" ${clicavel}>📅 ${dias}d</span>`;
   }
   const esperando = diasDesde(item.dataEnvioPcp);
-  return `<span class="dias-badge ${classe(esperando)}" title="Enviado ao PCP em ${fmtDate(item.dataEnvioPcp)} — há ${esperando}d aguardando a ficha${foraDaRegra}${soDev}" ${clicavel}>⏳ ${esperando}d</span>`;
+  return `<span class="dias-badge ${classe(esperando)}" title="Enviado ao PCP em ${fmtDate(item.dataEnvioPcp)} — há ${esperando}d aguardando o pedido${foraDaRegra}${soDev}" ${clicavel}>⏳ ${esperando}d</span>`;
 }
 
-// Receber a ficha do PCP é o que marca o recebimento do produto pelo Dev,
+// Receber o pedido do PCP é o que marca o recebimento do produto pelo Dev,
 // então a data entra sozinha — sem ninguém ter de abrir o produto e digitar.
 // Se já houver uma data diferente, pergunta antes de trocar: sobrescrever em
 // silêncio apagaria um recebimento que alguém registrou de propósito.
@@ -1234,12 +1260,12 @@ async function alternarFicha(rowIndex) {
   const item = allData.find(d => d.rowIndex === rowIndex);
   if (!item) return;
   if (produtoTravado(item)) {
-    alert(motivoDaTrava(item) + '\n\nA ficha n\u00e3o pode ser ticada enquanto isso.');
+    alert(motivoDaTrava(item) + '\n\nO recebimento do pedido n\u00e3o pode ser ticado enquanto isso.');
     return;
   }
   const key = itemKey(item);
   const novo = !(extraTicks[key] || {}).fichaRecebida;
-  if (!novo && !confirm('Desmarcar a ficha recebida deste produto?')) return;
+  if (!novo && !confirm('Desmarcar o pedido recebido deste produto?')) return;
   await logExtraTick(item, 'fichaRecebida', novo);
   if (!extraTicks[key]) extraTicks[key] = {};
   extraTicks[key].fichaRecebida = novo;
@@ -1293,7 +1319,7 @@ const SERVICOS = {
   // Cobranças: umaVezSo impede reabrir a mesma cobrança depois de concluída,
   // senão a varredura viraria uma nagada a cada vez que alguém abre a tela.
   comercialPcp: { chave:'responsavel_comercial',    titulo:'Falta a Data de Envio ao PCP', desc:'Pedido parado esperando a data de envio ao PCP', ic:'📅', descLivre: true, umaVezSo: true },
-  pcpFicha:     { chave:'responsavel_pcp',          titulo:'Ficha de especial atrasada',   desc:'Ficha ainda não chegou ao Dev', ic:'⏳', descLivre: true, umaVezSo: true },
+  pcpFicha:     { chave:'responsavel_pcp',          titulo:'Pedido atrasado no PCP',   desc:'Pedido ainda não chegou ao Dev', ic:'⏳', descLivre: true, umaVezSo: true },
   // Produto terminou as 10 etapas: o Cadastro acerta o Seven com os pés e a
   // quantidade de tecido. Vale para E/ e ESP/ — no ESP/ vai também a ficha de custo.
   cadastro:     { chave:'responsavel_cadastro',     titulo:'Produto concluído — conferir cadastro', desc:'Produto finalizado', ic:'📒', descLivre: true, umaVezSo: true },
@@ -1385,8 +1411,8 @@ async function cobrarPendencias() {
       const dias = diasDesde(item.dataEnvioPcp);
       if (dias !== null && dias >= ALERTA_LARANJA_DIAS) {
         await abrirSolicitacaoServico('pcpFicha', item,
-          `Enviado ao PCP em ${fmtDate(item.dataEnvioPcp)}, há ${dias} dias, e a ficha ainda não chegou ao Dev.\n\n`
-          + `Sem a ficha o Dev não consegue começar.\n`
+          `Enviado ao PCP em ${fmtDate(item.dataEnvioPcp)}, há ${dias} dias, e o pedido ainda não chegou ao Dev.\n\n`
+          + `Sem o pedido o Dev não consegue começar.\n`
           + `Produto: ${item.produto}\n`
           + `Nº pedido: ${item.nPedido || '—'}`, true);
       }
@@ -2102,7 +2128,7 @@ function cadeadoHtml(item) {
     return ` <span class="dias-badge" style="background:#2A6F99;color:#fff;margin-left:4px" title="Cadastrado, mas ainda sem a Data de Envio ao PCP — o processo não começou">🔒 Comercial</span>`;
   }
   if (bloqueadoPeloPcp(item)) {
-    return ` <span class="dias-badge" style="background:#6B5A4E;color:#fff;margin-left:4px" title="Aguardando o PCP concluir a liberação da ficha — sem edição até lá">🔒 PCP</span>`;
+    return ` <span class="dias-badge" style="background:#6B5A4E;color:#fff;margin-left:4px" title="Aguardando o PCP concluir a liberação do pedido — sem edição até lá">🔒 PCP</span>`;
   }
   return '';
 }
@@ -3064,7 +3090,7 @@ async function openReportModal(rowIndex) {
     renderBlocoRetrans(item);
     ganttEl.innerHTML = buildGanttHtml(item, data || []);
 
-    // PCP -> Ficha: do envio ao PCP até o Dev marcar que a ficha chegou.
+    // PCP -> Pedido: do envio ao PCP até o Dev marcar que o pedido chegou.
     /* Os mesmos lead times da linha do tempo, escritos no resumo. Vem tudo
        da configuração pelo mesmo caminho, senão mudar uma ponta no Painel
        Admin faria o resumo e a linha do tempo discordarem na mesma tela. */
@@ -3296,7 +3322,7 @@ function buildGanttHtml(item, logs) {
       </div>`;
     }
     html += faixa(ciclo, corrente, 'comercial',  'Comercial',  'Solic. → Envio PCP',      'var(--accent)', { escalar: true, esperando: 'aguardando envio ao PCP' });
-    html += faixa(ciclo, corrente, 'ficha',      'Ficha',      'PCP → Recebimento Ficha', '#1D8348',       { escalar: true, esperando: 'aguardando ficha',
+    html += faixa(ciclo, corrente, 'ficha',      'Pedido',     'PCP → Recebimento do Pedido', '#1D8348',   { escalar: true, esperando: 'aguardando pedido',
                                                                                                             retro: !!(ciclo.faixas.ficha.ate && logs.some(r => r.etapa === 'fichaRecebida' && r.status && r.usuario === RETRO_USUARIO)) });
     html += faixa(ciclo, corrente, 'criacao',    'Criação',    'Receb. → Modelagem 3D',   '#8E7CC3',       { esperando: 'aguardando 3D' });
     html += faixa(ciclo, corrente, 'preparacao', 'Preparação', 'Itens para produção',     '#B7791F',       { esperando: 'aguardando Programação' });
@@ -3403,7 +3429,7 @@ function describeFilters() {
   const to   = document.getElementById('filterDateTo').value;
   if (search) partes.push(`Busca: "${search}"`);
   if (resp)   partes.push(`Responsável: ${resp}`);
-  const stLabels = { red:'Atrasados', orange:'Em Alerta', white:'Em Andamento', zero:'Sem Iniciar', green:'Finalizados', semficha:'Aguardando ficha', comficha:'Ficha recebida, sem iniciar' };
+  const stLabels = { red:'Atrasados', orange:'Em Alerta', white:'Em Andamento', zero:'Sem Iniciar', green:'Finalizados', semficha:'Aguardando pedido', comficha:'Pedido recebido, sem iniciar' };
   if (stFilt) partes.push(`Status: ${stLabels[stFilt] || stFilt}`);
   if (from || to) {
     const fieldLabels = { dataRecebimento:'Recebimento', dataSolicitacao:'Solicitação', dataEntrega:'Entrega' };
