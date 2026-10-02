@@ -2702,6 +2702,14 @@ function getSortRank(item) {
   return 4;
 }
 function smartSort(a, b) {
+  /* Travado vai para o fim da lista, sempre — antes de qualquer outro
+     critério. Produto esperando o Comercial preencher a data ou o PCP liberar
+     não é trabalho de ninguém do Dev ainda: ele ocupava o topo misturado com
+     o que está pronto para andar, e quem abria a tela tinha de garimpar.
+     O selo (🔒 Comercial / 🔒 PCP) já dizia isso; a ordem agora diz também. */
+  const travA = produtoTravado(a) ? 1 : 0;
+  const travB = produtoTravado(b) ? 1 : 0;
+  if (travA !== travB) return travA - travB;
   const rankA = getSortRank(a);
   const rankB = getSortRank(b);
   if (rankA !== rankB) return rankA - rankB;
