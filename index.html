@@ -867,10 +867,15 @@ const CFG_PRAZOS = [
   { chave:'dias_alerta_solicitacao', rotulo:'Considerar uma solicitação parada após', un:'dias', min:1, max:60,
     ajuda:'Sem movimento nenhum por esse tempo, ela ganha o selo <b>parada</b> na lista e no painel de atividade. ' +
           'Um aviso por solicitação, no máximo um por dia.' },
-  { chave:'prazo_dev_dias', rotulo:'Prazo do desenvolvimento inteiro', un:'dias', min:1, max:180,
-    ajuda:'Da <b>data de recebimento da ficha</b> até a <b>Montagem Final</b>. Passou disso e ainda não fechou, ' +
-          'o produto ganha o selo vermelho <b>⚠ Nd no Dev</b> na coluna Tempos. ' +
-          'Hoje, metade dos produtos fecha em até 9 dias e um terço passa de 20.' }
+  { chave:'prazo_dev_dias', rotulo:'Prazo do Dev para entregar à fábrica', un:'dias', min:1, max:180,
+    /* O texto anterior dizia "até a Montagem Final" e estava errado desde que
+       a regra mudou: montagem, espumação, costura e tapeçaria são chão de
+       fábrica, não prazo do Dev. O que conta é o Dev ENTREGAR — Extração de
+       Gabarito e Programação ticadas. */
+    ajuda:'Do <b>recebimento do pedido</b> até o Dev entregar à fábrica (<b>Extração de Gabarito + Programação</b>). ' +
+          'Passou disso e ainda não entregou, o produto ganha o selo vermelho <b>⚠ Nd no Dev</b> na coluna Tempos. ' +
+          'Conta a fila também: o tempo em que o pedido ficou esperando alguém pegar. ' +
+          'Hoje, metade entrega em até 7 dias, 9 em cada 10 em até 14, e 9 produtos passaram de 15.' }
 ];
 
 const CFG_RESPONSAVEIS = [
