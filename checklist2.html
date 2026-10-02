@@ -1377,10 +1377,19 @@ async function carregarRespServicos() {
     const chaves = Object.values(SERVICOS).map(s => s.chave);
     const { data: cfgs } = await supabaseClient.from('configuracoes').select('chave,valor').in('chave', chaves);
     const mapCfg = {}; (cfgs || []).forEach(c => mapCfg[c.chave] = c.valor);
+    /* UMA consulta para todos os responsáveis, não uma por serviço. Antes isto
+       era um laço com um `await` dentro: dez tipos de serviço viravam dez idas
+       e voltas ao banco, em fila. Como o Supabase deste projeto está em
+       us-east-1, cada ida custa ~200ms — eram ~2 segundos em toda abertura do
+       checklist, buscando o que cabe numa consulta só. */
+    const nomes = [...new Set(Object.values(SERVICOS)
+      .map(def => mapCfg[def.chave]).filter(Boolean))];
+    if (!nomes.length) return;
+    const { data: us } = await supabaseClient.from('usuarios')
+      .select('id,nome').in('nome', nomes).eq('ativo', true);
+    const porNome = {}; (us || []).forEach(u => porNome[u.nome] = u);
     for (const [tipo, def] of Object.entries(SERVICOS)) {
-      const nome = mapCfg[def.chave];
-      if (!nome) continue;
-      const { data: u } = await supabaseClient.from('usuarios').select('id,nome').eq('nome', nome).eq('ativo', true).maybeSingle();
+      const u = porNome[mapCfg[def.chave]];
       if (u) respServico[tipo] = u;
     }
   } catch (e) { console.error('Falha ao carregar responsáveis de serviço:', e); }
