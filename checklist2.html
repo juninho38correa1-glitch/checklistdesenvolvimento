@@ -690,8 +690,13 @@ const STAGES       = ['modelagem3d','extracaoGab','programacao','montagem','prep
 const STAGE_LABELS = ['Modelagem 3D','Extração Gabarito','Programação','Montagem','Preparação','Espumação','Modelagem Téc.','Costura','Tapeçaria','Montagem Final'];
 const REFRESH_INTERVAL = 60 * 1000;
 
-// Etapas que demarcam o início e o fim do período "em produção"
-const PRODUCAO_INICIO_ETAPA = 'extracaoGab';
+/* Etapas que demarcam o início e o fim do período "em produção".
+   Começa na PROGRAMAÇÃO, não na Extração de Gabarito: a Extração ainda é
+   trabalho do Dev, e começar a produção nela fazia a mesma etapa contar dos
+   dois lados — o produto aparecia em produção antes de o Dev ter entregado.
+   O Dev vai do recebimento do pedido até a Programação; dali em diante é
+   chão de fábrica. */
+const PRODUCAO_INICIO_ETAPA = 'programacao';
 const PRODUCAO_FIM_ETAPA    = 'espumacao';
 const PRODUCAO_ALERTA_DIAS  = 10;
 const PRODUCAO_ATRASO_DIAS  = 15;
@@ -750,7 +755,7 @@ let LEADTIMES = {
   ficha:      { de: 'data_envio_pcp',    ate: 'etapa:fichaRecebida' },
   criacao:    { de: 'data_recebimento',  ate: 'etapa:modelagem3d' },
   preparacao: { de: 'etapa:modelagem3d', ate: 'etapa:programacao' },
-  producao:   { de: 'etapa:extracaoGab', ate: 'etapa:espumacao' },
+  producao:   { de: 'etapa:programacao', ate: 'etapa:espumacao' },
   modtec:     { de: 'etapa:espumacao',   ate: 'etapa:modelagemTec' }
 };
 // Cópia congelada do padrão: serve para saber se alguém mexeu numa ponta.
@@ -3384,7 +3389,7 @@ function buildGanttHtml(item, logs) {
                                                                                                             retro: !!(ciclo.faixas.ficha.ate && logs.some(r => r.etapa === 'fichaRecebida' && r.status && r.usuario === RETRO_USUARIO)) });
     html += faixa(ciclo, corrente, 'criacao',    'Criação',    'Receb. → Modelagem 3D',   '#8E7CC3',       { esperando: 'aguardando 3D' });
     html += faixa(ciclo, corrente, 'preparacao', 'Preparação', 'Itens para produção',     '#B7791F',       { esperando: 'aguardando Programação' });
-    html += faixa(ciclo, corrente, 'producao',   'Produção',   'Extração → Espumação',    'var(--green)',  { esperando: 'em andamento' });
+    html += faixa(ciclo, corrente, 'producao',   'Produção',   'Programação → Espumação', 'var(--green)',  { esperando: 'em andamento' });
     html += faixa(ciclo, corrente, 'modtec',     'Mod. Téc.',  'Espumação → Mod. Téc.',   '#2E86C1',       { esperando: 'aguardando Mod. Téc.' });
 
     const p = pontosDoCiclo(ciclo);
