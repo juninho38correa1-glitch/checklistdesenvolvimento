@@ -323,6 +323,12 @@
     <select id="filterResp" onchange="renderTable()">
       <option value="">Todos os responsáveis</option>
     </select>
+    <select id="filterTipo" onchange="renderTable()" title="Tipo do produto, como está no cadastro">
+      <option value="">Todos os tipos</option>
+      <option value="esp">ESP/ — especial</option>
+      <option value="e">E/ — comum</option>
+      <option value="sem">Sem tipo preenchido</option>
+    </select>
     <select id="filterStatusSel" onchange="syncFilterSel()">
       <option value="">Todos os status</option>
       <option value="red">🔴 Atrasados (+15d)</option>
@@ -2850,6 +2856,7 @@ function syncFilterSel() {
 function renderTable() {
   const search = document.getElementById('searchInput').value.toLowerCase();
   const resp   = document.getElementById('filterResp').value;
+  const tipoF  = document.getElementById('filterTipo').value;
   const stFilt = document.getElementById('filterStatusSel').value;
 
   // Filtro por data: 1 campo = dia único; ambos = intervalo (de..até)
@@ -2864,6 +2871,14 @@ function renderTable() {
     const s = getStatus(item);
     const ok1 = !search || item.produto.toLowerCase().includes(search) || (item.responsavel||'').toLowerCase().includes(search) || (item.nPedido||'').toLowerCase().includes(search);
     const ok2 = !resp || item.responsavel === resp;
+    /* O tipo é texto livre no cadastro: existe "ESP/", um "esp/" minúsculo e
+       204 produtos sem nada. Comparar exato deixaria o minúsculo de fora, e
+       sem opção própria os 204 sumiriam das duas pontas do filtro. */
+    const tp = String(item.tipo || '').trim().toLowerCase();
+    const okTipo = !tipoF
+      || (tipoF === 'esp' && tp === 'esp/')
+      || (tipoF === 'e'   && tp === 'e/')
+      || (tipoF === 'sem' && !tp);
     let ok3 = !stFilt || s === stFilt;
     const temFicha = !!(extraTicks[itemKey(item)] || {}).fichaRecebida;
     if (stFilt === 'zero') ok3 = item.progresso === 0;
@@ -2900,7 +2915,7 @@ function renderTable() {
         else { d.setHours(0,0,0,0); ok4 = inRange(d.getTime()); }
       }
     }
-    return ok1 && ok2 && ok3 && ok4;
+    return ok1 && ok2 && okTipo && ok3 && ok4;
   });
   filtered.sort(smartSort);
   lastFiltered = filtered;
@@ -3450,12 +3465,15 @@ function describeFilters() {
   const partes = [];
   const search = document.getElementById('searchInput').value.trim();
   const resp   = document.getElementById('filterResp').value;
+  const tipoF  = document.getElementById('filterTipo').value;
   const stFilt = document.getElementById('filterStatusSel').value;
   const dateField = document.getElementById('filterDateField').value;
   const from = document.getElementById('filterDateFrom').value;
   const to   = document.getElementById('filterDateTo').value;
   if (search) partes.push(`Busca: "${search}"`);
   if (resp)   partes.push(`Responsável: ${resp}`);
+  const tipoLabels = { esp:'ESP/ (especial)', e:'E/ (comum)', sem:'sem tipo preenchido' };
+  if (tipoF)  partes.push(`Tipo: ${tipoLabels[tipoF] || tipoF}`);
   const stLabels = { red:'Atrasados', orange:'Em Alerta', white:'Em Andamento', zero:'Sem Iniciar', green:'Finalizados', semficha:'Aguardando pedido', comficha:'Pedido recebido, sem iniciar' };
   if (stFilt) partes.push(`Status: ${stLabels[stFilt] || stFilt}`);
   if (from || to) {
