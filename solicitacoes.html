@@ -320,7 +320,13 @@ const nomeDe = id => (usuarios.find(u => u.id === id) || {}).nome || '—';
    duas pessoas diferentes, no mesmo segundo.
    O id continua gravado e a dica do mouse diz de quem foi o navegador — some
    da tela o que confunde, não o que a auditoria precisa. */
-const COBRANCAS_DA_VARREDURA = ['Falta a Data de Envio ao PCP', 'Pedido atrasado no PCP'];
+/* O terceiro nome é o TÍTULO ANTIGO da cobrança do PCP, de antes da
+   renomeação de 02/10. Sem ele, cobrança velha aparece assinada por quem
+   tinha a tela aberta na hora — foi o que fez 13 cobranças do sistema
+   surgirem com o nome do Lucas no produto MIAMI. Título que serve de chave
+   não some quando é renomeado: os dois precisam ser reconhecidos. */
+const COBRANCAS_DA_VARREDURA = ['Falta a Data de Envio ao PCP', 'Pedido atrasado no PCP',
+                                'Ficha de especial atrasada'];
 const ehCobrancaAutomatica = s =>
   COBRANCAS_DA_VARREDURA.some(t => String(s && s.titulo || '').startsWith(t));
 const autorDe = s => ehCobrancaAutomatica(s)
