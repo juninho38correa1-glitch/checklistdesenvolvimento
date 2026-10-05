@@ -886,7 +886,13 @@ const solNome = id => (solUsuarios.find(u => u.id === id) || {}).nome || '—';
 /* Mesma leitura da tela de solicitações: cobrança disparada pela varredura do
    checklist não tem autor humano — o criador gravado é só quem tinha a tela
    aberta. Aqui o nome real fica na dica, porque o painel é de auditoria. */
-const COBRANCAS_DA_VARREDURA = ['Falta a Data de Envio ao PCP', 'Pedido atrasado no PCP'];
+/* O terceiro nome é o TÍTULO ANTIGO da cobrança do PCP, de antes da
+   renomeação de 02/10. Sem ele, cobrança velha aparece assinada por quem
+   tinha a tela aberta na hora — foi o que fez 13 cobranças do sistema
+   surgirem com o nome do Lucas no produto MIAMI. Título que serve de chave
+   não some quando é renomeado: os dois precisam ser reconhecidos. */
+const COBRANCAS_DA_VARREDURA = ['Falta a Data de Envio ao PCP', 'Pedido atrasado no PCP',
+                                'Ficha de especial atrasada'];
 const ehCobrancaAutomatica = s =>
   COBRANCAS_DA_VARREDURA.some(t => String(s && s.titulo || '').startsWith(t));
 const solAutor = s => ehCobrancaAutomatica(s)
@@ -1140,7 +1146,8 @@ async function loadAtrasos() {
 /* As duas cobranças da varredura têm prazo próprio por setor, diferente do
    prazo de "solicitação parada". Separar importa: uma diz "o setor estourou o
    prazo dele", a outra diz "esta solicitação está largada". */
-const ATR_COBRANCA = ['Falta a Data de Envio ao PCP', 'Pedido atrasado no PCP'];
+// mesma lista de títulos da varredura, inclusive o nome antigo
+const ATR_COBRANCA = COBRANCAS_DA_VARREDURA;
 const ehCobrancaDeSetor = s => ATR_COBRANCA.some(t => (s.titulo || '').startsWith(t));
 
 function renderAtrasos() {
