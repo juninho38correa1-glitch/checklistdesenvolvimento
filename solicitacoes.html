@@ -1059,6 +1059,43 @@ function mencRealcar(textoEscapado) {
   return saida;
 }
 
+/* ── TROCA DE STATUS ────────────────────────────────────────────────
+   Toda mudança de status passa por aqui, e toda mudança vira evento.
+   A passagem "aberta → em andamento" acontecia escondida dentro do
+   registrarEvento e do encaminhar: a solicitação mudava de estado e a linha do
+   tempo não contava nada. Quem lia o histórico via o comentário, mas não via
+   que foi ali que alguém assumiu a tarefa — e no painel a pessoa aparecia com
+   X em aberto sem dar para saber desde quando cada uma andou.
+   A conclusão já gravava o evento; agora as três gravam do mesmo jeito. */
+const ST_NOME = { aberta: 'Aberta', em_andamento: 'Em andamento',
+                  concluida: 'Concluída', cancelada: 'Cancelada' };
+async function mudarStatus(s, novo, motivo) {
+  if (!s || !novo || s.status === novo) return false;
+  const antes = s.status;
+  const agora = new Date().toISOString();
+  const upd = { status: novo, updated_at: agora };
+  if (novo === 'concluida') upd.concluida_em = agora;
+  const { error } = await sb.from('solicitacoes').update(upd).eq('id', s.id);
+  if (error) { console.error('troca de status:', error); alert('Não consegui mudar o status: ' + error.message); return false; }
+  s.status = novo;                       // o objeto em memória acompanha
+  /* O evento é o registro; se ele falhar, a troca já aconteceu e não dá para
+     fingir que não. Avisa no console e segue — perder o status é pior. */
+  const ev = await sb.from('solicitacao_eventos').insert({
+    solicitacao_id: s.id, autor_id: sessao.id, tipo: 'status',
+    texto: `${ST_NOME[antes] || antes} → ${ST_NOME[novo] || novo}`
+           + (motivo ? ` · ${motivo}` : '')
+  });
+  if (ev.error) console.error('evento de status:', ev.error);
+  return true;
+}
+
+/* Mexeu sem trocar de status: o relógio de "parada" tem de reiniciar do mesmo
+   jeito, senão comentar numa solicitação já em andamento não a tiraria da
+   lista de paradas. */
+async function tocarSolicitacao(s) {
+  await sb.from('solicitacoes').update({ updated_at: new Date().toISOString() }).eq('id', s.id);
+}
+
 async function registrarEvento(tipo) {
   const texto = document.getElementById('acTexto').value.trim();
   if (!texto) { alert('Escreva algo antes.'); return; }
@@ -1066,8 +1103,8 @@ async function registrarEvento(tipo) {
   await sb.from('solicitacao_eventos').insert({ solicitacao_id:s.id, autor_id:sessao.id, tipo, texto });
   await mencAvisar(texto, `${nomeDe(sessao.id)} mencionou você`,
                    `${s.produto_ref || s.titulo}: ${texto.slice(0, 90)}`, s.id);
-  const novoStatus = s.status === 'aberta' ? 'em_andamento' : s.status;
-  await sb.from('solicitacoes').update({ status:novoStatus, updated_at:new Date().toISOString() }).eq('id', s.id);
+  if (s.status === 'aberta') await mudarStatus(s, 'em_andamento', `${tipo === 'processo' ? 'registrou processo' : 'comentou'}`);
+  else await tocarSolicitacao(s);
   // avisa o criador que a solicitação dele andou
   if (!ehCobrancaAutomatica(s))
     await notificar(s.criador_id, 'Sua solicitação teve movimento', `${s.titulo}: ${texto.slice(0,80)}`, s.id);
@@ -1197,12 +1234,7 @@ async function concluir() {
     ? 'Concluir esta conferência?\n\nComo as medidas NÃO conferem, será aberta uma solicitação para o Cadastro com os dados do produto e o que você mediu.'
     : 'Concluir esta solicitação?';
   if (!confirm(pergunta)) return;
-  await sb.from('solicitacoes').update({
-    status:'concluida', concluida_em:new Date().toISOString(), updated_at:new Date().toISOString()
-  }).eq('id', s.id);
-  await sb.from('solicitacao_eventos').insert({
-    solicitacao_id:s.id, autor_id:sessao.id, tipo:'status', texto:'Solicitação concluída'
-  });
+  await mudarStatus(s, 'concluida');
   if (!ehCobrancaAutomatica(s)) await notificar(s.criador_id, 'Solicitação concluída', s.titulo, s.id);
   await avisarAdmins('✓ Solicitação concluída',
     `${s.titulo} — por ${nomeDe(sessao.id)}`, s.id, [s.criador_id]);
@@ -1252,10 +1284,8 @@ async function confirmarEncaminhar() {
       texto: `Encaminhado para ${nomeDe(paraId)}: ${titulo}${texto ? ' — ' + texto : ''}`,
       solicitacao_filha_id: filha.id
     });
-    await sb.from('solicitacoes').update({
-      status: pai.status === 'aberta' ? 'em_andamento' : pai.status,
-      updated_at: new Date().toISOString()
-    }).eq('id', pai.id);
+    if (pai.status === 'aberta') await mudarStatus(pai, 'em_andamento', `encaminhou para ${nomeDe(paraId)}`);
+    else await tocarSolicitacao(pai);
     await notificar(paraId, 'Solicitação encaminhada para você', titulo, filha.id);
     fecharOverlay('encOverlay');
     await carregarSolicitacoes();
