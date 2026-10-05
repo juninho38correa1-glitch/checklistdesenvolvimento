@@ -3137,6 +3137,12 @@ function renderTable() {
 }
 
 /* ── MODALS ─────────────────────────────────────────── */
+/* O que estava nos três campos livres quando a janela abriu. Serve para
+   gravar SÓ o que a pessoa mexeu: uma aba carregada de manhã guarda o produto
+   como ele era de manhã, e salvar as etapas à tarde mandava os campos de volta
+   do jeito antigo, por cima do que tinha mudado no banco no meio do caminho. */
+let camposAoAbrir = { responsavel: '', pes: '', tecido: '' };
+
 function openStagesModal(rowIndex) {
   currentItem = allData.find(d => d.rowIndex === rowIndex);
   if (!currentItem) return;
@@ -3156,6 +3162,11 @@ function openStagesModal(rowIndex) {
   document.getElementById('editPes').value = currentItem.pes || '';
   prepararDivergencia(currentItem);
   document.getElementById('editTecido').value = currentItem.qtdTecido || '';
+  camposAoAbrir = {
+    responsavel: document.getElementById('editResponsavel').value,
+    pes:         document.getElementById('editPes').value,
+    tecido:      document.getElementById('editTecido').value
+  };
   document.getElementById('editPes').disabled = !podeEditarChecklist;
   document.getElementById('editTecido').disabled = !podeEditarChecklist;
   document.getElementById('avisoFinalizacao').textContent = '';
@@ -3752,8 +3763,17 @@ async function saveStagesChanges() {
       }
     }
 
-    await callAPI({ id: item.id, rowIndex: item.rowIndex, stages: updatedStages, responsavel: updatedResp,
-                    pes, qtdTecido: tecido });
+    /* Campo que ninguém tocou fica FORA do envio, e o banco mantém o que tem.
+       Mandar os três sempre fazia uma aba velha desfazer alteração recente:
+       em 05/10 seis produtos perderam o responsável assim, quatro minutos
+       depois de recebê-lo, e o log de edição registrou a perda no nome de
+       quem só tinha clicado em Salvar. Limpar um campo de propósito continua
+       funcionando, porque aí o valor difere do que abriu. */
+    const envio = { id: item.id, rowIndex: item.rowIndex, stages: updatedStages };
+    if (updatedResp !== camposAoAbrir.responsavel)  envio.responsavel = updatedResp;
+    if (pes         !== camposAoAbrir.pes.trim())    envio.pes        = pes;
+    if (tecido      !== camposAoAbrir.tecido.trim()) envio.qtdTecido  = tecido;
+    await callAPI(envio);
     closeModal('modalStagesOverlay');
     // fechou as 10 etapas: cobra o custo, ou libera Cadastro e conferência
     const depois = allData.find(d => d.id === item.id) || item;
