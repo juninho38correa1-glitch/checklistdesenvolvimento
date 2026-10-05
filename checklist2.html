@@ -2921,7 +2921,28 @@ function resetAutoRefresh() {
 }
 
 function populateFilters() {
-  const resps = [...new Set(allData.map(d => d.responsavel).filter(Boolean))].sort();
+  /* "Izaias/Pablo" quer dizer que os dois pegaram o produto junto — é verdade
+     e não vai ser reescrita. Mas, comparando nome exato, esses produtos não
+     apareciam NEM em "Pablo Teixeira" NEM em "Izaias": ficavam num balde à
+     parte que ninguém pensa em abrir.
+     A lista passa a oferecer também cada nome sozinho, e a comparação aceita
+     o nome dentro da dupla. Quem filtra por Pablo encontra o que ele fez
+     acompanhado; quem filtra pela dupla continua vendo só ela. */
+  const brutos = allData.map(d => d.responsavel).filter(Boolean);
+  /* Dentro da dupla o nome vem curto ("Izaias/Pablo"), e o filtro trabalha com
+     o nome completo. Resolve o pedaço para o nome inteiro que já existe na
+     base — senão "Pablo" e "Pablo Teixeira" voltariam a ser duas entradas,
+     que é exatamente a bagunça desfeita em 05/10. */
+  const inteiros = [...new Set(brutos.filter(r => !r.includes('/')))];
+  window.nomeInteiro = function (pedaco) {
+    const p = String(pedaco || '').trim();
+    return inteiros.find(n => n === p)
+        || inteiros.find(n => n.toLowerCase().startsWith(p.toLowerCase() + ' '))
+        || p;
+  };
+  const soltos = new Set();
+  brutos.forEach(r => { if (r.includes('/')) r.split('/').forEach(x => soltos.add(nomeInteiro(x))); });
+  const resps = [...new Set([...brutos, ...soltos])].filter(Boolean).sort();
   const sel = document.getElementById('filterResp');
   const cur = sel.value;
   sel.innerHTML = '<option value="">Todos os responsáveis</option>';
@@ -2969,7 +2990,9 @@ function renderTable() {
   let filtered = allData.filter(item => {
     const s = getStatus(item);
     const ok1 = !search || item.produto.toLowerCase().includes(search) || (item.responsavel||'').toLowerCase().includes(search) || (item.nPedido||'').toLowerCase().includes(search);
-    const ok2 = !resp || item.responsavel === resp;
+    const ok2 = !resp || item.responsavel === resp
+      || (typeof nomeInteiro === 'function'
+          && (item.responsavel || '').split('/').map(nomeInteiro).includes(resp));
     /* O tipo é texto livre no cadastro: existe "ESP/", um "esp/" minúsculo e
        204 produtos sem nada. Comparar exato deixaria o minúsculo de fora, e
        sem opção própria os 204 sumiriam das duas pontas do filtro. */
