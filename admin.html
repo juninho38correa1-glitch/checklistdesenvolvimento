@@ -368,6 +368,9 @@
   <button class="tab-btn" onclick="switchTab('solic',this)">
     📨 Solicitações
   </button>
+  <button class="tab-btn" onclick="switchTab('atrasos',this)">
+    ⏰ Atrasos
+  </button>
 </div>
 
 <div class="scroll-body">
@@ -396,6 +399,24 @@
     </div>
   </div><!-- /main-grid etapas -->
 </div><!-- /tab-etapas -->
+
+<!-- ABA: ATRASOS -->
+<div id="tab-atrasos" class="tab-content">
+  <div class="lt-bar" id="atrResumo"></div>
+  <div class="cad-grid">
+    <div class="cad-left">
+      <div class="panel-title">Por Pessoa</div>
+      <div id="atrPessoas"></div>
+    </div>
+    <div class="cad-right">
+      <div class="feed-header">
+        <div class="panel-title" style="margin-bottom:0">Paradas agora</div>
+        <div class="feed-count" id="atrCount"></div>
+      </div>
+      <div id="atrLista"></div>
+    </div>
+  </div>
+</div>
 
 <!-- ABA: SOLICITACOES -->
 <div id="tab-solic" class="tab-content">
@@ -847,6 +868,12 @@ function switchTab(tab, btn) {
   const barra = document.getElementById('barraFiltros');
   if (barra) barra.style.display = tab === 'solic' ? 'none' : '';
   if (tab === 'solic' && !solCarregado) { loadSolicitacoes(); }
+  if (tab === 'atrasos') {
+    // reaproveita a carga das solicitações: é a mesma lista, outra leitura dela
+    if (!solCarregado) loadSolicitacoes().then(() => { if (!atrCarregado) loadAtrasos(); else renderAtrasos(); });
+    else if (!atrCarregado) loadAtrasos();
+    else renderAtrasos();
+  }
 }
 
 /* ── SOLICITAÇÕES ──────────────────────────────────────────── */
@@ -1078,6 +1105,130 @@ function renderSolFeed() {
           <span>${solAutor(s)} → <strong>${sdEsc(solNome(s.responsavel_id))}</strong></span>
           <span class="feed-time">${fmtDatetime(s.created_at)}</span>
           <span class="feed-tipo ${s.status === 'concluida' ? 'tipo-etapa' : 'tipo-obs'}">${SOL_LBL[s.status]}</span>
+        </div>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+/* ── ATRASOS ────────────────────────────────────────────────
+   Quem está devendo resposta, pela MESMA régua que dispara as cobranças
+   automáticas: `dias_alerta_solicitacao` para solicitação parada, e os prazos
+   de setor para as cobranças do Comercial e do PCP. Nada de régua nova aqui —
+   se o número do painel de configurações mudar, esta tela muda junto.
+
+   O histórico de alertas vem de `notificacoes` com origem `solicitacao_atraso`,
+   que é o que o sistema realmente mandou para a pessoa. Conta quantas vezes ela
+   JÁ foi cobrada, não quantas vezes deveria ter sido. */
+let atrAlertas = {};      // usuario_id -> { n, ultimo }
+let atrCarregado = false;
+
+async function loadAtrasos() {
+  const { data } = await sb.from('notificacoes')
+    .select('para_usuario_id, created_at')
+    .eq('origem', 'solicitacao_atraso');
+  atrAlertas = {};
+  (data || []).forEach(n => {
+    const a = atrAlertas[n.para_usuario_id] = atrAlertas[n.para_usuario_id] || { n: 0, ultimo: null };
+    a.n++;
+    if (!a.ultimo || n.created_at > a.ultimo) a.ultimo = n.created_at;
+  });
+  atrCarregado = true;
+  renderAtrasos();
+}
+
+/* As duas cobranças da varredura têm prazo próprio por setor, diferente do
+   prazo de "solicitação parada". Separar importa: uma diz "o setor estourou o
+   prazo dele", a outra diz "esta solicitação está largada". */
+const ATR_COBRANCA = ['Falta a Data de Envio ao PCP', 'Pedido atrasado no PCP'];
+const ehCobrancaDeSetor = s => ATR_COBRANCA.some(t => (s.titulo || '').startsWith(t));
+
+function renderAtrasos() {
+  if (!atrCarregado || !solCarregado) return;
+  const paradas = solLista.filter(solEstaParada)
+    .sort((a, b) => solDiasParado(b) - solDiasParado(a));
+
+  // resumo
+  const pior = paradas.length ? solDiasParado(paradas[0]) : 0;
+  const pessoas = new Set(paradas.map(s => s.responsavel_id)).size;
+  const deSetor = paradas.filter(ehCobrancaDeSetor).length;
+  document.getElementById('atrResumo').innerHTML = [
+    ['Paradas agora', String(paradas.length), `sem movimento há ${solDiasAlerta}+ dias`],
+    ['Pessoas envolvidas', String(pessoas), 'com pelo menos uma parada'],
+    ['A mais antiga', pior ? fmtDuracao(pior * 86400000) : '—', 'desde a última movimentação'],
+    ['Cobranças de prazo', String(deSetor), 'do Comercial e do PCP, abertas pelo sistema']
+  ].map(([l, n, sub]) => `<div class="lt-card"><div class="lt-label">${l}</div>`
+      + `<div class="lt-num">${n}</div><div class="lt-sub">${sub}</div></div>`).join('');
+
+  // por pessoa
+  const porPessoa = {};
+  paradas.forEach(s => {
+    const p = porPessoa[s.responsavel_id] = porPessoa[s.responsavel_id]
+      || { id: s.responsavel_id, n: 0, pior: 0, setor: 0 };
+    p.n++;
+    p.pior = Math.max(p.pior, solDiasParado(s));
+    if (ehCobrancaDeSetor(s)) p.setor++;
+  });
+  // quem já foi cobrado mas não tem nada parado agora também aparece, no fim
+  Object.keys(atrAlertas).forEach(id => {
+    if (!porPessoa[id]) porPessoa[id] = { id, n: 0, pior: 0, setor: 0 };
+  });
+  const lista = Object.values(porPessoa).sort((a, b) => b.n - a.n || b.pior - a.pior);
+
+  const elP = document.getElementById('atrPessoas');
+  elP.innerHTML = lista.length ? lista.map(x => {
+    const nome = solNome(x.id);
+    const al = atrAlertas[x.id];
+    const iniciais = nome.split(' ').map(w => w[0]).join('').substring(0,2).toUpperCase();
+    return `<div class="user-card" onclick="atrFiltrar('${x.id}', this)">
+      <div class="user-card-top">
+        <div class="user-avatar">${iniciais}</div>
+        <div>
+          <div class="user-name">${sdEsc(nome)}</div>
+          <div class="user-last">${x.n ? x.n + ' parada(s) · a pior há ' + x.pior + 'd' : 'nada parado agora'}</div>
+        </div>
+      </div>
+      <div class="user-meta">
+        ${x.n ? `<span class="user-tag tag-accent">⚠ ${x.n} parada(s)</span>` : ''}
+        ${x.setor ? `<span class="user-tag tag-blue">${x.setor} de prazo</span>` : ''}
+        ${al ? `<span class="user-tag">${al.n} alerta(s) recebido(s)</span>` : ''}
+      </div>
+    </div>`;
+  }).join('') : '<div class="empty-state"><div class="empty-icon">✓</div><div class="empty-text">Ninguém com solicitação parada.</div></div>';
+
+  atrRenderLista(paradas);
+}
+
+let atrPessoaAtiva = null;
+function atrFiltrar(id, card) {
+  document.querySelectorAll('#atrPessoas .user-card').forEach(c => c.classList.remove('active'));
+  if (atrPessoaAtiva === id) { atrPessoaAtiva = null; }
+  else { atrPessoaAtiva = id; card.classList.add('active'); }
+  atrRenderLista(solLista.filter(solEstaParada).sort((a,b) => solDiasParado(b) - solDiasParado(a)));
+}
+
+function atrRenderLista(paradas) {
+  const lista = atrPessoaAtiva ? paradas.filter(s => s.responsavel_id === atrPessoaAtiva) : paradas;
+  document.getElementById('atrCount').textContent = `${lista.length} parada(s)`;
+  const el = document.getElementById('atrLista');
+  if (!lista.length) {
+    el.innerHTML = '<div class="empty-state"><div class="empty-icon">✓</div><div class="empty-text">Nada parado.</div></div>';
+    return;
+  }
+  el.innerHTML = lista.map(s => {
+    const d = solDiasParado(s);
+    const cor = d >= 30 ? 'tag-accent' : (d >= 7 ? 'tag-blue' : '');
+    return `<div class="feed-item" style="cursor:pointer" onclick="abrirSolDetalhe('${s.id}')">
+      <div class="feed-dot fd-obs"></div>
+      <div class="feed-body">
+        <div class="feed-action">
+          <span class="stage-name">${sdEsc(s.produto_ref || s.titulo)}</span>
+          <span class="user-tag ${cor}">parada há ${d}d</span>
+          ${ehCobrancaDeSetor(s) ? '<span class="user-tag tag-blue">prazo de setor</span>' : ''}
+        </div>
+        <div class="feed-meta">
+          <span>${solAutor(s)} → <strong>${sdEsc(solNome(s.responsavel_id))}</strong></span>
+          <span class="feed-time">desde ${fmtDatetime(s.updated_at)}</span>
         </div>
       </div>
     </div>`;
