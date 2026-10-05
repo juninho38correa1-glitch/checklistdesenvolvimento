@@ -55,28 +55,33 @@
   .dash-vazio { font-size: 12px; color: var(--text-muted); padding: 26px 0; text-align: center; }
   @media (max-width: 1060px) { .dash-grid { grid-template-columns: 1fr; } }
 
-  /* fluxo em faixas paralelas */
+  .dash-clic { cursor: pointer; }
+  .dash-clic:hover { filter: brightness(.97); }
+  .lt-card.dash-clic:hover { background: #fdfaf4; }
+
+  /* fluxo (fila única, duas linhas de cinco) */
   .fx-faixa { display: flex; gap: 8px; margin-bottom: 7px; }
-  .fx-nomefaixa { width: 94px; flex-shrink: 0; font-size: 9px; text-transform: uppercase; letter-spacing: 1px;
-                  color: var(--text-muted); display: flex; align-items: center; gap: 4px;
-                  white-space: nowrap; line-height: 1.3; }
   .fx-passos { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 6px; flex: 1; min-width: 0; }
   .fx-passo { min-width: 0; border: 1px solid var(--border); border-radius: 6px;
               padding: 7px 9px 7px; background: #fcfaf7; }
   .fx-passo.fx-fila { border-color: var(--accent); background: #fdf7ea; }
+  /* Quem é o dono da etapa muda o que o número significa: fila do Dev é
+     trabalho parado na nossa mão, fila da produção é espera legítima. */
+  .fx-passo.fx-dev { border-left: 3px solid var(--accent); }
+  .fx-passo.fx-producao { border-left: 3px solid #cfc6b6; }
+  .fx-presos { font-size: 9px; color: var(--blue); margin-top: 3px; text-decoration: underline; }
+  .fx-legenda { display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+                font-size: 9.5px; color: var(--text-muted); margin-top: 9px; }
+  .fx-chip { width: 9px; height: 9px; border-radius: 2px; display: inline-block; margin-left: 8px; }
+  .fx-chip:first-child { margin-left: 0; }
+  .fx-chip.fx-dev { background: var(--accent); }
+  .fx-chip.fx-producao { background: #cfc6b6; }
   .fx-et { font-size: 9.5px; color: var(--mid); line-height: 1.25; height: 24px; overflow: hidden; }
   .fx-n { font-family: 'DM Serif Display', serif; font-size: 21px; line-height: 1; margin-top: 2px; }
   .fx-n.fx-zero { color: #d2cabc; }
   .fx-sub { font-size: 9px; color: var(--text-muted); margin-top: 3px; line-height: 1.3; }
   .fx-trilho { height: 3px; background: #ede6d9; border-radius: 2px; margin-top: 6px; overflow: hidden; }
   .fx-trilho > i { display: block; height: 100%; background: var(--green); }
-  /* Sem esta linha, a faixa de Acabamento parece uma TERCEIRA trilha correndo em
-     paralelo, quando na verdade ela só começa depois que as duas de cima fecham. */
-  .fx-junta { display: flex; align-items: center; gap: 8px; margin: 3px 0 6px 94px;
-              font-size: 9px; text-transform: uppercase; letter-spacing: 1px; color: var(--text-muted); }
-  .fx-junta::before, .fx-junta::after { content: ''; height: 1px; background: var(--border); }
-  .fx-junta::before { width: 26px; }
-  .fx-junta::after { flex: 1; }
 
   /* colunas */
   .bv { display: flex; align-items: flex-end; gap: 5px; height: 120px; }
@@ -96,6 +101,34 @@
   .hb-trilho { flex: 1; min-width: 0; height: 17px; background: #f3eee5; border-radius: 3px; overflow: hidden; display: flex; }
   .hb-trilho > i { display: block; height: 100%; }
   .hb-val { width: 58px; flex-shrink: 0; text-align: right; font-size: 11px; font-family: 'DM Mono', monospace; color: var(--mid); }
+
+  /* gaveta: a lista de produtos por trás de um número */
+  .dz-overlay { position: fixed; inset: 0; background: rgba(0,0,0,.5); display: none; align-items: center;
+                justify-content: center; z-index: 220; padding: 20px; backdrop-filter: blur(2px); }
+  .dz-overlay.open { display: flex; }
+  .dz-modal { background: var(--cream); border-radius: 14px; width: 760px; max-width: 100%; max-height: 88vh;
+              display: flex; flex-direction: column; position: relative; }
+  .dz-head { padding: 20px 24px 14px; border-bottom: 1px solid var(--border); flex-shrink: 0; }
+  .dz-corpo { padding: 14px 24px 22px; overflow-y: auto; }
+  .dz-card { background: white; border: 1px solid var(--border); border-radius: 8px; padding: 12px 14px; margin-bottom: 9px; }
+  .dz-topo { display: flex; justify-content: space-between; gap: 10px; align-items: baseline; }
+  .dz-nome { font-size: 13px; font-weight: 600; min-width: 0; }
+  .dz-ped { font-family: 'DM Mono', monospace; font-size: 11px; color: var(--text-muted); flex-shrink: 0; }
+  .dz-trilho { display: flex; align-items: center; gap: 3px; margin: 9px 0 8px; }
+  .dz-trilho > i { width: 20px; height: 5px; border-radius: 2px; background: #e8e1d4; }
+  .dz-trilho > i.dz-ok { background: var(--green); }
+  .dz-trilho > i.dz-agora { background: var(--accent); box-shadow: 0 0 0 2px #f0e2c4; }
+  .dz-cont { font-family: 'DM Mono', monospace; font-size: 10px; color: var(--text-muted); margin-left: 6px; }
+  .dz-agora { font-size: 12px; line-height: 1.5; }
+  .dz-agora strong { font-weight: 600; }
+  .dz-dev, .dz-prod, .dz-trava { font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: .5px;
+                                 border-radius: 20px; padding: 2px 8px; margin-right: 6px; white-space: nowrap; }
+  .dz-dev { background: #f5ecd8; color: #8a6930; }
+  .dz-prod { background: #efeae1; color: #6b6356; }
+  .dz-trava { background: var(--blue-soft); color: #1a6fa8; }
+  .dz-jafez { font-size: 10.5px; color: var(--text-muted); margin-top: 6px; line-height: 1.45; }
+  .dz-meta { display: flex; gap: 14px; flex-wrap: wrap; font-size: 10.5px; color: var(--text-muted);
+             margin-top: 8px; padding-top: 8px; border-top: 1px solid #f3eee5; }
 
   /* lista de paradas */
   .pz { display: grid; grid-template-columns: 56px minmax(0, 1fr) 168px 116px 104px; gap: 12px;
@@ -439,6 +472,17 @@
 
 <div class="scroll-body">
 
+<div class="dz-overlay" id="dzOverlay" onclick="if(event.target===this) dzFechar()">
+  <div class="dz-modal">
+    <span class="sd-close" onclick="dzFechar()">&times;</span>
+    <div class="dz-head">
+      <div class="sd-title" id="dzTitulo">—</div>
+      <div class="sd-sub" id="dzSub"></div>
+    </div>
+    <div class="dz-corpo" id="dzCorpo"></div>
+  </div>
+</div>
+
 <!-- ABA: PAINEL -->
 <div id="tab-painel" class="tab-content active" style="overflow-y:auto">
   <div class="dash">
@@ -447,15 +491,15 @@
 
       <div class="dash-card dash-wide">
         <div class="panel-title">Onde está o trabalho em andamento</div>
-        <div class="dash-hint">O número grande é a <strong>fila</strong>: produtos que já podem ser feitos nesta
-          etapa porque a anterior fechou. Embaixo, quantos já passaram por ela. Estrutura e capa correm em
-          paralelo e se encontram na Tapeçaria — uma capa "atrás" da estrutura está em outra trilha, não atrasada.</div>
+        <div class="dash-hint">O número grande é a <strong>fila</strong>: produtos prontos para fazer agora —
+          a etapa anterior fechou e nada trava. Produto esperando o comercial ou o PCP sai desta conta e
+          aparece em separado, porque ninguém pode tocar nele. Clique em qualquer número para ver quais são.</div>
         <div id="dashFluxo"></div>
       </div>
 
       <div class="dash-card">
         <div class="panel-title">O que vence</div>
-        <div class="dash-hint">Produtos em andamento pela data de entrega.</div>
+        <div class="dash-hint">Produtos em andamento pela data de entrega. Clique na coluna para ver a semana.</div>
         <div id="dashEntregas"></div>
       </div>
 
@@ -474,7 +518,8 @@
 
       <div class="dash-card">
         <div class="panel-title">Carga por pessoa</div>
-        <div class="dash-hint">Em andamento agora. A parte vermelha já passou da data de entrega.</div>
+        <div class="dash-hint">Em andamento agora, separado pelo que está de fato na mão do Dev.
+          Clique na pessoa para ver os produtos dela, com o próximo passo de cada um.</div>
         <div id="dashPessoas"></div>
       </div>
 
@@ -556,6 +601,7 @@
       <div style="display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap;align-items:center">
         <select class="filter-sel" id="solFilterStatus" onchange="renderSolFeed()">
           <option value="">Todos os status</option>
+          <option value="abertas">Em aberto (aberta + em andamento)</option>
           <option value="aberta">Aberta</option>
           <option value="em_andamento">Em andamento</option>
           <option value="concluida">Concluída</option>
@@ -963,7 +1009,9 @@ function renderFeed() {
 /* ── PAINEL ───────────────────────────────────────────────────────────
    As outras abas respondem "quem fez o quê". Esta responde "como está a casa
    agora": o que está em andamento, onde empilhou, o que vence e quanto sai
-   por semana.
+   por semana. Tudo nela é clicável — card, etapa, pessoa, semana — e abre a
+   lista dos produtos por trás do número, porque número solto não diz o que
+   fazer em seguida.
 
    Uma coisa que ela NÃO mostra, de propósito: tempo gasto em cada etapa. As
    ticagens não servem para isso. De 171 produtos com 8 ou mais etapas
@@ -973,40 +1021,36 @@ function renderFeed() {
    onde não tem. O tempo que dá para medir é do recebimento ao fim, porque as
    duas pontas têm data própria. */
 let dashProd = [], dashLogs = [], dashCarregado = false;
+let dashLiberacao = {};            // produto -> status da solicitação de liberação do PCP
+let DASH_ALERTAS_DE = null, DASH_BLOQUEIO_DE = null;
+let dashToques = {};               // produto_id -> data da última ticagem
 
-/* O processo não é fila única: estrutura e capa correm em paralelo e se
-   encontram na Tapeçaria. Um funil de 10 degraus em linha mostraria a capa
-   "atrás" da estrutura quando ela só está em outra trilha. */
-const FX_DEP = {
-  modelagem3d:  [],
-  extracaoGab:  ['modelagem3d'],
-  programacao:  ['extracaoGab'],
-  montagem:     ['programacao'],
-  preparacao:   ['montagem'],
-  espumacao:    ['preparacao'],
-  modelagemTec: ['modelagem3d'],
-  costura:      ['modelagemTec'],
-  tapecaria:    ['espumacao', 'costura'],
-  montFinal:    ['tapecaria']
+/* O processo do checklist é uma FILA ÚNICA, na ordem do STAGES. Conferido em
+   05/10 sobre os 565 produtos ativos: em 8 das 9 transições, ZERO produto tem
+   a etapa fechada sem a anterior. A única exceção é a Modelagem Téc. (5 casos
+   adiantados antes da Espumação). Uma versão anterior deste painel desenhou
+   estrutura e capa em paralelo — isso é a topologia da FÁBRICA, no roteiro do
+   Seven, não a destas 10 etapas, em que a Modelagem Téc. só acontece quando a
+   estrutura volta da produção. */
+const ETAPA_DONO = {
+  modelagem3d: 'dev', extracaoGab: 'dev', programacao: 'dev',
+  montagem: 'producao', preparacao: 'producao', espumacao: 'producao',
+  modelagemTec: 'dev',
+  costura: 'producao', tapecaria: 'producao', montFinal: 'producao'
 };
-const FX_FAIXAS = [
-  ['Entrada',    ['modelagem3d']],
-  ['Estrutura',  ['extracaoGab', 'programacao', 'montagem', 'preparacao', 'espumacao']],
-  ['Capa',       ['modelagemTec', 'costura']],
-  ['Acabamento', ['tapecaria', 'montFinal']]
-];
 
 const dFeito   = (p, et) => !!(p.etapas && p.etapas[et]);
 const dAberto  = p => !dFeito(p, 'montFinal');
 const dEtLabel = et => STAGE_LABELS[STAGES.indexOf(et)] || et;
 const dHoje    = () => { const d = new Date(); d.setHours(0, 0, 0, 0); return d; };
 const dDiasAte = iso => iso ? Math.floor((Date.now() - new Date(iso).getTime()) / 86400000) : null;
+/* A primeira etapa ainda aberta. Produto com etapa adiantada fora de ordem cai
+   na mais antiga que falta, que é justamente o que está devendo. */
+const dProxima = p => STAGES.find(et => !dFeito(p, et)) || null;
 function dDiasEntrega(p) {   // negativo = já venceu
   if (!p.data_entrega) return null;
   return Math.round((new Date(p.data_entrega + 'T00:00:00') - dHoje()) / 86400000);
 }
-/* Sábado anterior (ou o próprio dia): a semana do Supabase começa na segunda,
-   mas aqui o rótulo é "dd/mm" da segunda, para bater com o calendário. */
 function dSegunda(d) {
   const x = new Date(d); x.setHours(0, 0, 0, 0);
   x.setDate(x.getDate() - ((x.getDay() + 6) % 7));
@@ -1014,26 +1058,71 @@ function dSegunda(d) {
 }
 const dDDMM = d => d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' });
 
+/* ── TRAVAS ───────────────────────────────────────────────────────────
+   Mesmas regras do checklist (`esperandoOComercial` / `bloqueadoPeloPcp`),
+   repetidas aqui porque o painel é outro arquivo. Sem elas o painel mentia:
+   contava como "pronto para fazer" produto que ninguém pode tocar. O comercial
+   vem primeiro de propósito — produto sem Data de Envio ao PCP também cai na
+   regra do PCP, mas quem está com a bola é quem ainda não mandou. */
+function dEsperandoComercial(p) {
+  if (p.data_envio_pcp) return false;
+  if (DASH_ALERTAS_DE && p.created_at && new Date(p.created_at) >= DASH_ALERTAS_DE) return true;
+  return dashLiberacao[p.produto] !== undefined;
+}
+function dBloqueadoPcp(p) {
+  if (!DASH_BLOQUEIO_DE || !p.created_at) return false;
+  if (new Date(p.created_at) < DASH_BLOQUEIO_DE) return false;
+  const st = dashLiberacao[p.produto];
+  return !(st === 'concluida' || st === 'cancelada');
+}
+function dTrava(p) {
+  if (dEsperandoComercial(p)) return { rotulo: '🔒 Comercial', texto: 'falta a Data de Envio ao PCP — até ela existir, o pedido não chegou à fábrica' };
+  if (dBloqueadoPcp(p))       return { rotulo: '🔒 PCP', texto: 'o PCP ainda não concluiu a liberação do pedido' };
+  return null;
+}
+/* Pronto para fazer = a etapa está aberta, a anterior fechou e nada trava. */
+function dNaFila(p, et) { return !dTrava(p) && dProxima(p) === et; }
+
 async function loadPainel() {
-  const [prods, logs] = await Promise.all([
+  const [prods, logs, libs, cfg] = await Promise.all([
     buscarTudo(() => sb.from('produtos')
-      .select('id,n_pedido,produto,tipo,responsavel,etapas,data_recebimento,data_entrega')
+      .select('id,n_pedido,produto,tipo,responsavel,etapas,data_recebimento,data_entrega,data_envio_pcp,created_at')
       .eq('status', 'ativo').order('created_at', { ascending: false })),
     /* `produto_id` e não o nome: dois produtos ativos têm nome repetido, e um
-       deles aparece em dois pedidos. Casar por texto misturaria o histórico
-       dos dois. */
+       deles aparece em dois pedidos. Casar por texto misturaria o histórico. */
     buscarTudo(() => sb.from('etapa_logs')
       .select('produto_id,etapa,status,created_at')
-      .neq('usuario', 'retroativo').order('created_at', { ascending: false }))
+      .neq('usuario', 'retroativo').order('created_at', { ascending: false })),
+    buscarTudo(() => sb.from('solicitacoes')
+      .select('produto_ref,status,created_at')
+      .like('titulo', 'Liberado para inclus%').order('created_at', { ascending: true })),
+    sb.from('configuracoes').select('chave,valor').in('chave', ['alertas_a_partir_de', 'bloqueio_a_partir_de'])
   ]);
   dashProd = prods;
   dashLogs = logs;
+  dashLiberacao = {};
+  libs.forEach(s => { if (s.produto_ref) dashLiberacao[s.produto_ref] = s.status; });
+  const c = {}; ((cfg || {}).data || []).forEach(x => c[x.chave] = x.valor);
+  /* O corte é gravado em UTC com Z. Sem fuso explícito o navegador leria como
+     hora local e erraria 3h contra o created_at, fazendo produto novo passar
+     por antigo — o mesmo cuidado que o checklist já toma. */
+  const lerCorte = v => {
+    if (!v) return null;
+    const t = String(v).trim();
+    const d = /^\d{4}-\d{2}-\d{2}$/.test(t) ? new Date(t + 'T00:00:00') : new Date(t);
+    return isNaN(d) ? null : d;
+  };
+  DASH_ALERTAS_DE  = lerCorte(c.alertas_a_partir_de);
+  DASH_BLOQUEIO_DE = lerCorte(c.bloqueio_a_partir_de);
+  dashToques = {};
+  dashLogs.forEach(l => { if (!dashToques[l.produto_id]) dashToques[l.produto_id] = l.created_at; });
   dashCarregado = true;
   renderPainel();
 }
 
 function renderPainel() {
   if (!dashCarregado) return;
+  dzListas = {};
   const abertos = dashProd.filter(dAberto);
   dashRenderCards(abertos);
   dashRenderFluxo(abertos);
@@ -1044,79 +1133,158 @@ function renderPainel() {
   dashRenderParados(abertos);
 }
 
-/* Última ticagem de cada produto. A lista já vem da mais nova para a mais
-   velha, então a primeira que aparece é a última que aconteceu. */
-function dashUltimoToque() {
-  const m = {};
-  dashLogs.forEach(l => { if (!m[l.produto_id]) m[l.produto_id] = l.created_at; });
-  return m;
-}
-function dashParadoDias(p, toques) {
-  const t = toques[p.id];
+function dashParadoDias(p) {
+  const t = dashToques[p.id];
   if (t) return dDiasAte(t);
   if (p.data_recebimento) return Math.round((dHoje() - new Date(p.data_recebimento + 'T00:00:00')) / 86400000);
   return null;
 }
-
 function dashMediana(v) {
   if (!v.length) return null;
   const a = [...v].sort((x, y) => x - y), m = a.length >> 1;
   return a.length % 2 ? a[m] : (a[m - 1] + a[m]) / 2;
 }
 
-function dashRenderCards(abertos) {
-  const toques = dashUltimoToque();
-  const vencidos = abertos.filter(p => { const d = dDiasEntrega(p); return d != null && d < 0; });
-  const semana   = abertos.filter(p => { const d = dDiasEntrega(p); return d != null && d >= 0 && d <= 7; });
-  const quietos  = abertos.filter(p => (dashParadoDias(p, toques) || 0) >= 14);
-  const semEnt   = abertos.filter(p => !p.data_entrega).length;
-  const cards = [
-    ['Em andamento', String(abertos.length),
-     `de ${dashProd.length} produtos ativos` + (semEnt ? ` · ${semEnt} sem data de entrega` : ''), ''],
-    ['Passou da entrega', String(vencidos.length),
-     vencidos.length ? 'a mais antiga venceu em ' + new Date(vencidos
-        .reduce((a, b) => a.data_entrega < b.data_entrega ? a : b).data_entrega + 'T00:00:00')
-        .toLocaleDateString('pt-BR') : 'nenhum atrasado', vencidos.length ? 'color:var(--red)' : ''],
-    ['Vence em 7 dias', String(semana.length), 'contando de hoje', ''],
-    ['Sem mexer há 14+ dias', String(quietos.length),
-     quietos.length ? 'nenhuma ticagem nesse tempo' : 'tudo com movimento recente',
-     quietos.length ? 'color:var(--orange)' : '']
-  ];
-  document.getElementById('dashCards').innerHTML = cards.map(([l, n, sub, st]) =>
-    `<div class="lt-card"><div class="lt-label">${l}</div>`
-    + `<div class="lt-num" style="${st}">${n}</div><div class="lt-sub">${sub}</div></div>`).join('');
+/* ── LISTAS CLICÁVEIS ─────────────────────────────────────────────────
+   Guarda a lista por trás de cada número em vez de passá-la no onclick: os
+   nomes dos produtos têm aspas, vírgulas e parênteses, e montar o argumento
+   dentro do HTML quebraria na primeira CAMA DONNA (COLCHAO 1,93X2,03). */
+let dzListas = {};
+function dzReg(chave, titulo, sub, lista) {
+  dzListas[chave] = { titulo, sub, lista };
+  return lista.length;
+}
+function dzAbrir(chave) {
+  const d = dzListas[chave];
+  if (!d) return;
+  document.getElementById('dzTitulo').textContent = d.titulo;
+  document.getElementById('dzSub').textContent = `${d.lista.length} produto(s) · ${d.sub}`;
+  const corpo = document.getElementById('dzCorpo');
+  if (!d.lista.length) { corpo.innerHTML = '<div class="dash-vazio">Nada aqui.</div>'; }
+  else {
+    const ordenada = [...d.lista].sort((a, b) => (dashParadoDias(b) || 0) - (dashParadoDias(a) || 0));
+    corpo.innerHTML = ordenada.map(dzCartao).join('');
+  }
+  document.getElementById('dzOverlay').classList.add('open');
+}
+function dzFechar() { document.getElementById('dzOverlay').classList.remove('open'); }
+
+/* O cartão responde, para UM produto, as três perguntas que o Junior faz
+   olhando a lista: o que já foi feito, o que falta agora, e de quem é a vez. */
+function dzCartao(p) {
+  const feitas = STAGES.filter(et => dFeito(p, et));
+  const prox   = dProxima(p);
+  const trava  = dTrava(p);
+  const dias   = dashParadoDias(p);
+  const ent    = dDiasEntrega(p);
+  const trilho = STAGES.map(et => {
+    const cls = dFeito(p, et) ? 'dz-ok' : (et === prox && !trava ? 'dz-agora' : '');
+    return `<i class="${cls}" title="${sdEsc(dEtLabel(et))}"></i>`;
+  }).join('');
+
+  let agora;
+  if (trava) {
+    agora = `<span class="dz-trava">${trava.rotulo}</span> ${sdEsc(trava.texto)}`;
+  } else if (!prox) {
+    agora = '<span class="dz-dev">Fechado</span> as 10 etapas estão ticadas';
+  } else if (ETAPA_DONO[prox] === 'dev') {
+    const volta = prox === 'modelagemTec' && dFeito(p, 'espumacao')
+      ? ' — voltou da produção, é a vez da Modelagem Téc.' : '';
+    agora = `<span class="dz-dev">Dev</span> fazer <strong>${dEtLabel(prox)}</strong>${volta}`;
+  } else {
+    agora = `<span class="dz-prod">Produção</span> esperando <strong>${dEtLabel(prox)}</strong>`
+      + (STAGES.indexOf(prox) < STAGES.indexOf('modelagemTec')
+          ? ' — o Dev só volta a mexer na Modelagem Téc.' : '');
+  }
+
+  const jaFez = feitas.length
+    ? 'Já fez: ' + feitas.map(dEtLabel).join(' › ')
+    : 'Ainda não ticou nenhuma etapa';
+
+  return `<div class="dz-card">
+    <div class="dz-topo">
+      <div class="dz-nome">${sdEsc(p.produto)}</div>
+      <div class="dz-ped">${p.n_pedido ? '#' + sdEsc(p.n_pedido) : 'sem pedido'}</div>
+    </div>
+    <div class="dz-trilho">${trilho}<span class="dz-cont">${feitas.length}/10</span></div>
+    <div class="dz-agora">${agora}</div>
+    <div class="dz-jafez">${sdEsc(jaFez)}</div>
+    <div class="dz-meta">
+      <span>${sdEsc((p.responsavel || '').trim() || 'sem responsável')}</span>
+      <span>${dias == null ? 'sem histórico' : 'sem mexer há ' + dias + 'd'}</span>
+      <span>${ent == null ? 'sem data de entrega'
+        : ent < 0 ? `<b style="color:var(--red)">venceu há ${-ent}d</b>` : 'entrega em ' + ent + 'd'}</span>
+    </div>
+  </div>`;
 }
 
+/* ── CARDS DO TOPO ────────────────────────────────────────────────── */
+function dashRenderCards(abertos) {
+  const travados = abertos.filter(dTrava);
+  const vencidos = abertos.filter(p => { const d = dDiasEntrega(p); return d != null && d < 0; });
+  const semana   = abertos.filter(p => { const d = dDiasEntrega(p); return d != null && d >= 0 && d <= 7; });
+  const quietos  = abertos.filter(p => (dashParadoDias(p) || 0) >= 14);
+  const semEnt   = abertos.filter(p => !p.data_entrega).length;
+  const cards = [
+    ['c_and',  'Em andamento', abertos,
+     `de ${dashProd.length} ativos` + (semEnt ? ` · ${semEnt} sem entrega` : ''), '', 'tudo que ainda não fechou a Montagem Final'],
+    ['c_trav', 'Travados', travados,
+     travados.length ? 'não podem ser tocados' : 'ninguém travado', travados.length ? 'color:var(--blue)' : '',
+     'esperando o comercial mandar ao PCP, ou o PCP liberar'],
+    ['c_venc', 'Passou da entrega', vencidos,
+     vencidos.length ? 'já deviam ter saído' : 'nenhum atrasado', vencidos.length ? 'color:var(--red)' : '',
+     'data de entrega no passado e ainda em andamento'],
+    ['c_7d',   'Vence em 7 dias', semana, 'contando de hoje', '', 'entrega entre hoje e daqui a 7 dias'],
+    ['c_quie', 'Sem mexer há 14+ dias', quietos,
+     quietos.length ? 'nenhuma ticagem nesse tempo' : 'tudo com movimento', quietos.length ? 'color:var(--orange)' : '',
+     'sem ticagem; sem histórico nenhum, conta do recebimento']
+  ];
+  document.getElementById('dashCards').innerHTML = cards.map(([ch, l, lista, sub, st, dica]) => {
+    dzReg(ch, l, dica, lista);
+    return `<div class="lt-card dash-clic" onclick="dzAbrir('${ch}')" title="${sdEsc(dica + '\nClique para ver a lista')}">`
+      + `<div class="lt-label">${l}</div><div class="lt-num" style="${st}">${lista.length}</div>`
+      + `<div class="lt-sub">${sub}</div></div>`;
+  }).join('');
+}
+
+/* ── O FLUXO ──────────────────────────────────────────────────────── */
 function dashRenderFluxo(abertos) {
   const total = abertos.length;
-  const html = FX_FAIXAS.map(([nome, etapas]) => {
-    const passos = etapas.map(et => {
+  const travados = abertos.filter(dTrava);
+  const linhas = [[0, 5], [5, 10]].map(([a, b]) => {
+    const passos = STAGES.slice(a, b).map(et => {
+      const fila   = abertos.filter(p => dNaFila(p, et));
       const passou = abertos.filter(p => dFeito(p, et)).length;
-      // pode ser feito agora: a etapa está aberta e tudo de que ela depende fechou
-      const fila = abertos.filter(p => !dFeito(p, et) && FX_DEP[et].every(d => dFeito(p, d))).length;
-      const dica = `${dEtLabel(et)}\n${fila} na fila (pronto para fazer)\n${passou} de ${total} já passaram`
-        + (FX_DEP[et].length ? `\ndepende de: ${FX_DEP[et].map(dEtLabel).join(' + ')}` : '\nprimeira etapa');
-      return `<div class="fx-passo ${fila ? 'fx-fila' : ''}" title="${sdEsc(dica)}">
+      // os travados aparecem na etapa onde PARARIAM, mas fora da conta da fila
+      const presos = travados.filter(p => dProxima(p) === et);
+      const dono = ETAPA_DONO[et];
+      dzReg('fx_' + et, dEtLabel(et) + ' — fila', 'prontos para fazer agora', fila);
+      dzReg('fxt_' + et, dEtLabel(et) + ' — travados', 'parariam aqui, mas estão travados', presos);
+      const dica = `${dEtLabel(et)} (${dono === 'dev' ? 'Dev' : 'produção'})\n`
+        + `${fila.length} pronto(s) para fazer\n${passou} de ${total} já passaram`
+        + (presos.length ? `\n${presos.length} travado(s), fora da conta` : '');
+      return `<div class="fx-passo fx-${dono} ${fila.length ? 'fx-fila' : ''}" title="${sdEsc(dica)}">
         <div class="fx-et">${dEtLabel(et)}</div>
-        <div class="fx-n ${fila ? '' : 'fx-zero'}">${fila}</div>
+        <div class="fx-n ${fila.length ? '' : 'fx-zero'} dash-clic" onclick="dzAbrir('fx_${et}')">${fila.length}</div>
         <div class="fx-sub">${passou} já passaram</div>
+        ${presos.length ? `<div class="fx-presos dash-clic" onclick="dzAbrir('fxt_${et}')">+${presos.length} travado(s)</div>` : ''}
         <div class="fx-trilho"><i style="width:${total ? Math.round(passou / total * 100) : 0}%"></i></div>
       </div>`;
     }).join('');
-    const junta = nome === 'Acabamento'
-      ? '<div class="fx-junta">estrutura e capa se encontram aqui</div>' : '';
-    return junta + `<div class="fx-faixa"><div class="fx-nomefaixa">${nome}</div>
-      <div class="fx-passos">${passos}</div></div>`;
+    return `<div class="fx-faixa"><div class="fx-passos">${passos}</div></div>`;
   }).join('');
   document.getElementById('dashFluxo').innerHTML = total
-    ? html : '<div class="dash-vazio">Nenhum produto em andamento.</div>';
+    ? linhas + `<div class="fx-legenda"><span class="fx-chip fx-dev"></span> etapa do Dev
+        <span class="fx-chip fx-producao"></span> acontece na produção — o Dev só tica quando volta</div>`
+    : '<div class="dash-vazio">Nenhum produto em andamento.</div>';
 }
 
-/* Colunas. `dados` = [{ rotulo, valor, cor, dica }] */
+/* Colunas. `dados` = [{ rotulo, valor, cor, dica, chave }] */
 function dashColunas(dados, rodape) {
   if (!dados.length) return '<div class="dash-vazio">Sem dados.</div>';
   const max = Math.max(1, ...dados.map(d => d.valor));
-  return `<div class="bv">${dados.map(d => `<div class="bv-col" title="${sdEsc(d.dica || '')}">
+  return `<div class="bv">${dados.map(d => `<div class="bv-col ${d.chave ? 'dash-clic' : ''}"
+      ${d.chave ? `onclick="dzAbrir('${d.chave}')"` : ''} title="${sdEsc(d.dica || '')}">
       <div class="bv-val">${d.valor || ''}</div>
       <div class="bv-bar ${d.cor || ''}" style="height:${Math.round(d.valor / max * 100)}%"></div>
     </div>`).join('')}</div>
@@ -1128,8 +1296,8 @@ function dashRenderEntregas(abertos) {
   const vencidos = abertos.filter(p => { const d = dDiasEntrega(p); return d != null && d < 0; });
   const seg0 = dSegunda(new Date());
   const faixas = [{
-    rotulo: 'venceu', valor: vencidos.length, cor: 'bv-red',
-    dica: vencidos.length ? vencidos.slice(0, 8).map(p => p.produto).join('\n') : 'nada atrasado'
+    rotulo: 'venceu', valor: dzReg('en_venc', 'Passou da entrega', 'ainda em andamento', vencidos),
+    cor: 'bv-red', chave: 'en_venc', dica: 'entrega no passado e ainda em andamento'
   }];
   for (let i = 0; i < 6; i++) {
     const ini = new Date(seg0); ini.setDate(ini.getDate() + i * 7);
@@ -1139,18 +1307,16 @@ function dashRenderEntregas(abertos) {
       const d = new Date(p.data_entrega + 'T00:00:00');
       return d >= ini && d < fim && d >= dHoje();
     });
-    faixas.push({
-      rotulo: (i === 0 ? 'esta sem.' : dDDMM(ini)), valor: nela.length,
-      cor: i === 0 ? 'bv-blue' : '',
-      dica: `semana de ${dDDMM(ini)}\n` + (nela.length ? nela.slice(0, 8).map(p => p.produto).join('\n') : 'nada')
-    });
+    const ch = 'en_' + i;
+    dzReg(ch, `Entregas da semana de ${dDDMM(ini)}`, 'em andamento, com entrega nesta semana', nela);
+    faixas.push({ rotulo: i === 0 ? 'esta sem.' : dDDMM(ini), valor: nela.length,
+                  cor: i === 0 ? 'bv-blue' : '', chave: ch, dica: `semana de ${dDDMM(ini)}` });
   }
-  const depois = abertos.filter(p => {
-    if (!p.data_entrega) return false;
-    const lim = new Date(seg0); lim.setDate(lim.getDate() + 42);
-    return new Date(p.data_entrega + 'T00:00:00') >= lim;
-  }).length;
-  faixas.push({ rotulo: 'depois', valor: depois, cor: 'bv-pale', dica: 'entrega daqui a mais de 6 semanas' });
+  const lim = new Date(seg0); lim.setDate(lim.getDate() + 42);
+  const depois = abertos.filter(p => p.data_entrega && new Date(p.data_entrega + 'T00:00:00') >= lim);
+  dzReg('en_dep', 'Entrega daqui a mais de 6 semanas', 'em andamento', depois);
+  faixas.push({ rotulo: 'depois', valor: depois.length, cor: 'bv-pale', chave: 'en_dep',
+                dica: 'entrega daqui a mais de 6 semanas' });
   document.getElementById('dashEntregas').innerHTML = dashColunas(faixas,
     `${abertos.filter(p => p.data_entrega).length} dos ${abertos.length} em andamento têm data de entrega`);
 }
@@ -1179,8 +1345,7 @@ function dashRenderProduzido() {
                 dica: `semana de ${dDDMM(ini)}: ${n} finalizado(s)` });
   }
   // a semana corrente está incompleta e puxaria a média para baixo
-  const fechadas = cols.slice(0, -1).map(c => c.valor);
-  const med = dashMediana(fechadas);
+  const med = dashMediana(cols.slice(0, -1).map(c => c.valor));
   document.getElementById('dashProduzido').innerHTML = dashColunas(cols,
     med == null ? '' : `semana típica: <strong>${med}</strong> produto(s) — a semana corrente ainda está correndo`);
 }
@@ -1193,72 +1358,85 @@ function dashRenderLeadtime() {
     if (!f || !p.data_recebimento) return;
     const fim = new Date(f); fim.setHours(0, 0, 0, 0);
     const dias = Math.round((fim - new Date(p.data_recebimento + 'T00:00:00')) / 86400000);
-    if (dias < 0) return;                       // data de recebimento posterior ao fim: não vira estatística
-    const mes = f.slice(0, 7);
-    (porMes[mes] = porMes[mes] || []).push(dias);
+    if (dias < 0) return;                 // recebimento posterior ao fim: não vira estatística
+    (porMes[f.slice(0, 7)] = porMes[f.slice(0, 7)] || []).push(dias);
   });
   const meses = Object.keys(porMes).sort().slice(-6);
   const cols = meses.map(m => {
     const med = dashMediana(porMes[m]);
     const [a, mm] = m.split('-');
     return { rotulo: ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'][+mm - 1],
-             valor: Math.round(med), cor: '',
+             valor: Math.round(med),
              dica: `${mm}/${a}: ${porMes[m].length} produto(s), metade levou até ${Math.round(med)} dia(s)` };
   });
-  const ult = meses.length ? porMes[meses[meses.length - 1]] : [];
   document.getElementById('dashLeadtime').innerHTML = dashColunas(cols,
-    ult.length ? 'dias entre o recebimento e a Montagem Final' : '');
+    meses.length ? 'dias entre o recebimento e a Montagem Final' : '');
 }
 
 function dashRenderPessoas(abertos) {
   const por = {};
   abertos.forEach(p => {
     const nome = (p.responsavel || '').trim() || 'sem responsável';
-    const x = por[nome] = por[nome] || { nome, n: 0, vencidos: 0 };
-    x.n++;
+    const x = por[nome] = por[nome] || { nome, lista: [], vencidos: 0, travados: 0, comDev: 0 };
+    x.lista.push(p);
     const d = dDiasEntrega(p);
     if (d != null && d < 0) x.vencidos++;
+    if (dTrava(p)) x.travados++;
+    else { const prox = dProxima(p); if (prox && ETAPA_DONO[prox] === 'dev') x.comDev++; }
   });
-  const lista = Object.values(por).sort((a, b) => b.n - a.n);
-  if (!lista.length) { document.getElementById('dashPessoas').innerHTML = '<div class="dash-vazio">Nada em andamento.</div>'; return; }
-  const max = Math.max(...lista.map(x => x.n));
-  document.getElementById('dashPessoas').innerHTML = lista.map(x => {
-    const larg = Math.round(x.n / max * 100);
-    const parteVenc = x.n ? Math.round(x.vencidos / x.n * 100) : 0;
-    return `<div class="hb" title="${sdEsc(x.nome + ': ' + x.n + ' em andamento'
-        + (x.vencidos ? ', ' + x.vencidos + ' passou da entrega' : ''))}">
+  const lista = Object.values(por).sort((a, b) => b.lista.length - a.lista.length);
+  const el = document.getElementById('dashPessoas');
+  if (!lista.length) { el.innerHTML = '<div class="dash-vazio">Nada em andamento.</div>'; return; }
+  const max = Math.max(...lista.map(x => x.lista.length));
+  el.innerHTML = lista.map((x, i) => {
+    const ch = 'pe_' + i;
+    dzReg(ch, x.nome, 'em andamento', x.lista);
+    const n = x.lista.length;
+    const dica = `${x.nome}: ${n} em andamento\n${x.comDev} na mão do Dev agora\n`
+      + `${n - x.comDev - x.travados} esperando a produção\n${x.travados} travado(s)`
+      + (x.vencidos ? `\n${x.vencidos} passou da entrega` : '');
+    return `<div class="hb dash-clic" onclick="dzAbrir('${ch}')" title="${sdEsc(dica + '\nClique para ver a lista')}">
       <div class="hb-nome">${sdEsc(x.nome)}</div>
-      <div class="hb-trilho"><i style="width:${larg}%;background:var(--accent);display:flex">
-        <i style="width:${parteVenc}%;background:var(--red)"></i></i></div>
-      <div class="hb-val">${x.n}${x.vencidos ? ' · ' + x.vencidos + '⚠' : ''}</div>
+      <div class="hb-trilho">
+        <i style="width:${Math.round(x.comDev / max * 100)}%;background:var(--accent)"></i>
+        <i style="width:${Math.round((n - x.comDev - x.travados) / max * 100)}%;background:#ddd5c6"></i>
+        <i style="width:${Math.round(x.travados / max * 100)}%;background:var(--blue)"></i>
+      </div>
+      <div class="hb-val">${x.comDev}<span style="color:var(--text-muted)">/${n}</span></div>
     </div>`;
-  }).join('');
+  }).join('')
+  + `<div class="fx-legenda" style="margin-top:11px">
+      <span class="fx-chip" style="background:var(--accent)"></span> na mão do Dev
+      <span class="fx-chip" style="background:#ddd5c6"></span> esperando a produção
+      <span class="fx-chip" style="background:var(--blue)"></span> travado</div>`;
 }
 
 function dashRenderParados(abertos) {
-  const toques = dashUltimoToque();
   const lista = abertos
-    .map(p => ({ p, dias: dashParadoDias(p, toques), temToque: !!toques[p.id] }))
+    .map(p => ({ p, dias: dashParadoDias(p), temToque: !!dashToques[p.id] }))
     .filter(x => x.dias != null)
     .sort((a, b) => b.dias - a.dias)
     .slice(0, 12);
-  if (!lista.length) { document.getElementById('dashParados').innerHTML = '<div class="dash-vazio">Sem produtos em andamento.</div>'; return; }
-  document.getElementById('dashParados').innerHTML = lista.map(({ p, dias, temToque }) => {
+  const el = document.getElementById('dashParados');
+  if (!lista.length) { el.innerHTML = '<div class="dash-vazio">Sem produtos em andamento.</div>'; return; }
+  dzReg('pz_todos', 'Mais tempo sem mexer', 'em andamento, do mais parado para o menos', lista.map(x => x.p));
+  el.innerHTML = lista.map(({ p, dias, temToque }) => {
     const ent = dDiasEntrega(p);
-    const prox = STAGES.find(et => !dFeito(p, et) && FX_DEP[et].every(d => dFeito(p, d)));
-    return `<div class="pz">
+    const trava = dTrava(p);
+    const prox = dProxima(p);
+    return `<div class="pz dash-clic" onclick="dzAbrir('pz_todos')">
       <div class="pz-d ${dias >= 30 ? 'pz-alerta' : ''}" title="${temToque
         ? 'dias desde a última ticagem' : 'nunca teve ticagem — conta desde o recebimento'}">${dias}d${temToque ? '' : '*'}</div>
       <div class="pz-nome">${sdEsc(p.produto)}
         <span class="pz-meta">· ${p.n_pedido ? '#' + sdEsc(p.n_pedido) : 'sem pedido'}</span></div>
-      <div class="pz-meta">${prox ? 'na fila da ' + dEtLabel(prox) : 'aguardando outra trilha'}</div>
+      <div class="pz-meta">${trava ? trava.rotulo
+        : prox ? (ETAPA_DONO[prox] === 'dev' ? 'Dev: ' : 'produção: ') + dEtLabel(prox) : '—'}</div>
       <div class="pz-meta">${sdEsc((p.responsavel || '').trim() || 'sem responsável')}</div>
       <div class="pz-meta">${ent == null ? 'sem entrega'
         : ent < 0 ? `<span style="color:var(--red)">venceu há ${-ent}d</span>` : `entrega em ${ent}d`}</div>
     </div>`;
   }).join('');
 }
-
 /* ── INIT ─────────────────────────────────────────── */
 function updateHeaderDate() {
   document.getElementById('headerDate').textContent =
@@ -1466,7 +1644,7 @@ function renderSolPessoas() {
       <div class="user-meta">
         <span class="user-tag tag-blue">${x.total} total</span>
         <span class="user-tag tag-green">${x.concl} concluída(s)</span>
-        ${x.paradas ? `<span class="user-tag tag-accent">⚠ ${x.paradas} parada(s)</span>` : ''}
+        ${x.paradas ? `<span class="user-tag tag-accent" title="Parada é um PEDAÇO do que está em aberto: sem nenhum movimento há ${solDiasAlerta}+ dias. As outras ${x.abertas - x.paradas} em aberto tiveram movimento recente.">⚠ ${x.paradas} de ${x.abertas} paradas</span>` : ''}
       </div>
       <div class="user-bar"><div class="user-bar-fill" style="width:${pct}%"></div></div>
     </div>`;
@@ -1493,7 +1671,10 @@ function renderSolFeed() {
   const atraso = document.getElementById('solFilterAtraso').value;
 
   const lista = solLista.filter(s => {
-    if (st && s.status !== st) return false;
+    /* "Em aberto" é o que a pessoa quer ver quase sempre: o que ainda dá
+       trabalho. Separar em dois status obrigava a olhar a lista duas vezes. */
+    if (st === 'abertas') { if (s.status !== 'aberta' && s.status !== 'em_andamento') return false; }
+    else if (st && s.status !== st) return false;
     if (resp && s.responsavel_id !== resp) return false;
     if (atraso === 'paradas' && !solEstaParada(s)) return false;
     return true;
@@ -1739,9 +1920,11 @@ function fecharSolDetalhe() {
 }
 
 document.addEventListener('keydown', e => {
-  if (e.key === 'Escape' && document.getElementById('sdOverlay').classList.contains('open')) {
-    fecharSolDetalhe();
-  }
+  if (e.key !== 'Escape') return;
+  /* A gaveta do Painel vem primeiro: ela abre POR CIMA (z-index maior), então é
+     ela que o Esc tem de fechar quando as duas estão abertas. */
+  if (document.getElementById('dzOverlay').classList.contains('open')) { dzFechar(); return; }
+  if (document.getElementById('sdOverlay').classList.contains('open')) fecharSolDetalhe();
 });
 
 
