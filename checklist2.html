@@ -1476,8 +1476,14 @@ async function concluirCobrancaDoPcp(item) {
   if (!item || !item.produto) return;
   const def = SERVICOS.pcpFicha;
   try {
+    /* Os DOIS títulos: até 02/10 esta cobrança se chamava "Ficha de especial
+       atrasada". A renomeação deixou 13 cobranças órfãs — nem o fechamento
+       automático as via, nem a trava de não-repetir, e o sistema abriu uma
+       segunda para o mesmo produto. A Nayara ficou com 26. Quem procurar por
+       cobrança deste tipo tem de procurar pelos dois nomes. */
     let q = supabaseClient.from('solicitacoes').select('id')
-      .eq('produto_ref', item.produto).ilike('titulo', def.titulo + '%')
+      .eq('produto_ref', item.produto)
+      .or(`titulo.ilike.${def.titulo}%,titulo.ilike.Ficha de especial atrasada%`)
       .in('status', ['aberta', 'em_andamento']);
     q = item.nPedido ? q.eq('pedido_ref', item.nPedido) : q.is('pedido_ref', null);
     const { data: abertas, error } = await q;
