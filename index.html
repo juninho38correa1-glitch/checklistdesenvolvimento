@@ -1222,6 +1222,51 @@ document.addEventListener('keydown', e => {
   if (salva) { try { sessao = JSON.parse(salva); entrarApp(); return; } catch (e) {} }
   carregarPessoasLogin();
 })();
+
+/* ── RECARREGAR QUANDO SAI VERSÃO NOVA ──────────────────────────────
+   Aba aberta continua rodando o código do dia em que foi aberta. Em 05/10 isso
+   custou caro três vezes: a Erika ticou etapas que foram para o banco antigo,
+   o Pablo refez trabalho, e a aba do Lucas abriu 13 cobranças com a varredura
+   que já tinha sido removida. Ctrl+F5 não resolve porque ninguém sabe que
+   precisa dar.
+   Agora cada tela confere um número de versão. Quando ele muda, ela se
+   recarrega sozinha — a não ser que tenha modal aberto, porque recarregar
+   em cima de alguém digitando perde o que foi escrito.
+   Custa ~100 bytes a cada 2 minutos. */
+(function () {
+  var VERSAO_CHAVE = 'versao_app';
+  var minha = null;
+  function temModalAberto() {
+    try {
+      if (typeof algumaModalAberta === 'function' && algumaModalAberta()) return true;
+    } catch (e) {}
+    var abertos = document.querySelectorAll(
+      '.overlay.open, .modal-overlay[style*="flex"], .modal-overlay.open, [id$="Overlay"].open');
+    for (var i = 0; i < abertos.length; i++) {
+      var st = getComputedStyle(abertos[i]);
+      if (st.display !== 'none' && st.visibility !== 'hidden') return true;
+    }
+    var a = document.activeElement;
+    return !!(a && (a.tagName === 'INPUT' || a.tagName === 'TEXTAREA' || a.isContentEditable));
+  }
+  async function conferir() {
+    try {
+      var cli = (typeof supabaseClient !== 'undefined' && supabaseClient) ||
+                (typeof sb !== 'undefined' && sb);
+      if (!cli) return;
+      var r = await cli.from('configuracoes').select('valor').eq('chave', VERSAO_CHAVE).maybeSingle();
+      if (!r || !r.data || !r.data.valor) return;
+      if (minha === null) { minha = r.data.valor; return; }   // primeira leitura: guarda
+      if (r.data.valor === minha) return;
+      if (temModalAberto()) return;                            // tenta de novo daqui a pouco
+      var u = location.pathname + '?v=' + encodeURIComponent(r.data.valor);
+      location.replace(u);
+    } catch (e) { /* sem rede: tenta de novo no próximo ciclo */ }
+  }
+  setTimeout(conferir, 8000);          // depois que a tela terminou de carregar
+  setInterval(conferir, 2 * 60 * 1000);
+})();
+
 </script>
 </body>
 </html>
