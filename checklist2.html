@@ -1310,7 +1310,10 @@ async function alternarFicha(rowIndex) {
   fichaDatas[key] = novo ? new Date().toISOString() : null;
   fichaRetro[key] = false;   // clique de gente: data medida, essa vale pro lead
   renderTable();
-  if (novo) await carimbarRecebimento(item);   // já renderiza de novo por dentro
+  if (novo) {
+    await carimbarRecebimento(item);   // já renderiza de novo por dentro
+    await concluirCobrancaDoPcp(item); // a cobrança pedia exatamente isto
+  }
 }
 
 /* ── TICAGENS EXTRAS (Supabase, etapa virtual) ─────────── */
@@ -1458,6 +1461,42 @@ async function avisarPcpLiberado(prod, observacao) {
   const corpo = observacao ? dados + '\n\nObservação do comercial:\n' + observacao : dados;
   const item = { produto: prod.produto, nPedido: prod.n_pedido || null };
   await abrirSolicitacaoServico('pcp', item, corpo, true);
+}
+
+/* ── FECHAR A COBRANÇA DO PCP ───────────────────────────────────────
+   A varredura cobra o PCP quando o produto foi enviado a ele e o pedido ainda
+   não chegou ao Dev. Marcar "Pedido recebido" é exatamente o que ela pedia,
+   então a cobrança tem de se fechar sozinha.
+   Faltava: em 05/10 a varredura abriu 13 cobranças às 08:00, o Dev marcou os
+   pedidos entre 08:01 e 09:01, e as 13 continuaram abertas — a Nayara seguiu
+   recebendo aviso de atraso de coisa que já estava resolvida. Pior: ela já
+   tinha concluído a liberação dela em TODAS as 13.
+   Mesma lógica da cobrança do comercial; só muda qual ponta fecha. */
+async function concluirCobrancaDoPcp(item) {
+  if (!item || !item.produto) return;
+  const def = SERVICOS.pcpFicha;
+  try {
+    let q = supabaseClient.from('solicitacoes').select('id')
+      .eq('produto_ref', item.produto).ilike('titulo', def.titulo + '%')
+      .in('status', ['aberta', 'em_andamento']);
+    q = item.nPedido ? q.eq('pedido_ref', item.nPedido) : q.is('pedido_ref', null);
+    const { data: abertas, error } = await q;
+    if (error) { console.error('cobrança do PCP:', error); return; }
+    if (!abertas || !abertas.length) return;
+
+    const agora = new Date().toISOString();
+    for (const sol of abertas) {
+      const { error: e1 } = await supabaseClient.from('solicitacoes')
+        .update({ status: 'concluida', concluida_em: agora, updated_at: agora }).eq('id', sol.id);
+      if (e1) { console.error('cobrança do PCP:', e1); continue; }
+      await supabaseClient.from('solicitacao_eventos').insert({
+        solicitacao_id: sol.id, autor_id: sessao ? sessao.id : null, tipo: 'status',
+        texto: `Concluída automaticamente: ${getOperador() || '—'} marcou o pedido como recebido.`
+      });
+      /* Não avisa o "criador": a cobrança é da varredura, e quem consta ali é
+         só o usuário de serviço. */
+    }
+  } catch (e) { console.error('cobrança do PCP:', e); }
 }
 
 /* ── FECHAR A COBRANÇA DO COMERCIAL ─────────────────────────────────
@@ -3670,7 +3709,10 @@ async function saveStagesChanges() {
       if (novo !== antigo) {
         await logExtraTick(item, e.key, novo);
         if (e.key === 'fichaRecebida') { fichaDatas[itemKey(item)] = novo ? new Date().toISOString() : null; fichaRetro[itemKey(item)] = false; }
-        if (e.key === 'fichaRecebida' && novo) await carimbarRecebimento(item);
+        if (e.key === 'fichaRecebida' && novo) {
+          await carimbarRecebimento(item);
+          await concluirCobrancaDoPcp(item);
+        }
         if (!extraTicks[key]) extraTicks[key] = {};
         extraTicks[key][e.key] = novo;
       }
