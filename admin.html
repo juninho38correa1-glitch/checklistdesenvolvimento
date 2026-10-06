@@ -1547,7 +1547,7 @@ function renderSolLeadtime(lista) {
   if (!el) return;
   const dur = lista.map(solDuracaoMs).filter(v => v != null);
   if (!dur.length) {
-    el.innerHTML = `<div class="lt-card"><div class="lt-label">Lead time de resposta</div>
+    el.innerHTML = `<div class="lt-card"><div class="lt-label">Metade responde em até</div>
       <div class="lt-num">—</div><div class="lt-sub">nenhuma solicitação concluída nesta seleção</div></div>`;
     return;
   }
@@ -1566,11 +1566,22 @@ Média: ${fmtDuracao(avg)}`
     + (avg > med * 1.5 ? ' — bem acima da mediana, puxada pelas poucas muito demoradas' : '')
     + `
 9 em cada 10 foram respondidas em até ${fmtDuracao(p90)}`;
+  /* O rótulo diz o que o número É, em vez de dar nome a ele. "Típico" é vago e
+     "médio" seria falso: a média aqui dá 4x a mediana, e 3 de cada 4
+     solicitações ficam ABAIXO dela — ou seja, a média não descreve quase
+     ninguém. Em vez de escolher uma palavra e esperar que entendam, a frase
+     "metade responde em até X" é literal e dispensa explicação. A média
+     continua à vista, no subtítulo, com o motivo de ser maior. */
+  const abaixoDaMedia = dur.filter(v => v <= avg).length;
   el.innerHTML = `<div class="lt-card" title="${sdEsc(dica)}">`
-    + `<div class="lt-label">Tempo típico de resposta</div>`
+    + `<div class="lt-label">Metade responde em até</div>`
     + `<div class="lt-num">${fmtDuracao(med)}</div>`
-    + `<div class="lt-sub">metade das ${dur.length} concluídas foi respondida em menos que isso`
-    + ` · passe o mouse para média e extremos</div></div>`;
+    + `<div class="lt-sub">das ${dur.length} concluídas nesta seleção`
+    + (avg > med * 1.5
+        ? ` · a média é ${fmtDuracao(avg)}, puxada por poucas muito demoradas —`
+          + ` ${abaixoDaMedia} das ${dur.length} ficaram abaixo dela`
+        : ` · média de ${fmtDuracao(avg)}`)
+    + `</div></div>`;
 }
 function solEstaParada(s) {
   return (s.status === 'aberta' || s.status === 'em_andamento') && solDiasParado(s) >= solDiasAlerta;
