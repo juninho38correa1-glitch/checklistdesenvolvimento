@@ -3513,7 +3513,10 @@ function buildGanttHtml(item, logs) {
       </div>`;
     }
     html += faixa(ciclo, corrente, 'comercial',  'Comercial',  'Solic. → Envio PCP',      'var(--accent)', { escalar: true, esperando: 'aguardando envio ao PCP' });
-    html += faixa(ciclo, corrente, 'ficha',      'Pedido',     'PCP → Recebimento do Pedido', '#1D8348',   { escalar: true, esperando: 'aguardando pedido',
+    /* A faixa leva o nome de QUEM está com a bola, como as outras cinco: o
+       subtítulo já diz o que ela mede. Chamá-la de "Pedido" com o subtítulo
+       "PCP → Recebimento do Pedido" repetia a palavra e escondia o setor. */
+    html += faixa(ciclo, corrente, 'ficha',      'PCP',        'PCP → Recebimento do Pedido', '#1D8348',   { escalar: true, esperando: 'aguardando pedido',
                                                                                                             retro: !!(ciclo.faixas.ficha.ate && logs.some(r => r.etapa === 'fichaRecebida' && r.status && r.usuario === RETRO_USUARIO)) });
     html += faixa(ciclo, corrente, 'criacao',    'Criação',    'Receb. → Modelagem 3D',   '#8E7CC3',       { esperando: 'aguardando 3D' });
     html += faixa(ciclo, corrente, 'preparacao', 'Preparação', 'Itens para produção',     '#B7791F',       { esperando: 'aguardando Programação' });
