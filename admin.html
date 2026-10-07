@@ -115,6 +115,7 @@
               line-height: 1.3; height: 26px; overflow: hidden; }
   .lt2-num { font-family: 'DM Serif Display', serif; font-size: 27px; line-height: 1; margin-top: 4px; }
   .lt2-num small { font-size: 13px; color: var(--text-muted); font-family: 'DM Sans', sans-serif; }
+  .lt2-num.lt2-poucos { color: #c3bbac; }
   .lt2-sub { font-size: 10px; color: var(--text-muted); margin-top: 5px; line-height: 1.35; }
   .lt2-selo { font-size: 9px; margin-top: 7px; padding-top: 6px; border-top: 1px solid #f3eee5; color: var(--text-muted); }
   .lt2-card.lt2-fraco .lt2-selo { color: var(--orange); }
@@ -594,7 +595,23 @@
         <div class="pill" onclick="ltPeriodoSet(12,this)">12 meses</div>
         <div class="pill active" onclick="ltPeriodoSet(0,this)">Tudo</div>
       </div>
+      <div class="filter-sep"></div>
+      <span class="filter-label">Origem</span>
+      <div class="filter-pills" id="ltPillsOrigem">
+        <div class="pill active" onclick="ltOrigemSet('sistema',this)"
+             title="Produtos cadastrados no sistema. É como o time trabalha hoje.">Nascido no sistema</div>
+        <div class="pill" onclick="ltOrigemSet('planilha',this)"
+             title="Produtos importados da planilha antiga. As datas entraram na migração.">Herança da planilha</div>
+        <div class="pill" onclick="ltOrigemSet('',this)"
+             title="Os dois juntos — mistura duas épocas com regras diferentes.">Tudo</div>
+      </div>
       <span class="last-upd">conta pelo mês em que a fase fechou</span>
+    </div>
+
+    <div class="dash-hint" style="margin-bottom:10px;border-left:3px solid var(--accent);padding-left:10px">
+      Começa em <strong>Nascido no sistema</strong> de propósito. Quase tudo que existe hoje veio da planilha,
+      e lá o envio ao PCP não era etapa do processo — a data entrou junto na importação. Misturar as duas
+      épocas dava Comercial de 4 dias onde o número de hoje é 7, e PCP de 3 dias onde hoje é 0.
     </div>
 
     <div class="dash-hint" style="margin-bottom:10px">
@@ -1166,7 +1183,7 @@ function dNaFila(p, et) { return !dTrava(p) && dProxima(p) === et; }
 async function loadPainel() {
   const [prods, logs, libs, cfg] = await Promise.all([
     buscarTudo(() => sb.from('produtos')
-      .select('id,n_pedido,produto,tipo,responsavel,etapas,data_solicitacao,data_recebimento,data_entrega,data_envio_pcp,created_at')
+      .select('id,n_pedido,produto,tipo,responsavel,etapas,data_solicitacao,data_recebimento,data_entrega,data_envio_pcp,created_at,origem')
       .eq('status', 'ativo').order('created_at', { ascending: false })),
     /* `produto_id` e não o nome: dois produtos ativos têm nome repetido, e um
        deles aparece em dois pedidos. Casar por texto misturaria o histórico. */
@@ -1535,6 +1552,12 @@ function dashRenderParados(abertos) {
 let ltFases = {};           // chave -> { de, ate }  (vem da configuração)
 let ltCarregado = false;
 let ltPeriodo = 0;          // meses; 0 = tudo
+/* 'sistema' é o padrão, e não é detalhe: dos 357 pares do Comercial, 321 vêm
+   da PLANILHA. Medir tudo junto dava 4 dias quando o número de como o time
+   trabalha hoje é 7 — e a "piora de setembro" era, em boa parte, produto novo
+   entrando na conta e empurrando a mediana para onde ela sempre esteve.
+   O mesmo em sentido contrário no PCP: 3 dias no histórico, 0 hoje. */
+let ltOrigem = 'sistema';   // 'sistema' | 'planilha' | '' (tudo)
 let ltFaseTendencia = 'comercial';
 
 const LT_NOMES = {
@@ -1600,6 +1623,7 @@ function ltMedir(chave) {
     ? new Date(new Date().setMonth(new Date().getMonth() - ltPeriodo)) : null;
   const bons = [], impossiveis = [], invertidos = [];
   dashProd.forEach(p => {
+    if (!ltCabe(p)) return;
     const de = ltPonta(p, ticks, f.de), ate = ltPonta(p, ticks, f.ate);
     if (!de || !ate) return;
     if (!ltAnoOk(de) || !ltAnoOk(ate)) { impossiveis.push({ p, de, ate }); return; }
@@ -1621,6 +1645,7 @@ function ltPontaAPonta() {
     ? new Date(new Date().setMonth(new Date().getMonth() - ltPeriodo)) : null;
   const bons = [];
   dashProd.forEach(p => {
+    if (!ltCabe(p)) return;
     const de = ltPonta(p, ticks, 'data_solicitacao');
     const ate = ltPonta(p, ticks, 'etapa:montFinal');
     if (!de || !ate || !ltAnoOk(de) || !ltAnoOk(ate)) return;
@@ -1653,6 +1678,17 @@ function ltPeriodoSet(meses, el) {
   renderLeadtimes();
 }
 
+function ltOrigemSet(valor, el) {
+  ltOrigem = valor;
+  document.querySelectorAll('#ltPillsOrigem .pill').forEach(p => p.classList.remove('active'));
+  if (el) el.classList.add('active');
+  renderLeadtimes();
+}
+/* Produto da planilha não tem lead do comercial de verdade: no sistema antigo
+   ninguém registrava envio ao PCP como etapa do processo — a data entrou junto
+   na importação. Ver o conjunto mistura duas épocas com regras diferentes. */
+const ltCabe = p => !ltOrigem || String(p.origem || '') === ltOrigem;
+
 function renderLeadtimes() {
   if (!ltCarregado) return;
   ltTicagensCache = null;          // período mudou: mede de novo
@@ -1670,12 +1706,19 @@ function ltRenderCards(medidas) {
     const d = lista.map(x => x.d);
     const med = dashMediana(d);
     const avg = d.length ? d.reduce((a, b) => a + b, 0) / d.length : null;
+    /* Mediana de 1 ou 2 produtos não é mediana de nada. Em vez de esconder,
+       o card mostra o número apagado e diz que a amostra é pequena — é o caso
+       das três últimas fases quando se olha só o que nasceu no sistema: esses
+       produtos ainda não chegaram ao fim do processo. */
+    const poucos = d.length > 0 && d.length < 5;
     dzReg(chave, nome, 'produtos medidos nesta fase', lista.map(x => x.p));
     return `<div class="lt2-card ${soTicagem ? 'lt2-fraco' : ''} dash-clic"
          onclick="dzAbrir('${chave}')" title="${sdEsc(dica)}">
       <div class="lt2-nome">${nome}</div>
-      <div class="lt2-num">${med == null ? '—' : med + '<small>d</small>'}</div>
-      <div class="lt2-sub">${d.length ? `média ${avg.toFixed(1)}d · ${d.length} produtos` : 'sem dados'}</div>
+      <div class="lt2-num ${poucos ? 'lt2-poucos' : ''}">${med == null ? '—' : med + '<small>d</small>'}</div>
+      <div class="lt2-sub">${!d.length ? 'sem dados nesta seleção'
+        : poucos ? `só ${d.length} produto(s) — pouco para concluir`
+                 : `média ${avg.toFixed(1)}d · ${d.length} produtos`}</div>
       <div class="lt2-selo">${soTicagem ? '⚠ entre duas ticagens' : '✓ entre duas datas'}</div>
     </div>`;
   };
@@ -1756,6 +1799,23 @@ function ltFaseTrocar(v) { ltFaseTendencia = v; ltRenderTendencia(); }
    numa fase de ticagem não é: é a pessoa tendo ticado a 2ª etapa antes da 1ª,
    no mesmo dia de trabalho. Misturar as duas mandaria o time caçar defeito em
    52 produtos que não têm defeito nenhum. */
+/* Varre as QUATRO datas do cadastro, não só as que entram em alguma fase.
+   A data de entrega não é ponta de nenhum lead time, então dois produtos com
+   ano 0206 passaram despercebidos — e data de entrega no passado remoto faz o
+   produto parecer 1800 anos atrasado em qualquer conta de prazo. */
+const LT_COLUNAS_DATA = ['data_solicitacao', 'data_envio_pcp', 'data_recebimento', 'data_entrega'];
+function ltDatasImpossiveis() {
+  const fora = [];
+  dashProd.forEach(p => {
+    LT_COLUNAS_DATA.forEach(c => {
+      if (!p[c]) return;
+      const d = new Date(p[c] + 'T00:00:00');
+      if (isNaN(d) || !ltAnoOk(d)) fora.push({ p, coluna: c, valor: p[c] });
+    });
+  });
+  return fora;
+}
+
 function ltRenderQualidade(medidas) {
   const impossiveis = [], invertidasDeData = [], ticadasFora = [];
   medidas.forEach(m => {
@@ -1778,8 +1838,27 @@ function ltRenderQualidade(medidas) {
       ${itens.length > 8 ? `<div class="lt2-blsub">e outros ${itens.length - 8} — clique no título para ver todos</div>` : ''}
     </div>`;
   };
-  const html = bloco('Datas impossíveis', impossiveis,
-      'Ano fora de 2000–2100 — erro de digitação. Estes produtos ficam fora de todas as contas.', 'ltq_imp')
+  /* Esta varredura ignora o filtro de origem e de período: data quebrada é
+     para arrumar, não para analisar, e some se a seleção não a alcançar. */
+  const quebradas = ltDatasImpossiveis();
+  const htmlQuebradas = quebradas.length ? `<div class="lt2-bloco">
+      <div class="lt2-bltit dash-clic" onclick="dzAbrir('ltq_datas')">Datas impossíveis no cadastro · ${quebradas.length}</div>
+      <div class="lt2-blsub">Ano fora de 2000–2100, em qualquer uma das quatro datas. Vem da importação da
+        planilha, não de quem digita hoje. Vale arrumar: além de estragar a média, data de entrega assim faz
+        o produto parecer atrasado há séculos.</div>
+      ${quebradas.map(({ p, coluna, valor }) => `<div class="pz" style="grid-template-columns:minmax(0,1fr) 190px 150px">
+        <div class="pz-nome">${sdEsc(p.produto)}
+          <span class="pz-meta">· ${p.n_pedido ? '#' + sdEsc(p.n_pedido) : 'sem pedido'}</span></div>
+        <div class="pz-meta">${LT_PONTA_NOME[coluna] || coluna}</div>
+        <div class="pz-meta" style="color:var(--red)">${sdEsc(valor)}</div>
+      </div>`).join('')}
+    </div>` : '';
+  if (quebradas.length) dzReg('ltq_datas', 'Datas impossíveis no cadastro',
+    'ano fora de 2000–2100 em alguma das quatro datas', quebradas.map(x => x.p));
+
+  const html = htmlQuebradas
+    + bloco('Datas impossíveis dentro de uma fase', impossiveis,
+      'As mesmas de cima, vistas pela fase que elas estragam.', 'ltq_imp')
     + bloco('Datas na ordem errada', invertidasDeData,
       'A segunda data é anterior à primeira, e as duas são datas do cadastro. Alguém digitou trocado.', 'ltq_inv')
     + bloco('Ticado fora de ordem', ticadasFora,
