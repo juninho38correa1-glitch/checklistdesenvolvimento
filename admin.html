@@ -102,6 +102,26 @@
   .hb-trilho > i { display: block; height: 100%; }
   .hb-val { width: 58px; flex-shrink: 0; text-align: right; font-size: 11px; font-family: 'DM Mono', monospace; color: var(--mid); }
 
+  /* LEAD TIMES */
+  .lt2-cards { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 10px; margin-bottom: 16px; }
+  @media (max-width: 1180px) { .lt2-cards { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+  @media (max-width: 720px)  { .lt2-cards { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+  .lt2-card { background: white; border: 1px solid var(--border); border-left: 3px solid var(--green);
+              border-radius: 8px; padding: 12px 13px 11px; min-width: 0; }
+  /* Fase medida entre duas ticagens não tem o mesmo valor que uma medida entre
+     duas datas — a borda e o selo dizem isso sem precisar de nota de rodapé. */
+  .lt2-card.lt2-fraco { border-left-color: var(--orange); background: #fffdf9; }
+  .lt2-nome { font-size: 10px; text-transform: uppercase; letter-spacing: .6px; color: var(--text-muted);
+              line-height: 1.3; height: 26px; overflow: hidden; }
+  .lt2-num { font-family: 'DM Serif Display', serif; font-size: 27px; line-height: 1; margin-top: 4px; }
+  .lt2-num small { font-size: 13px; color: var(--text-muted); font-family: 'DM Sans', sans-serif; }
+  .lt2-sub { font-size: 10px; color: var(--text-muted); margin-top: 5px; line-height: 1.35; }
+  .lt2-selo { font-size: 9px; margin-top: 7px; padding-top: 6px; border-top: 1px solid #f3eee5; color: var(--text-muted); }
+  .lt2-card.lt2-fraco .lt2-selo { color: var(--orange); }
+  .lt2-bloco { margin-bottom: 16px; }
+  .lt2-bltit { font-size: 12.5px; font-weight: 600; text-decoration: underline; }
+  .lt2-blsub { font-size: 10.5px; color: var(--text-muted); margin: 3px 0 7px; line-height: 1.45; }
+
   /* gaveta: a lista de produtos por trás de um número */
   .dz-overlay { position: fixed; inset: 0; background: rgba(0,0,0,.5); display: none; align-items: center;
                 justify-content: center; z-index: 220; padding: 20px; backdrop-filter: blur(2px); }
@@ -468,6 +488,9 @@
   <button class="tab-btn" onclick="switchTab('atrasos',this)">
     ⏰ Atrasos
   </button>
+  <button class="tab-btn" onclick="switchTab('leadtimes',this)">
+    ⏱ Lead times
+  </button>
 </div>
 
 <div class="scroll-body">
@@ -558,6 +581,63 @@
     </div>
   </div><!-- /main-grid etapas -->
 </div><!-- /tab-etapas -->
+
+<!-- ABA: LEAD TIMES -->
+<div id="tab-leadtimes" class="tab-content" style="overflow-y:auto">
+  <div class="dash">
+
+    <div class="filter-bar" style="border:1px solid var(--border);border-radius:8px;margin-bottom:16px">
+      <span class="filter-label">Período</span>
+      <div class="filter-pills" id="ltPills">
+        <div class="pill" onclick="ltPeriodoSet(3,this)">3 meses</div>
+        <div class="pill" onclick="ltPeriodoSet(6,this)">6 meses</div>
+        <div class="pill" onclick="ltPeriodoSet(12,this)">12 meses</div>
+        <div class="pill active" onclick="ltPeriodoSet(0,this)">Tudo</div>
+      </div>
+      <span class="last-upd">conta pelo mês em que a fase fechou</span>
+    </div>
+
+    <div class="dash-hint" style="margin-bottom:10px">
+      O número grande é a <strong>mediana</strong>: metade dos produtos levou até aquilo. A média vem embaixo,
+      porque nestas fases ela fica bem acima — umas poucas muito demoradas puxam a conta. Clique em qualquer
+      card para ver os produtos.
+    </div>
+    <div class="lt2-cards" id="ltCards"></div>
+
+    <div class="dash-grid">
+      <div class="dash-card">
+        <div class="panel-title">Como se distribui</div>
+        <div class="dash-hint">Cada barra é 100% dos produtos daquela fase, repartidos por faixa de dias.
+          É onde se vê se a fase é previsível ou se vive de exceções.</div>
+        <div id="ltDistrib"></div>
+      </div>
+
+      <div class="dash-card">
+        <div class="panel-title">Está melhorando ou piorando</div>
+        <div class="dash-hint">Mediana mês a mês
+          <select class="filter-sel" id="ltFaseSel" onchange="ltFaseTrocar(this.value)" style="margin-left:6px">
+            <option value="comercial">Comercial</option>
+            <option value="ficha">PCP</option>
+            <option value="criacao">Criação 3D</option>
+            <option value="preparacao">Extração e programação</option>
+            <option value="producao">Produção</option>
+            <option value="modtec">Modelagem Tecido</option>
+          </select>
+        </div>
+        <div id="ltTendencia"></div>
+        <div class="dash-hint" id="ltTendAviso" style="margin:9px 0 0"></div>
+      </div>
+
+      <div class="dash-card dash-wide">
+        <div class="panel-title">Dados que atrapalham a conta</div>
+        <div class="dash-hint">Pares que ficaram de fora, e por quê. Os dois primeiros blocos são para alguém
+          corrigir no cadastro; o terceiro não é defeito, é hábito de ticagem.</div>
+        <div id="ltQualidade"></div>
+      </div>
+    </div>
+
+  </div>
+</div>
 
 <!-- ABA: ATRASOS -->
 <div id="tab-atrasos" class="tab-content">
@@ -1086,7 +1166,7 @@ function dNaFila(p, et) { return !dTrava(p) && dProxima(p) === et; }
 async function loadPainel() {
   const [prods, logs, libs, cfg] = await Promise.all([
     buscarTudo(() => sb.from('produtos')
-      .select('id,n_pedido,produto,tipo,responsavel,etapas,data_recebimento,data_entrega,data_envio_pcp,created_at')
+      .select('id,n_pedido,produto,tipo,responsavel,etapas,data_solicitacao,data_recebimento,data_entrega,data_envio_pcp,created_at')
       .eq('status', 'ativo').order('created_at', { ascending: false })),
     /* `produto_id` e não o nome: dois produtos ativos têm nome repetido, e um
        deles aparece em dois pedidos. Casar por texto misturaria o histórico. */
@@ -1437,6 +1517,278 @@ function dashRenderParados(abertos) {
     </div>`;
   }).join('');
 }
+/* ── LEAD TIMES ───────────────────────────────────────────────────────
+   O produto já mostra, um por um, quanto tempo levou em cada fase. Esta aba
+   faz a mesma conta no conjunto: dá para ver onde a casa perde tempo, e se
+   está melhorando ou piorando mês a mês.
+
+   As pontas de cada fase NÃO estão escritas aqui — saem de
+   `configuracoes.leadtimes`, o mesmo lugar que os dropdowns do Painel Admin
+   do portal editam. Se alguém trocar uma ponta lá, esta aba acompanha, senão
+   as duas telas passariam a medir coisas diferentes com o mesmo nome.
+
+   CONFIANÇA (o selo em cada card): fase medida entre duas DATAS do cadastro é
+   confiável; medida entre duas TICAGENS, não. As ticagens são feitas em bloco,
+   depois do trabalho — de 171 produtos com 8+ etapas fechadas, 50 tiveram tudo
+   ticado no mesmo dia. Então o card diz de onde o número veio, em vez de
+   deixar quem lê achar que as seis fases têm o mesmo peso. */
+let ltFases = {};           // chave -> { de, ate }  (vem da configuração)
+let ltCarregado = false;
+let ltPeriodo = 0;          // meses; 0 = tudo
+let ltFaseTendencia = 'comercial';
+
+const LT_NOMES = {
+  comercial:  'Comercial',
+  ficha:      'PCP',
+  criacao:    'Criação 3D',
+  preparacao: 'Extração e programação',
+  producao:   'Produção',
+  modtec:     'Modelagem Tecido'
+};
+const LT_ORDEM = ['comercial', 'ficha', 'criacao', 'preparacao', 'producao', 'modtec'];
+const LT_PADRAO = {
+  comercial:  { de: 'data_solicitacao',  ate: 'data_envio_pcp' },
+  ficha:      { de: 'data_envio_pcp',    ate: 'etapa:fichaRecebida' },
+  criacao:    { de: 'data_recebimento',  ate: 'etapa:modelagem3d' },
+  preparacao: { de: 'etapa:modelagem3d', ate: 'etapa:programacao' },
+  producao:   { de: 'etapa:programacao', ate: 'etapa:espumacao' },
+  modtec:     { de: 'etapa:espumacao',   ate: 'etapa:modelagemTec' }
+};
+const LT_PONTA_NOME = {
+  data_solicitacao: 'Data da solicitação', data_envio_pcp: 'Data de envio ao PCP',
+  data_recebimento: 'Data de recebimento', data_entrega: 'Data de entrega'
+};
+const ltRotuloPonta = ref => ref && ref.startsWith('etapa:')
+  ? 'ticagem da ' + dEtLabel(ref.slice(6))
+  : (LT_PONTA_NOME[ref] || ref || '—');
+/* Duas ticagens = o relógio depende de QUANDO a pessoa lembrou de ticar. */
+const ltSoTicagem = f => !!f && String(f.de).startsWith('etapa:') && String(f.ate).startsWith('etapa:');
+
+const ltMeiaNoite = d => { const x = new Date(d); x.setHours(0, 0, 0, 0); return x; };
+const ltDias = (a, b) => Math.round((ltMeiaNoite(b) - ltMeiaNoite(a)) / 86400000);
+const ltAnoOk = d => { const a = d.getFullYear(); return a >= 2000 && a <= 2100; };
+
+/* A última ticagem que deixou a etapa marcada. A data que vale é a da marcação
+   ATUAL, não a primeira da história: marcar por engano e desmarcar mentiria no
+   tempo. `dashLogs` já vem da mais nova para a mais velha e já exclui as
+   marcações retroativas da migração, cujas datas são estimadas. */
+function ltTicagens() {
+  const m = {};
+  dashLogs.forEach(l => {
+    if (l.status !== true) return;
+    const por = m[l.produto_id] = m[l.produto_id] || {};
+    if (!por[l.etapa]) por[l.etapa] = l.created_at;
+  });
+  return m;
+}
+function ltPonta(p, ticks, ref) {
+  if (!ref) return null;
+  if (String(ref).startsWith('etapa:')) {
+    const t = ticks[p.id] && ticks[p.id][ref.slice(6)];
+    return t ? new Date(t) : null;
+  }
+  return p[ref] ? new Date(p[ref] + 'T00:00:00') : null;
+}
+
+/* Mede UMA fase sobre todos os produtos. Devolve os pares bons, os de data
+   impossível (erro de digitação) e os de ordem invertida — separados, porque
+   são problemas diferentes e só o primeiro é para alguém corrigir. */
+function ltMedir(chave) {
+  const f = ltFases[chave] || LT_PADRAO[chave];
+  const ticks = ltTicagensCache || (ltTicagensCache = ltTicagens());
+  const corte = ltPeriodo
+    ? new Date(new Date().setMonth(new Date().getMonth() - ltPeriodo)) : null;
+  const bons = [], impossiveis = [], invertidos = [];
+  dashProd.forEach(p => {
+    const de = ltPonta(p, ticks, f.de), ate = ltPonta(p, ticks, f.ate);
+    if (!de || !ate) return;
+    if (!ltAnoOk(de) || !ltAnoOk(ate)) { impossiveis.push({ p, de, ate }); return; }
+    if (corte && ate < corte) return;
+    const d = ltDias(de, ate);
+    if (d < 0) { invertidos.push({ p, de, ate, d }); return; }
+    bons.push({ p, de, ate, d });
+  });
+  return { chave, nome: LT_NOMES[chave] || chave, f, bons, impossiveis, invertidos,
+           soTicagem: ltSoTicagem(f) };
+}
+let ltTicagensCache = null;
+
+/* Ponta a ponta medido DIRETO, não somando as medianas das fases: a soma de
+   medianas não é a mediana da soma, e daria um total que nenhum produto viveu. */
+function ltPontaAPonta() {
+  const ticks = ltTicagensCache || (ltTicagensCache = ltTicagens());
+  const corte = ltPeriodo
+    ? new Date(new Date().setMonth(new Date().getMonth() - ltPeriodo)) : null;
+  const bons = [];
+  dashProd.forEach(p => {
+    const de = ltPonta(p, ticks, 'data_solicitacao');
+    const ate = ltPonta(p, ticks, 'etapa:montFinal');
+    if (!de || !ate || !ltAnoOk(de) || !ltAnoOk(ate)) return;
+    if (corte && ate < corte) return;
+    const d = ltDias(de, ate);
+    if (d >= 0) bons.push({ p, de, ate, d });
+  });
+  return bons;
+}
+
+async function loadLeadtimes() {
+  // os produtos e as ticagens são os mesmos do Painel: não vale buscar de novo
+  if (!dashCarregado) await loadPainel();
+  const { data } = await sb.from('configuracoes').select('valor').eq('chave', 'leadtimes').maybeSingle();
+  ltFases = JSON.parse(JSON.stringify(LT_PADRAO));
+  try {
+    const cfg = data && data.valor ? JSON.parse(data.valor) : null;
+    if (cfg) Object.keys(ltFases).forEach(k => {
+      if (cfg[k] && cfg[k].de && cfg[k].ate) ltFases[k] = cfg[k];
+    });
+  } catch (e) { console.error('configuração de leadtimes ilegível, usando o padrão:', e); }
+  ltCarregado = true;
+  renderLeadtimes();
+}
+
+function ltPeriodoSet(meses, el) {
+  ltPeriodo = meses;
+  document.querySelectorAll('#ltPills .pill').forEach(p => p.classList.remove('active'));
+  if (el) el.classList.add('active');
+  renderLeadtimes();
+}
+
+function renderLeadtimes() {
+  if (!ltCarregado) return;
+  ltTicagensCache = null;          // período mudou: mede de novo
+  dzListas = Object.assign(dzListas || {}, {});
+  const medidas = LT_ORDEM.map(ltMedir);
+  ltRenderCards(medidas);
+  ltRenderDistribuicao(medidas);
+  ltRenderTendencia();
+  ltRenderQualidade(medidas);
+}
+
+function ltRenderCards(medidas) {
+  const ponta = ltPontaAPonta();
+  const cartao = (nome, lista, soTicagem, dica, chave) => {
+    const d = lista.map(x => x.d);
+    const med = dashMediana(d);
+    const avg = d.length ? d.reduce((a, b) => a + b, 0) / d.length : null;
+    dzReg(chave, nome, 'produtos medidos nesta fase', lista.map(x => x.p));
+    return `<div class="lt2-card ${soTicagem ? 'lt2-fraco' : ''} dash-clic"
+         onclick="dzAbrir('${chave}')" title="${sdEsc(dica)}">
+      <div class="lt2-nome">${nome}</div>
+      <div class="lt2-num">${med == null ? '—' : med + '<small>d</small>'}</div>
+      <div class="lt2-sub">${d.length ? `média ${avg.toFixed(1)}d · ${d.length} produtos` : 'sem dados'}</div>
+      <div class="lt2-selo">${soTicagem ? '⚠ entre duas ticagens' : '✓ entre duas datas'}</div>
+    </div>`;
+  };
+  const cards = medidas.map(m => {
+    const dica = `${m.nome}\nDe: ${ltRotuloPonta(m.f.de)}\nAté: ${ltRotuloPonta(m.f.ate)}\n`
+      + `${m.bons.length} produtos medidos`
+      + (m.invertidos.length ? `\n${m.invertidos.length} ficaram fora da conta: a 2ª ponta é anterior à 1ª` : '')
+      + (m.soTicagem
+          ? '\n\nAs duas pontas são ticagens, e ticagem é feita em bloco depois do trabalho — este número mede quando alguém lembrou de ticar, não quanto durou a fase.'
+          : '\n\nAs duas pontas têm data própria, então o número é confiável.')
+      + '\n\nClique para ver os produtos.';
+    return cartao(m.nome, m.bons, m.soTicagem, dica, 'lt_' + m.chave);
+  });
+  const dicaPonta = `Da Data da solicitação até a ticagem da Montagem Final.\n`
+    + `${ponta.length} produtos.\n\nNÃO é a soma das fases: somar medianas daria um total que nenhum produto viveu.`;
+  cards.push(cartao('Ponta a ponta', ponta, false, dicaPonta, 'lt_total'));
+  document.getElementById('ltCards').innerHTML = cards.join('');
+}
+
+const LT_FAIXAS = [
+  ['mesmo dia', d => d === 0],
+  ['1–2d',      d => d >= 1  && d <= 2],
+  ['3–7d',      d => d >= 3  && d <= 7],
+  ['8–15d',     d => d >= 8  && d <= 15],
+  ['16–30d',    d => d >= 16 && d <= 30],
+  ['+30d',      d => d > 30]
+];
+const LT_CORES = ['#e2dacb', '#d9c9a3', '#C8A96E', '#b98b45', '#E67E22', '#C0392B'];
+
+function ltRenderDistribuicao(medidas) {
+  const linhas = medidas.map(m => {
+    const n = m.bons.length;
+    if (!n) return `<div class="hb"><div class="hb-nome">${m.nome}</div>
+      <div class="hb-trilho"></div><div class="hb-val">—</div></div>`;
+    const partes = LT_FAIXAS.map(([rot, teste], i) => {
+      const q = m.bons.filter(x => teste(x.d)).length;
+      return q ? `<i style="width:${q / n * 100}%;background:${LT_CORES[i]}"
+          title="${sdEsc(`${m.nome} · ${rot}: ${q} de ${n}`)}"></i>` : '';
+    }).join('');
+    return `<div class="hb"><div class="hb-nome">${m.nome}</div>
+      <div class="hb-trilho">${partes}</div><div class="hb-val">${n}</div></div>`;
+  }).join('');
+  document.getElementById('ltDistrib').innerHTML = linhas
+    + `<div class="fx-legenda" style="margin-top:11px">`
+    + LT_FAIXAS.map(([rot], i) =>
+        `<span class="fx-chip" style="background:${LT_CORES[i]}"></span> ${rot}`).join('')
+    + `</div>`;
+}
+
+function ltRenderTendencia() {
+  const sel = document.getElementById('ltFaseSel');
+  if (sel && sel.value !== ltFaseTendencia) sel.value = ltFaseTendencia;
+  const m = ltMedir(ltFaseTendencia);
+  const porMes = {};
+  m.bons.forEach(x => {
+    const k = x.ate.getFullYear() + '-' + String(x.ate.getMonth() + 1).padStart(2, '0');
+    (porMes[k] = porMes[k] || []).push(x.d);
+  });
+  const meses = Object.keys(porMes).sort().slice(-8);
+  const cols = meses.map(k => {
+    const med = dashMediana(porMes[k]);
+    const mm = k.slice(5);
+    return { rotulo: ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'][+mm - 1],
+             valor: Math.round(med),
+             dica: `${mm}/${k.slice(0,4)}: ${porMes[k].length} produto(s), metade levou até ${Math.round(med)} dia(s)` };
+  });
+  document.getElementById('ltTendencia').innerHTML = cols.length
+    ? dashColunas(cols, `dias, pelo mês em que a fase FECHOU`)
+    : '<div class="dash-vazio">Sem dados nesta seleção.</div>';
+  const aviso = document.getElementById('ltTendAviso');
+  if (aviso) aviso.textContent = m.soTicagem
+    ? 'Esta fase é medida entre duas ticagens — a tendência mostra o hábito de ticar junto com o trabalho.' : '';
+}
+
+function ltFaseTrocar(v) { ltFaseTendencia = v; ltRenderTendencia(); }
+
+/* Data impossível é erro de digitação e alguém tem de arrumar. Ordem invertida
+   numa fase de ticagem não é: é a pessoa tendo ticado a 2ª etapa antes da 1ª,
+   no mesmo dia de trabalho. Misturar as duas mandaria o time caçar defeito em
+   52 produtos que não têm defeito nenhum. */
+function ltRenderQualidade(medidas) {
+  const impossiveis = [], invertidasDeData = [], ticadasFora = [];
+  medidas.forEach(m => {
+    m.impossiveis.forEach(x => impossiveis.push({ m, x }));
+    m.invertidos.forEach(x => (m.soTicagem ? ticadasFora : invertidasDeData).push({ m, x }));
+  });
+  const fmt = d => d.toLocaleDateString('pt-BR');
+  const bloco = (titulo, itens, explica, chave) => {
+    if (!itens.length) return '';
+    dzReg(chave, titulo, explica, itens.map(i => i.x.p));
+    return `<div class="lt2-bloco">
+      <div class="lt2-bltit dash-clic" onclick="dzAbrir('${chave}')">${titulo} · ${itens.length}</div>
+      <div class="lt2-blsub">${explica}</div>
+      ${itens.slice(0, 8).map(({ m, x }) => `<div class="pz" style="grid-template-columns:minmax(0,1fr) 150px 190px">
+        <div class="pz-nome">${sdEsc(x.x === undefined ? '' : '')}${sdEsc(x.p.produto)}
+          <span class="pz-meta">· ${x.p.n_pedido ? '#' + sdEsc(x.p.n_pedido) : 'sem pedido'}</span></div>
+        <div class="pz-meta">${m.nome}</div>
+        <div class="pz-meta">${fmt(x.de)} → ${fmt(x.ate)}</div>
+      </div>`).join('')}
+      ${itens.length > 8 ? `<div class="lt2-blsub">e outros ${itens.length - 8} — clique no título para ver todos</div>` : ''}
+    </div>`;
+  };
+  const html = bloco('Datas impossíveis', impossiveis,
+      'Ano fora de 2000–2100 — erro de digitação. Estes produtos ficam fora de todas as contas.', 'ltq_imp')
+    + bloco('Datas na ordem errada', invertidasDeData,
+      'A segunda data é anterior à primeira, e as duas são datas do cadastro. Alguém digitou trocado.', 'ltq_inv')
+    + bloco('Ticado fora de ordem', ticadasFora,
+      'A etapa seguinte foi ticada antes da anterior. Não é erro de cadastro: é ticagem em bloco, '
+      + 'tudo no mesmo dia. Fica fora da conta porque duração negativa não existe.', 'ltq_tic');
+  document.getElementById('ltQualidade').innerHTML = html
+    || '<div class="dash-vazio">Nenhum dado suspeito nesta seleção.</div>';
+}
+
 /* ── INIT ─────────────────────────────────────────── */
 function updateHeaderDate() {
   document.getElementById('headerDate').textContent =
@@ -1474,6 +1826,7 @@ function switchTab(tab, btn) {
   const topo = document.querySelector('.stats-bar');
   if (topo) topo.style.display = soEtapas ? '' : 'none';
   if (tab === 'painel') { if (!dashCarregado) loadPainel(); else renderPainel(); }
+  if (tab === 'leadtimes') { if (!ltCarregado) loadLeadtimes(); else renderLeadtimes(); }
   if (tab === 'solic' && !solCarregado) { loadSolicitacoes(); }
   if (tab === 'atrasos') {
     // reaproveita a carga das solicitações: é a mesma lista, outra leitura dela
