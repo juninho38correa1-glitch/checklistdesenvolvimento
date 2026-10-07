@@ -963,7 +963,10 @@ function daysDiff(str) {
 function fmtDate(str) {
   const d = parseDate(str);
   if (!d) return '—';
-  return d.toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit',year:'2-digit'});
+  /* Ano com 4 dígitos. "08/09/26" economiza dois caracteres e cobra atenção
+     em troca: num sistema que guarda pedido de 2023 ao lado de 2026, ler 26
+     como dia, mês ou ano depende de adivinhar a posição. */
+  return d.toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit',year:'numeric'});
 }
 function fmtInputDate(str) {
   const d = parseDate(str);
