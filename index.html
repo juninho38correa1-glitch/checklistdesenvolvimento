@@ -1154,7 +1154,10 @@ async function salvarGrupo(grupo, botao) {
 /* Editor dos lead times. O JSON fica numa linha só da tabela de
    configurações, mas ninguém deveria digitar JSON na mão: aqui vira duas
    listas por lead time, com as opções que existem de verdade. */
-const LEADS_NOMES = { comercial:'Comercial', ficha:'Ficha (PCP)', criacao:'Criação',
+/* Mesma fase, mesmo nome nas três telas. Ela já se chamou "Ficha (PCP)" aqui,
+   "Pedido" no Gantt e "PCP" no painel de lead times — três nomes para a mesma
+   faixa é o tipo de coisa que faz alguém achar que são medidas diferentes. */
+const LEADS_NOMES = { comercial:'Comercial', ficha:'PCP', criacao:'Criação',
                       preparacao:'Preparação', producao:'Produção', modtec:'Modelagem Téc.' };
 const LEADS_PADRAO = {
   comercial:  { de:'data_solicitacao',  ate:'data_envio_pcp' },
