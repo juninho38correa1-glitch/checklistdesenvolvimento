@@ -506,6 +506,9 @@
       <div class="edit-section">
         <label class="section-label">Onde o pedido estava quando as etiquetas foram coletadas?</label>
         <select class="edit-input" id="retransEtapa"></select>
+        <div style="font-size:11px;color:var(--text-muted);margin-top:3px">
+          Só para o registro — não decide o que será refeito.
+        </div>
       </div>
       <!-- A coleta quase nunca é registrada no mesmo dia em que aconteceu: o
            119198 foi recolhido em 08/10 e só chegou aqui em 14/10. Sem este
@@ -534,12 +537,12 @@
         <label class="section-label">Observação (opcional)</label>
         <input type="text" class="edit-input" id="retransObs" placeholder="o que mudou no pedido">
       </div>
-      <div class="edit-section" style="background:#faf6ee;border:1px dashed var(--border);border-radius:8px;padding:10px 12px">
-        <label style="display:flex;gap:8px;align-items:flex-start;cursor:pointer;font-size:13px">
-          <input type="checkbox" id="retransDesmarcar" checked style="margin-top:3px">
-          <span>Desmarcar as etapas <b>da coleta em diante</b>, para a equipe refazer.<br>
-          <span style="font-size:11px;color:var(--text-muted)">O que foi feito antes continua registrado: o ciclo atual é congelado neste momento e segue visível na linha do tempo.</span></span>
-        </label>
+      <div class="edit-section" style="background:#faf6ee;border:1px dashed var(--border);border-radius:8px;padding:10px 12px;font-size:13px">
+        <b>As 10 etapas voltam ao zero</b>, junto com o "pedido recebido".<br>
+        <span style="font-size:11px;color:var(--text-muted)">
+          Retransmissão quer dizer que o pedido mudou, e pedido que mudou se refaz inteiro — inclusive o
+          bloco 3D. Nada se perde: o ciclo que fecha é congelado agora e continua desenhado na linha do tempo.
+        </span>
       </div>
     </div>
     <div class="modal-footer">
@@ -2667,7 +2670,6 @@ function abrirModalRetransmissao(rowIndex) {
   if (campoData) { campoData.value = ''; campoData.max = new Date().toISOString().slice(0, 10); }
 
   document.getElementById('retransObs').value = '';
-  document.getElementById('retransDesmarcar').checked = true;
   document.getElementById('modalRetransOverlay').style.display = 'flex';
 }
 
@@ -2682,7 +2684,7 @@ async function confirmarRetransmissao() {
   const entregou    = (document.getElementById('retransEntregou') || {}).value || '';
   const obs         = document.getElementById('retransObs').value.trim();
   const dataColeta  = (document.getElementById('retransData') || {}).value || '';
-  const desmarcar   = document.getElementById('retransDesmarcar').checked;
+
   if (!coletou) { alert('Diga quem coletou as etiquetas.'); return; }
 
   /* A data da coleta vira o INSTANTE que fecha o ciclo. Para um dia que já
@@ -2698,10 +2700,14 @@ async function confirmarRetransmissao() {
   }
 
   const idx = STAGES.indexOf(etapaColeta);
-  const aDesmarcar = desmarcar ? STAGES.slice(idx).filter(s => it.stages[s]) : [];
+  /* TODAS, não da etapa escolhida em diante: a etapa escolhida diz onde o
+     pedido estava, não o que precisa ser refeito. Ver o comentário do bloco
+     no modal. */
+  const aDesmarcar = STAGES.filter(s => it.stages[s]);
   const resumo = aDesmarcar.length
-    ? `\n\nSerão desmarcadas ${aDesmarcar.length} etapa(s), da ${STAGE_LABELS[idx]} em diante, para a equipe refazer.\nO que já foi feito continua registrado.`
-    : '\n\nNenhuma etapa será desmarcada.';
+    ? `\n\nAs ${aDesmarcar.length} etapa(s) já ticadas serão desmarcadas, e o "pedido recebido" também.`
+      + `\nO ciclo que fecha continua registrado e visível na linha do tempo.`
+    : '\n\nNenhuma etapa estava ticada; o ciclo novo começa do zero.';
   if (!confirm(`Ativar a ${retransDe(it).length + 1}ª retransmissão de ${it.produto}?${resumo}`)) return;
 
   btn.disabled = true;
