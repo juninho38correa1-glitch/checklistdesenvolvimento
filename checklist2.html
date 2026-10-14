@@ -490,7 +490,12 @@
 
 <!-- MODAL DE RELATÓRIO DO PRODUTO -->
 <!-- ATIVAR RETRANSMISSÃO -->
-<div class="modal-overlay" id="modalRetransOverlay">
+<!-- z-index acima do relatório: este modal é ABERTO DE DENTRO dele, e vem antes
+     no HTML. Com os dois em z-index 100, quem ganha é o último do documento —
+     o relatório — então a retransmissão aparecia atrás e o clique em "Ativar"
+     caía no overlay do relatório. Ficava visível, mas morto. Mesmo tratamento
+     que `modalLogOverlay` e `modalSolicAnexo` já tinham. -->
+<div class="modal-overlay" id="modalRetransOverlay" style="z-index:130">
   <div class="modal-card" style="max-width:520px">
     <span class="modal-close" onclick="closeModal('modalRetransOverlay')">&times;</span>
     <div class="modal-header">
@@ -502,9 +507,28 @@
         <label class="section-label">Onde o pedido estava quando as etiquetas foram coletadas?</label>
         <select class="edit-input" id="retransEtapa"></select>
       </div>
+      <!-- A coleta quase nunca é registrada no mesmo dia em que aconteceu: o
+           119198 foi recolhido em 08/10 e só chegou aqui em 14/10. Sem este
+           campo o sistema carimbava a hora do clique, e essa data é a FRONTEIRA
+           ENTRE OS CICLOS — seis dias de trabalho do ciclo velho entrariam no
+           novo. -->
+      <div class="edit-section">
+        <label class="section-label">Quando as etiquetas foram coletadas?</label>
+        <input type="date" class="edit-input" id="retransData">
+        <div style="font-size:11px;color:var(--text-muted);margin-top:3px">
+          Deixe em branco para usar hoje. É esta data que separa o ciclo que fecha do que começa.
+        </div>
+      </div>
       <div class="edit-section">
         <label class="section-label">Quem coletou as etiquetas?</label>
         <select class="edit-input" id="retransColetou"></select>
+      </div>
+      <!-- São dois papéis diferentes e o time registra os dois: no 119198 a
+           Nayara recolheu e a Erika respondia pela entrega. Com um campo só,
+           um dos dois nomes se perdia. -->
+      <div class="edit-section">
+        <label class="section-label">Quem entregou as etiquetas? (opcional)</label>
+        <select class="edit-input" id="retransEntregou"></select>
       </div>
       <div class="edit-section">
         <label class="section-label">Observação (opcional)</label>
@@ -2620,6 +2644,15 @@ function abrirModalRetransmissao(rowIndex) {
   sel.innerHTML = '<option value="">— selecione —</option>' +
     usuariosAtivos.map(u => `<option value="${esc(u.nome)}" ${u.nome === getOperador() ? 'selected' : ''}>${esc(u.nome)}</option>`).join('');
 
+  /* Quem entregou NÃO vem pré-selecionado: é informação que a pessoa tem de
+     saber, e chutar o operador aqui gravaria nome errado com cara de certo. */
+  const selEnt = document.getElementById('retransEntregou');
+  if (selEnt) selEnt.innerHTML = '<option value="">— não informado —</option>' +
+    usuariosAtivos.map(u => `<option value="${esc(u.nome)}">${esc(u.nome)}</option>`).join('');
+
+  const campoData = document.getElementById('retransData');
+  if (campoData) { campoData.value = ''; campoData.max = new Date().toISOString().slice(0, 10); }
+
   document.getElementById('retransObs').value = '';
   document.getElementById('retransDesmarcar').checked = true;
   document.getElementById('modalRetransOverlay').style.display = 'flex';
@@ -2633,9 +2666,23 @@ async function confirmarRetransmissao() {
 
   const etapaColeta = document.getElementById('retransEtapa').value;
   const coletou     = document.getElementById('retransColetou').value.trim();
+  const entregou    = (document.getElementById('retransEntregou') || {}).value || '';
   const obs         = document.getElementById('retransObs').value.trim();
+  const dataColeta  = (document.getElementById('retransData') || {}).value || '';
   const desmarcar   = document.getElementById('retransDesmarcar').checked;
   if (!coletou) { alert('Diga quem coletou as etiquetas.'); return; }
+
+  /* A data da coleta vira o INSTANTE que fecha o ciclo. Para um dia que já
+     passou vale o FIM do dia, não a meia-noite: as etapas ticadas naquele dia
+     aconteceram antes de alguém recolher as etiquetas, então pertencem ao ciclo
+     que está fechando. Com meia-noite, o trabalho do próprio dia da coleta
+     cairia no ciclo novo. Data de hoje (ou em branco) usa a hora do clique. */
+  const hojeISO = new Date().toISOString().slice(0, 10);
+  let ativadaEm = null;
+  if (dataColeta && dataColeta < hojeISO) {
+    const d = new Date(dataColeta + 'T23:59:59');
+    if (!isNaN(d)) ativadaEm = d.toISOString();
+  }
 
   const idx = STAGES.indexOf(etapaColeta);
   const aDesmarcar = desmarcar ? STAGES.slice(idx).filter(s => it.stages[s]) : [];
@@ -2667,9 +2714,14 @@ async function confirmarRetransmissao() {
       ativada_por_nome: getOperador() || null,
       etapa_na_coleta: etapaColeta,
       coletou_etiquetas: coletou,
-      observacao: obs || null,
+      /* "Quem entregou" ainda não tem coluna própria — criar uma é mudança de
+         schema, e isso só com o OK do dono. Até lá entra na observação, que é
+         texto e já aparece no histórico da retransmissão. */
+      observacao: [entregou ? 'Entregues por ' + entregou : null, obs || null]
+                    .filter(Boolean).join(' · ') || null,
       data_entrega: it.dataEntrega || null,
-      etapas_congeladas: congelado
+      etapas_congeladas: congelado,
+      ...(ativadaEm ? { ativada_em: ativadaEm } : {})
     }).select().single();
     if (error) throw error;
 
@@ -2677,7 +2729,10 @@ async function confirmarRetransmissao() {
     await supabaseClient.from('pedido_observacoes').insert({
       produto_id: it.id, n_pedido: it.nPedido || null, produto: it.produto,
       texto: `🔁 Retransmissão ${numero} ativada — pedido estava em ${STAGE_LABELS[idx]}, `
-           + `etiquetas coletadas por ${coletou}${obs ? '. ' + obs : ''}`,
+           + `etiquetas coletadas por ${coletou}`
+           + (entregou ? ` e entregues por ${entregou}` : '')
+           + (ativadaEm ? ` em ${dataColeta.split('-').reverse().join('/')}` : '')
+           + `${obs ? '. ' + obs : ''}`,
       autor: getOperador() || null
     });
 
