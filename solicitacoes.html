@@ -227,6 +227,7 @@
 
     <div id="detOC" style="margin-top:12px"></div>
     <div id="detConferencia" style="margin-top:12px"></div>
+    <div id="detRetransPcp" style="margin-top:12px"></div>
 
     <span class="section-label">Anexos (fotos / desenhos)</span>
     <div id="detAnexos"><div class="empty">Carregando...</div></div>
@@ -491,6 +492,7 @@ async function abrirDetalhe(id) {
   document.getElementById('detDescricao').textContent = s.descricao || '';
   renderOC(s);
   carregarConferencia(s);
+  carregarRetransPcp(s);
   renderAcoes(s);
   abrirOverlay('detOverlay');
   carregarAnexos(id);
@@ -824,6 +826,144 @@ async function salvarConferencia() {
 /* `upsert` com a chave do produto: a linha já nasceu junto da solicitação,
    mas se alguém apagou (ou é uma solicitação antiga, de antes disto), ela se
    recria em vez de a tela travar. */
+/* ── RETRANSMISSÃO: A DATA DE ENVIO AO PCP ───────────────────────────
+   Quem recebe esta solicitação é o comercial, e o que se espera dele é UMA
+   coisa: dizer em que dia o pedido voltou ao PCP. Mandar a pessoa procurar o
+   produto no checklist para preencher no cadastro é pedir que ela saia da
+   tela, ache 1 produto entre 500 e volte — e foi assim que as três primeiras
+   foram concluídas sem ninguém preencher nada.
+   Preencher aqui faz as três coisas que a ativação espera: grava no produto,
+   abre a liberação para o PCP e conclui esta solicitação. */
+let detRetrans = null;        // { produto, dataAtual }
+
+function ehRetransPcp(s) {
+  return (s.titulo || '').toLowerCase().startsWith('retransmissão — reenviar ao pcp');
+}
+// mesma regra do resto: o dono da solicitação preenche, admin destrava
+function podeInformarPcp(s) { return sessao.admin || sessao.id === s.responsavel_id; }
+
+async function carregarRetransPcp(s) {
+  const el = document.getElementById('detRetransPcp');
+  detRetrans = null;
+  if (!el) return;
+  if (!ehRetransPcp(s)) { el.innerHTML = ''; return; }
+  const { data: prod } = await sb.from('produtos')
+    .select('id,produto,n_pedido,data_envio_pcp,data_solicitacao,data_entrega,cod_cadastro,tipo')
+    .eq('produto', s.produto_ref || '').eq('n_pedido', s.pedido_ref || '').maybeSingle();
+  if (!prod) {
+    el.innerHTML = '<div class="conf-box">Não achei o produto desta solicitação.</div>';
+    return;
+  }
+  detRetrans = prod;
+  renderRetransPcp();
+}
+
+function renderRetransPcp() {
+  const s = detAtual, pr = detRetrans;
+  const el = document.getElementById('detRetransPcp');
+  if (!pr) { el.innerHTML = ''; return; }
+  const editar = podeInformarPcp(s) && s.status !== 'cancelada';
+  if (pr.data_envio_pcp) {
+    el.innerHTML = `<div class="conf-box">
+      <div class="conf-cab"><b>✓ Reenviado ao PCP</b></div>
+      <div style="font-size:12px">Data de Envio ao PCP: <b>${pr.data_envio_pcp.split('-').reverse().join('/')}</b>.
+      O PCP já foi avisado e o produto saiu da trava.</div></div>`;
+    return;
+  }
+  el.innerHTML = `<div class="conf-box">
+    <div class="conf-cab"><b>🔁 Informe a nova Data de Envio ao PCP</b></div>
+    <div style="font-size:12px;margin-bottom:10px">
+      Enquanto esta data não for preenchida, o produto fica travado para o Dev e o PCP não recebe o pedido.
+      Preencher aqui já avisa o PCP e conclui esta solicitação — não precisa ir ao cadastro.
+    </div>
+    <div class="conf-grid">
+      <div class="conf-campo">
+        <label>Data de Envio ao PCP</label>
+        <input type="date" id="retPcpData" max="${new Date().toISOString().slice(0, 10)}" ${editar ? '' : 'disabled'}>
+      </div>
+    </div>
+    <div style="margin-top:10px">
+      <button class="btn btn-primary btn-sm" id="btnRetPcp" ${editar ? '' : 'disabled'}
+        onclick="salvarRetransPcp()">Gravar e avisar o PCP</button>
+      ${editar ? '' : '<span style="font-size:11px;color:var(--text-muted);margin-left:8px">só quem recebeu a solicitação preenche</span>'}
+    </div></div>`;
+}
+
+async function salvarRetransPcp() {
+  const s = detAtual, pr = detRetrans;
+  const campo = document.getElementById('retPcpData');
+  const btn = document.getElementById('btnRetPcp');
+  if (!s || !pr || !campo) return;
+  const data = campo.value;
+  if (!data) { alert('Informe a data em que o pedido foi reenviado ao PCP.'); return; }
+  if (btn.disabled) return;
+  btn.disabled = true; btn.textContent = 'Gravando...';
+  try {
+    // 1) a data vai para o produto, que é o ciclo ATUAL
+    const { error } = await sb.from('produtos')
+      .update({ data_envio_pcp: data, updated_at: new Date().toISOString() }).eq('id', pr.id);
+    if (error) throw error;
+    pr.data_envio_pcp = data;
+    await sb.from('produto_edicoes').insert({
+      produto_id: pr.id, produto: pr.produto, usuario: sessao.nome,
+      alteracoes: { data_envio_pcp: { de: null, para: data } }
+    });
+
+    // 2) a liberação para o PCP — o mesmo aviso que o cadastro dispara
+    await abrirLiberacaoPcp(pr, data);
+
+    // 3) a linha do tempo e o fecho
+    await sb.from('solicitacao_eventos').insert({
+      solicitacao_id: s.id, autor_id: sessao.id, tipo: 'processo',
+      texto: `🔁 Reenviado ao PCP em ${data.split('-').reverse().join('/')}`
+    });
+    await mudarStatus(s, 'concluida', 'data de envio ao PCP informada');
+    await notificar(s.criador_id, 'Retransmissão reenviada ao PCP',
+                    `${s.produto_ref || s.titulo} — ${data.split('-').reverse().join('/')}`, s.id);
+    await carregarSolicitacoes();
+    await abrirDetalhe(s.id);
+  } catch (e) {
+    console.error('retransmissão → PCP:', e);
+    alert('Erro ao gravar: ' + e.message);
+    btn.disabled = false; btn.textContent = 'Gravar e avisar o PCP';
+  }
+}
+
+/* Abre a solicitação de liberação para o PCP, igual ao checklist faz quando a
+   data é preenchida no cadastro. Repetido aqui porque é outro arquivo — e sem
+   isto o PCP continuaria sem saber que o pedido voltou. */
+async function abrirLiberacaoPcp(pr, data) {
+  const { data: cfg } = await sb.from('configuracoes').select('valor')
+    .eq('chave', 'responsavel_pcp').maybeSingle();
+  const nome = cfg && cfg.valor;
+  if (!nome) { console.warn('responsavel_pcp não configurado: PCP não avisado'); return; }
+  const resp = usuarios.find(u => u.nome === nome);
+  if (!resp) { console.warn('responsável do PCP não encontrado:', nome); return; }
+
+  const titulo = 'Liberado para inclusão em lote';
+  // já existe uma em aberto? não duplica
+  const { data: existentes } = await sb.from('solicitacoes').select('id')
+    .eq('produto_ref', pr.produto).ilike('titulo', titulo + '%')
+    .in('status', ['aberta', 'em_andamento']);
+  if (existentes && existentes.length) return;
+
+  const corpo = [
+    ['Cód. cadastro', pr.cod_cadastro], ['Nº pedido', pr.n_pedido], ['Produto', pr.produto],
+    ['Tipo', pr.tipo], ['Data de envio ao PCP', data.split('-').reverse().join('/')],
+    ['Data de entrega', pr.data_entrega ? pr.data_entrega.split('-').reverse().join('/') : null],
+    ['Liberado por', sessao.nome]
+  ].map(([r, v]) => `${r}: ${v || '—'}`).join('\n')
+    + '\n\nEste pedido voltou por RETRANSMISSÃO: as etiquetas foram recolhidas e ele foi reenviado ao PCP.';
+
+  const { data: sol, error } = await sb.from('solicitacoes').insert({
+    titulo: `${titulo} — ${pr.produto}`, descricao: corpo,
+    criador_id: sessao.id, responsavel_id: resp.id, prioridade: 'normal',
+    pedido_ref: pr.n_pedido || null, produto_ref: pr.produto
+  }).select().single();
+  if (error) throw error;
+  await notificar(resp.id, 'Nova solicitação: Liberado para inclusão em lote', pr.produto, sol.id);
+}
+
 async function gravarConferencia(dados, registrarNaLinha) {
   try {
     const s = detAtual;
