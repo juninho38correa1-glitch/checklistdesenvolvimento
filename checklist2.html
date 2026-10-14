@@ -1393,6 +1393,11 @@ const SERVICOS = {
   // senão a varredura viraria uma nagada a cada vez que alguém abre a tela.
   comercialPcp: { chave:'responsavel_comercial',    titulo:'Falta a Data de Envio ao PCP', desc:'Pedido parado esperando a data de envio ao PCP', ic:'📅', descLivre: true, umaVezSo: true },
   pcpFicha:     { chave:'responsavel_pcp',          titulo:'Pedido atrasado no PCP',   desc:'Pedido ainda não chegou ao Dev', ic:'⏳', descLivre: true, umaVezSo: true },
+  /* Retransmissão devolve o pedido ao comercial: as etiquetas foram recolhidas
+     e ele precisa reenviar ao PCP. SEM `umaVezSo` de propósito — cada
+     retransmissão é um evento novo, e a segunda não pode ser engolida porque a
+     primeira já foi concluída. */
+  retransComercial: { chave:'responsavel_comercial', titulo:'Retransmissão — reenviar ao PCP', desc:'Pedido retransmitido, aguardando nova Data de Envio ao PCP', ic:'🔁', descLivre: true },
   // Produto terminou as 10 etapas: o Cadastro acerta o Seven com os pés e a
   // quantidade de tecido. Vale para E/ e ESP/ — no ESP/ vai também a ficha de custo.
   cadastro:     { chave:'responsavel_cadastro',     titulo:'Produto concluído — conferir cadastro', desc:'Produto finalizado', ic:'📒', descLivre: true, umaVezSo: true },
@@ -2531,15 +2536,27 @@ function retransDe(item) { return (item && item.id && retransPorProduto[item.id]
    janela de tempo do histórico lhe pertence. */
 function ciclosDe(item) {
   const rs = retransDe(item);
+  /* De onde saem as datas de UM ciclo. A linha de retransmissão que FECHOU o
+     ciclo é quem guarda o retrato dele — mesma regra que `etapas_congeladas`
+     já seguia. O ciclo ainda aberto não tem quem o feche, então ele lê do
+     próprio produto: o produto é sempre o ciclo atual.
+     Foi isso que destravou o fluxo. Enquanto o produto guardava para sempre as
+     datas do ciclo 1, o ciclo 2 não tinha onde pôr a Data de Envio ao PCP — e
+     sem ela vazia, o aviso ao PCP (que depende da virada vazio→preenchido)
+     nunca mais disparava. */
+  const fonteDoCiclo = (fechou, inicio) => ({
+    dataSolicitacao: inicio,
+    dataEnvioPcp:    fechou ? (fechou.data_envio_pcp   || '') : item.dataEnvioPcp,
+    dataRecebimento: fechou ? (fechou.data_recebimento || '') : item.dataRecebimento,
+    // sem entrega própria, vale a do produto: o cliente espera o mesmo prazo
+    dataEntrega:     (fechou && fechou.data_entrega) || item.dataEntrega
+  });
   const ciclos = [{
     nome: 'Original',
     indice: 0,
     de: null,                                  // sem limite inferior
     ate: rs.length ? new Date(rs[0].ativada_em) : null,
-    fonte: {
-      dataSolicitacao: item.dataSolicitacao, dataEnvioPcp: item.dataEnvioPcp,
-      dataRecebimento: item.dataRecebimento, dataEntrega: item.dataEntrega
-    },
+    fonte: fonteDoCiclo(rs[0], item.dataSolicitacao),
     // O retrato congelado é tirado NO INSTANTE da retransmissão, ou seja,
     // descreve o ciclo que acabou de fechar — pertence ao ciclo ANTERIOR a
     // ela, nunca ao que está começando.
@@ -2551,14 +2568,9 @@ function ciclosDe(item) {
       indice: r.numero,
       de: new Date(r.ativada_em),
       ate: rs[i + 1] ? new Date(rs[i + 1].ativada_em) : null,
-      fonte: {
-        // o ciclo novo começa quando a retransmissão foi ativada
-        dataSolicitacao: (r.ativada_em || '').slice(0, 10),
-        dataEnvioPcp: r.data_envio_pcp || '',
-        dataRecebimento: r.data_recebimento || '',
-        // sem entrega nova, vale a do produto: o cliente continua esperando a mesma
-        dataEntrega: r.data_entrega || item.dataEntrega
-      },
+      // o ciclo começa quando ESTA retransmissão foi ativada, e é fechado pela
+      // PRÓXIMA (ou por nenhuma, se for o ciclo que está correndo)
+      fonte: fonteDoCiclo(rs[i + 1], (r.ativada_em || '').slice(0, 10)),
       registro: r,
       congelado: rs[i + 1] ? rs[i + 1].etapas_congeladas : null
     });
@@ -2720,11 +2732,30 @@ async function confirmarRetransmissao() {
          pessoa. A observação voltou a ser só o que a pessoa escreveu. */
       entregou_etiquetas: entregou || null,
       observacao: obs || null,
+      /* O ciclo que fecha leva as datas dele junto. Daqui em diante é esta
+         linha que responde pelo lead do PCP e pelo de Criação daquele ciclo. */
+      data_envio_pcp: it.dataEnvioPcp || null,
+      data_recebimento: it.dataRecebimento || null,
       data_entrega: it.dataEntrega || null,
       etapas_congeladas: congelado,
       ...(ativadaEm ? { ativada_em: ativadaEm } : {})
     }).select().single();
     if (error) throw error;
+
+    /* 2b) o ciclo novo começa SEM essas duas datas. É o que faz o produto
+       voltar para o comercial (fica travado com 🔒 Comercial até ele reenviar)
+       e o que devolve o gatilho do aviso ao PCP, que só dispara quando a Data
+       de Envio ao PCP vai de vazia para preenchida. */
+    const limpar = {}, difDatas = {};
+    if (it.dataEnvioPcp)    { limpar.data_envio_pcp   = null; difDatas.data_envio_pcp   = { de: it.dataEnvioPcp,   para: null }; }
+    if (it.dataRecebimento) { limpar.data_recebimento = null; difDatas.data_recebimento = { de: it.dataRecebimento, para: null }; }
+    if (Object.keys(limpar).length) {
+      const { error: errLimpa } = await supabaseClient.from('produtos')
+        .update(Object.assign(limpar, { updated_at: new Date().toISOString() })).eq('id', it.id);
+      if (errLimpa) throw errLimpa;
+      await logEdicao(it.id, it.produto, difDatas);
+      it.dataEnvioPcp = ''; it.dataRecebimento = '';
+    }
 
     // 3) observação no pedido: fica à vista de quem abrir o produto
     await supabaseClient.from('pedido_observacoes').insert({
@@ -2744,6 +2775,19 @@ async function confirmarRetransmissao() {
       await logStageChanges(it, it.stages, novasEtapas);
       await callAPI({ id: it.id, rowIndex: it.rowIndex, stages: novasEtapas });
     }
+
+    /* 4b) avisa o comercial. A cobrança automática do banco não alcança este
+       caso — ela exige que NENHUMA etapa esteja ticada, e a retransmissão
+       costuma deixar as primeiras de pé. Sem este aviso, a Michele só
+       descobriria olhando a tela por acaso (foi o que aconteceu no 119198). */
+    await abrirSolicitacaoServico('retransComercial', it,
+      `Retransmissão ${numero} — as etiquetas foram recolhidas e o pedido voltou para o comercial.\n\n`
+      + `Produto: ${it.produto}\nNº pedido: ${it.nPedido || '—'}\n`
+      + `Estava em: ${STAGE_LABELS[idx]}\n`
+      + `Recolhidas por: ${coletou}${entregou ? '\nEntregues por: ' + entregou : ''}\n`
+      + (obs ? `Observação: ${obs}\n` : '')
+      + `\nPreencha a nova Data de Envio ao PCP no cadastro do produto. `
+      + `Até lá o produto fica travado para o Dev, e o PCP não recebe o pedido.`, true);
 
     (retransPorProduto[it.id] = retransPorProduto[it.id] || []).push(nova);
     closeModal('modalRetransOverlay');
