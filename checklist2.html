@@ -2742,6 +2742,20 @@ async function confirmarRetransmissao() {
     }).select().single();
     if (error) throw error;
 
+    /* 2a) o pedido novo ainda não chegou ao Dev. O "pedido recebido" é tick
+       EXTRA, fora do STAGES, então a desmarcação acima nunca o alcançava: o
+       selo seguia verde com a data do pedido ANTERIOR, e o lead do PCP do ciclo
+       novo já nascia fechado. Desmarcar é incondicional de propósito — mesmo
+       que ninguém vá refazer etapa, o pedido reenviado ainda tem de chegar. */
+    const fichaDoCicloNovo = (extraTicks[itemKey(it)] || {}).fichaRecebida;
+    if (fichaDoCicloNovo) {
+      await logExtraTick(it, 'fichaRecebida', false);
+      const chave = itemKey(it);
+      if (extraTicks[chave]) extraTicks[chave].fichaRecebida = false;
+      fichaDatas[chave] = null;
+      fichaRetro[chave] = false;
+    }
+
     /* 2b) o ciclo novo começa SEM essas duas datas. É o que faz o produto
        voltar para o comercial (fica travado com 🔒 Comercial até ele reenviar)
        e o que devolve o gatilho do aviso ao PCP, que só dispara quando a Data
