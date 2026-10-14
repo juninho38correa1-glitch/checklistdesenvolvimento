@@ -2611,7 +2611,8 @@ function renderBlocoRetrans(item) {
         <span style="font-size:11px;color:var(--text-muted)">ativada por ${esc(r.ativada_por_nome || '—')}</span>
       </div>
       <div style="font-size:12px;margin-top:5px;line-height:1.6">
-        Pedido estava em <b>${esc(ondeEstava)}</b> quando as etiquetas foram coletadas por <b>${esc(r.coletou_etiquetas || '—')}</b>.<br>
+        Pedido estava em <b>${esc(ondeEstava)}</b> quando as etiquetas foram recolhidas por <b>${esc(r.coletou_etiquetas || '—')}</b>${
+          r.entregou_etiquetas ? ` e entregues por <b>${esc(r.entregou_etiquetas)}</b>` : ''}.<br>
         <span style="color:var(--text-muted)">${feitas} etapa(s) do ciclo anterior congeladas${r.observacao ? ' · ' + esc(r.observacao) : ''}</span>
       </div>
     </div>`;
@@ -2714,11 +2715,11 @@ async function confirmarRetransmissao() {
       ativada_por_nome: getOperador() || null,
       etapa_na_coleta: etapaColeta,
       coletou_etiquetas: coletou,
-      /* "Quem entregou" ainda não tem coluna própria — criar uma é mudança de
-         schema, e isso só com o OK do dono. Até lá entra na observação, que é
-         texto e já aparece no histórico da retransmissão. */
-      observacao: [entregou ? 'Entregues por ' + entregou : null, obs || null]
-                    .filter(Boolean).join(' · ') || null,
+      /* Coluna própria desde `schema-retrans-entregou.sql`. Antes este nome ia
+         junto na observação, o que dava para ler mas não para contar por
+         pessoa. A observação voltou a ser só o que a pessoa escreveu. */
+      entregou_etiquetas: entregou || null,
+      observacao: obs || null,
       data_entrega: it.dataEntrega || null,
       etapas_congeladas: congelado,
       ...(ativadaEm ? { ativada_em: ativadaEm } : {})
