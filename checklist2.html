@@ -318,7 +318,7 @@
   <div class="controls">
     <div class="search-box">
       <span style="color:var(--text-muted)">🔍</span>
-      <input type="text" placeholder="Buscar produto, responsável, nº pedido..." id="searchInput" oninput="renderTable()">
+      <input type="text" placeholder="Buscar produto, responsável, nº pedido, cód. cadastro..." id="searchInput" oninput="renderTable()">
     </div>
     <select id="filterResp" onchange="renderTable()">
       <option value="">Todos os responsáveis</option>
@@ -3096,8 +3096,20 @@ function syncFilterSel() {
   renderTable();
 }
 
+/* Tira acento, baixa a caixa, junta espaço repetido e corta as pontas. Vale
+   para o que a pessoa digita E para o texto do produto: sem normalizar os dois
+   lados, "colchao" continuaria sem achar "COLCHÃO". */
+function normBusca(s) {
+  return String(s == null ? '' : s)
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase().replace(/\s+/g, ' ').trim();
+}
+
 function renderTable() {
-  const search = document.getElementById('searchInput').value.toLowerCase();
+  /* Em PALAVRAS, não numa frase só: quem procura "mafe fx" ou "119255 mafe"
+     está dando duas pistas do mesmo produto, não uma sequência literal. Cada
+     palavra precisa aparecer em algum lugar do produto; a ordem não importa. */
+  const termos = normBusca(document.getElementById('searchInput').value).split(' ').filter(Boolean);
   const resp   = document.getElementById('filterResp').value;
   const tipoF  = document.getElementById('filterTipo').value;
   const stFilt = document.getElementById('filterStatusSel').value;
@@ -3112,7 +3124,8 @@ function renderTable() {
 
   let filtered = allData.filter(item => {
     const s = getStatus(item);
-    const ok1 = !search || item.produto.toLowerCase().includes(search) || (item.responsavel||'').toLowerCase().includes(search) || (item.nPedido||'').toLowerCase().includes(search);
+    const alvo = normBusca(`${item.produto} ${item.responsavel} ${item.nPedido} ${item.codCadastro}`);
+    const ok1 = termos.every(t => alvo.includes(t));
     const ok2 = !resp || item.responsavel === resp
       || (typeof nomeInteiro === 'function'
           && (item.responsavel || '').split('/').map(nomeInteiro).includes(resp));
